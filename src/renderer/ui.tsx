@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 import { PREVIEW_HOST, PREVIEW_SCHEME, type AgentSessionStats, type ExtensionUiRequest, type PermissionMode } from "../shared/types";
 import { DEFAULT_VISION_CONFIG, visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, type ChatKind } from "../shared/chat-profiles";
-import { cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, formatThinking, liveStatus, omitFinalReply, repairMarkdownTables, splitPatch, thoughtSteps, toolCommand, toolSummary, turnWork, undoDialogTitle, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type WorkItem } from "./conversation";
+import { cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, formatThinking, liveStatus, omitFinalReply, repairMarkdownTables, splitPatch, stripEmptyMarkdown, thoughtSteps, toolCommand, toolSummary, turnWork, undoDialogTitle, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
 import logo from "./logo.svg";
 
@@ -137,6 +137,7 @@ export function SidebarNav({
 export function Chat({
   children,
   stats,
+  model,
   composer,
   home,
   inspect,
@@ -145,6 +146,7 @@ export function Chat({
 }: {
   children: ReactNode;
   stats?: AgentSessionStats;
+  model?: string;
   composer?: ReactNode;
   home?: boolean;
   inspect?: ReactNode;
@@ -156,8 +158,8 @@ export function Chat({
     <section className={home ? "chat home" : "chat"}>
       <header className="chat-bar">
         {!home && title && <h1 className="chat-title">{title}</h1>}
-        {!home && stats && <CacheStatus stats={stats} />}
         {!home && nav}
+        {!home && <ContextStats stats={stats} model={model} />}
         {inspect && (
           <button
             type="button"
@@ -180,19 +182,161 @@ export function Chat({
   );
 }
 
-function CacheStatus({ stats }: { stats: AgentSessionStats }) {
-  const rate = cacheHitRate(stats.tokens);
-  if (rate === undefined) return null;
-  const title = [
-    `缓存命中率 ${rate.toFixed(1)}%`,
-    `命中 ${formatCompactNumber(stats.tokens.cacheRead)} tokens`,
-    stats.tokens.cacheWrite ? `写入 ${formatCompactNumber(stats.tokens.cacheWrite)} tokens` : "",
-  ].filter(Boolean).join(" · ");
+export function ContextStats({
+  stats,
+  model,
+}: {
+  stats?: AgentSessionStats;
+  model?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (!box.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  const percent = stats?.contextUsage?.percent !== null && stats?.contextUsage?.percent !== undefined
+    ? Math.round(stats.contextUsage.percent * 10) / 10
+    : undefined;
+  const contextTokens = stats?.contextUsage?.tokens ?? (stats?.tokens?.total ? stats.tokens.total : undefined);
+  const contextWindow = stats?.contextUsage?.contextWindow ?? 128_000;
+  const rate = cacheHitRate(stats?.tokens);
+
   return (
-    <span className="cache-status" title={title}>
-      <i />
-      缓存 {rate.toFixed(0)}%
-    </span>
+    <div ref={box} className={`context-stats-wrap${open ? " open" : ""}`}>
+      <button
+        type="button"
+        className={`stats-toggle${open ? " on" : ""}`}
+        aria-label="对话上下文与用量监控"
+        title="对话上下文与用量监控"
+        onClick={() => setOpen((was) => !was)}
+      >
+        <Icon path="M4 6h16M7 12h13M10 18h10" size={14} />
+      </button>
+
+      {open && (
+        <div className="context-popover" role="dialog">
+          <div className="context-popover-head">
+            <div className="context-popover-title">
+              <span>对话上下文</span>
+            </div>
+            {rate !== undefined && (
+              <span className="context-badge-hit">
+                <i /> 缓存 {rate.toFixed(0)}%
+              </span>
+            )}
+          </div>
+
+          <div className="context-popover-body">
+            {/* 上下文容量 */}
+            <div className="context-card">
+              <div className="context-capacity">
+                <div className="context-ring-wrap">
+                  <svg width="48" height="48" viewBox="0 0 48 48" className="context-ring-svg">
+                    <circle cx="24" cy="24" r="20" fill="none" stroke="var(--hover-2)" strokeWidth="4" />
+                    {percent !== undefined && (
+                      <circle
+                        cx="24"
+                        cy="24"
+                        r="20"
+                        fill="none"
+                        stroke={percent >= 90 ? "var(--red)" : percent >= 75 ? "var(--accent)" : "var(--green)"}
+                        strokeWidth="4"
+                        strokeDasharray={125.66}
+                        strokeDashoffset={125.66 - (Math.min(100, Math.max(0, percent)) / 100) * 125.66}
+                        strokeLinecap="round"
+                        transform="rotate(-90 24 24)"
+                      />
+                    )}
+                  </svg>
+                  <div className="context-ring-label">
+                    <strong>{percent !== undefined ? `${percent}%` : "—"}</strong>
+                    <small>{percent !== undefined ? "已使用" : "未统计"}</small>
+                  </div>
+                </div>
+                <div className="context-capacity-info">
+                  <span className="context-label">上下文容量</span>
+                  <span className="context-ratio">
+                    {contextTokens !== undefined ? formatCompactNumber(contextTokens) : "—"} / {formatCompactNumber(contextWindow)}
+                  </span>
+                  <small className={`context-hint ${percent && percent >= 80 ? "warn" : ""}`}>
+                    {percent === undefined
+                      ? "首次响应后显示用量"
+                      : percent >= 90
+                        ? "容量告急，建议 /compact"
+                        : percent >= 75
+                          ? "用量偏高，可适时压缩"
+                          : "容量充裕 · 自动保持活跃"}
+                  </small>
+                </div>
+              </div>
+            </div>
+
+            {/* Token 总量 */}
+            <div className="context-card">
+              <div className="context-section-head">
+                <span>Token 总量</span>
+                {stats?.tokens?.total ? (
+                  <span className="context-token-sum">共 {formatCompactNumber(stats.tokens.total)}</span>
+                ) : null}
+              </div>
+              <div className="context-token-grid">
+                <div className="context-token-box">
+                  <span className="context-token-sub">输入</span>
+                  <strong>{stats?.tokens?.input !== undefined ? formatCompactNumber(stats.tokens.input) : "—"}</strong>
+                </div>
+                <div className="context-token-box">
+                  <span className="context-token-sub">输出</span>
+                  <strong>{stats?.tokens?.output !== undefined ? formatCompactNumber(stats.tokens.output) : "—"}</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* 缓存率 */}
+            <div className="context-card">
+              <div className="context-section-head">
+                <span>缓存率</span>
+                <strong className="context-rate-text">{rate !== undefined ? `${rate.toFixed(1)}%` : "—"}</strong>
+              </div>
+              <div className="context-bar-track">
+                <div
+                  className="context-bar-fill"
+                  style={{ width: `${Math.min(100, Math.max(0, rate ?? 0))}%` }}
+                />
+              </div>
+              <div className="context-cache-meta">
+                <span>命中读取 <b>{stats?.tokens?.cacheRead ? formatCompactNumber(stats.tokens.cacheRead) : "0"}</b></span>
+                {Boolean(stats?.tokens?.cacheWrite) ? (
+                  <span>缓存写入 <b>{formatCompactNumber(stats!.tokens.cacheWrite)}</b></span>
+                ) : (
+                  <span>未命中输入 <b>{stats?.tokens?.input !== undefined ? formatCompactNumber(stats.tokens.input) : "—"}</b></span>
+                )}
+              </div>
+            </div>
+
+            {/* 底部模型与费用 */}
+            <div className="context-popover-foot">
+              <div className="context-foot-item">
+                <span className="context-foot-label">模型</span>
+                <code className="context-model-tag">{model || "默认模型"}</code>
+              </div>
+              <div className="context-foot-item right">
+                <span className="context-foot-label">费用</span>
+                <span className="context-cost-val">
+                  {stats?.cost ? `$${stats.cost.toFixed(4)}` : "—"}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -548,7 +692,38 @@ function Fold({
 }
 
 function Markdown({ children }: { children: string }) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm]}>{repairMarkdownTables(children)}</ReactMarkdown>;
+  const source = stripEmptyMarkdown(repairMarkdownTables(children));
+  if (!source) return null;
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        pre({ children }) {
+          // react-markdown wraps <code> inside <pre>; skip when both are blank.
+          const plain = extractNodeText(children).trim();
+          if (!plain) return null;
+          return <pre>{children}</pre>;
+        },
+        code({ children, className, ...props }) {
+          const plain = extractNodeText(children).trim();
+          if (!plain && !className) return null;
+          return <code className={className} {...props}>{children}</code>;
+        },
+      }}
+    >
+      {source}
+    </ReactMarkdown>
+  );
+}
+
+function extractNodeText(node: ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractNodeText).join("");
+  if (typeof node === "object" && "props" in node) {
+    return extractNodeText((node as { props?: { children?: ReactNode } }).props?.children);
+  }
+  return "";
 }
 
 export function StreamingText({
@@ -1292,7 +1467,7 @@ export function PromptBar({
             void addUploads(images);
           }}
           placeholder={workspace ? "输入你的需求或问题，输入 @ 可选择文件…" : "输入你的想法或指令，或从上方选择项目开始…"}
-          rows={hero ? 3 : 1}
+          rows={hero && !value ? 2 : 1}
         />
         {slash && (
           <div className="slash-menu">

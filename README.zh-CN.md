@@ -17,25 +17,23 @@
 
 </div>
 
-Tether 是一款专为代码仓库级开发打造的原生桌面 AI 编程工作台。桌面端基于 Electron、React 19 和独立的本地 Agent 核心（[`tether-agent-core`](https://github.com/tt-11-dd/tether-ai)）构建；Agent 内核当前基于 **Pi 生态包**（`@earendil-works/pi-agent-core`、`@earendil-works/pi-coding-agent`、`@earendil-works/pi-ai`、`@earendil-works/pi-tui`）封装，并在此基础上加入 Tether 自己的 DeepSeek 适配、自定义接口、权限模型、Checkpoint 撤回、桌面 RPC 与本地数据管理。Tether 赋予你自主阅读工程代码库、在受限环境中执行终端命令、通过事务级检查点精确修改复杂文件以及查看精美 Diff 预览的能力——**所有数据均在你的本地电脑运行，完全保护隐私，绝无任何厂商锁定**。
+Tether 是一款专为代码仓库级开发打造的原生桌面 AI 编程工作台。桌面端基于 Electron、React 19 和独立的本地 Agent 核心（`tether-agent-core`，本地 pnpm workspace 包，位于 `../tether-runtime/packages/core`）构建；Agent 内核当前基于 **Pi 生态包**（`@earendil-works/pi-agent-core`、`@earendil-works/pi-coding-agent`、`@earendil-works/pi-ai`、`@earendil-works/pi-tui`，均为开源项目）封装，并在此基础上加入 Tether 自己的 DeepSeek 适配、自定义接口、权限模型、Checkpoint 撤回、桌面 RPC 与本地数据管理。Tether 赋予你自主阅读工程代码库、在受限环境中执行终端命令、通过事务级检查点精确修改复杂文件以及查看精美 Diff 预览的能力——**所有数据均在你的本地电脑运行，完全保护隐私，绝无任何厂商锁定**。
 
 ---
 
-## ⚡ Tether 与 Codex / Claude Code 的核心差异与优势
+## ⚡ 核心特性一览
 
-虽然 **OpenAI Codex** 和 **Anthropic Claude Code / Claude Desktop** 具备优秀的 Agent 代码能力，但它们通常将开发者**深度绑定在封闭的官方云端中转、严格的订阅门槛以及固定的 API 格式**中。
+**Tether 从架构底层出发，为重视模型选择、数据隐私与完全掌控权的开发者而设计：**
 
-**Tether 从架构底层打破了这些限制，专为开发者定制：**
-
-| 核心维度 | Tether | Codex / OpenAI | Claude Desktop / Claude Code |
-| :--- | :---: | :---: | :---: |
-| **DeepSeek 与国产大模型** | 🌟 **原生深度适配**（推理强度 Effort、Kimi、MiniMax、智谱 GLM） | ❌ 仅限 OpenAI 模型 | ❌ 仅限 Anthropic 模型 |
-| **自定义接口与中转** | ✅ **100% 开放 Base URL / OneAPI / Ollama / vLLM** | ❌ 锁定官方接口与订阅 | ❌ 锁定官方接口与订阅 |
-| **免配置内置 OCR** | ✅ **内置 MinerU OCR 引擎**（免配 API Key 免费提取截图） | ❌ 需消耗昂贵视觉 Token | ❌ 需消耗昂贵视觉 Token |
-| **数据隐私与遥测** | 🔒 **100% 本地存储**（`~/.tether`），零遥测、零云端中转 | ⚠️ 云端中转并记录日志 | ⚠️ 云端中转并记录日志 |
-| **操作系统级沙箱** | 🛡️ **macOS Seatbelt 与 Windows 防护** | ⚠️ 依赖远端或受限容器 | ⚠️ 云端容器 |
-| **事务级一键撤销** | ⏪ **原子级 Checkpoint 事务回滚（`/undo`）** | ❌ 需手动 git revert | ❌ 粗粒度会话重置 |
-| **桌面排版自适应** | 🎨 **Codex 式外置顶栏 + Claude 极简温润布局**（1080p~4K 适配） | ⚠️ Web 或固定窗口比例 | ⚠️ 窗口比例固定 |
+| 核心能力 | Tether 为你提供 |
+| :--- | :--- |
+| **DeepSeek 与国产大模型** | 🌟 **原生深度适配** — 推理强度（Effort）控制、Kimi、MiniMax、智谱 GLM |
+| **自定义接口与中转** | ✅ **100% 开放 Base URL / OneAPI / Ollama / vLLM** — 任意 OpenAI 兼容网关直连 |
+| **免配置内置 OCR** | ✅ **内置 MinerU OCR 引擎** — 免配 API Key、不消耗视觉 Token |
+| **数据隐私与遥测** | 🔒 **100% 本地存储**（`~/.tether`）— 零遥测、零云端中转 |
+| **操作系统级沙箱** | 🛡️ **macOS Seatbelt 与 Windows 防护** — 原生进程隔离 |
+| **事务级一键撤销** | ⏪ **原子级 Checkpoint 事务回滚（`/undo`）** — 一步还原文件改动 |
+| **现代桌面体验** | 🎨 **外置顶栏 + 极简温润对话布局**（1080p~4K 适配） |
 
 ---
 
@@ -58,7 +56,7 @@ Tether 是一款专为代码仓库级开发打造的原生桌面 AI 编程工作
 - **原子级 Checkpoint 回滚（`/undo`）**：随时一键撤回 Agent 所做的文件改动，保障代码仓库安全无虞。
 
 ### 5. 🎨 原生轻量现代桌面体验
-- 融合了 **Codex 结构清晰的外置项目顶栏** 与 **Claude 极简温润的人性化对话布局**。
+- 融合了 **结构清晰的外置项目顶栏** 与 **极简温润的人性化对话布局**。
 - 完美适配 1080p 至 4K 大屏显示，具备 macOS 红绿灯/全屏高度动态自适应与 Windows 原生标题栏集成。
 
 ---
@@ -109,13 +107,17 @@ Tether 是一款专为代码仓库级开发打造的原生桌面 AI 编程工作
 - **Node.js**：`>= 22.19.0`
 - **pnpm**：`>= 10.x` 或 `11.x`
 - 支持系统：**macOS**（Apple Silicon / Intel）、**Windows 10/11**（x64）、**Linux**（x64）
+- **tether-runtime 仓库**：`tether-agent-core` 以本地链接方式引入，需将 `tether-runtime` 仓库放在与 `tether-ai` 同级目录（`../tether-runtime`）；`pnpm dev` 会自动编译其 `packages/core` 并链接为 `node_modules/tether-agent-core`。
 
 ### 安装与运行
 
 ```bash
-# 克隆仓库
+# 克隆仓库（tether-agent-core 依赖本地 tether-runtime 仓库，请将两个仓库放在同一父目录下）
 git clone https://github.com/tt-11-dd/tether-ai.git
 cd tether-ai
+
+# 若尚未准备 tether-runtime：将 tether-runtime 仓库（packages/core 即为 tether-agent-core）
+# 克隆到与 tether-ai 同级的目录，再执行下面的安装步骤
 
 # 安装依赖
 pnpm install
@@ -125,7 +127,7 @@ pnpm dev
 ```
 
 1. 点击顶栏 **📁 选择项目**（或快捷键 **⌘/Ctrl + O**）选择本地项目目录。
-2. 点击左下角齿轮图标打开设置，配置你的 DeepSeek API Key 或自定义接口。
+2. 点击左下角齿轮/账户图标打开设置，配置你的 DeepSeek API Key 或自定义接口。
 3. 输入需求（例如：“*分析这个项目的整体架构和入口*”），开启高效 Agent 编程！
 
 ---
@@ -213,10 +215,18 @@ tether-ai/
 │   │   ├── highlight.ts      # 零外部依赖轻量语法高亮引擎
 │   │   └── styles.css        # 响应式自适应样式表
 │   ├── extensions/           # Agent 扩展插件
-│   │   └── vision.ts         # 多模态 GLM + MinerU OCR 扩展
+│   │   ├── vision.ts         # 多模态 GLM + MinerU OCR 扩展
+│   │   └── vision.test.ts    # 视觉扩展单元测试
 │   └── shared/               # 共享类型与契约定义
 │       ├── types.ts          # DesktopApi 与 Agent 通信协议类型
-│       └── vision-api.ts     # 视觉与 OCR 数据整合
+│       ├── chat-profiles.ts  # 聊天模型配置档案
+│       ├── openai-models.ts  # OpenAI 兼容端点动态模型发现
+│       ├── vision-api.ts     # 视觉与 OCR 数据整合
+│       └── *.test.ts         # 共享模块单元测试
+├── .agents/skills/           # 长任务工作流 Skill（init / continue-long-run）
+├── tsup.config.ts            # 主进程打包配置（Electron）
+├── electron-builder.yml      # 桌面安装包构建配置
+├── vite.config.ts            # 渲染进程构建配置
 └── package.json
 ```
 

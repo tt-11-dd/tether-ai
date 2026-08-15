@@ -911,6 +911,15 @@ export function repairMarkdownTables(text: string): string {
   }).join("");
 }
 
+/** Drop blank fenced blocks so the UI does not paint empty gray `pre` boxes. */
+export function stripEmptyMarkdown(text: string): string {
+  return text
+    .replace(/```[^\n]*\r?\n(?:[ \t]*\r?\n)*```/g, "")
+    .replace(/```[^\n]*[ \t]*```/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function parseFeaturesJson(input: string): SessionTodo[] {
   try {
     const data = JSON.parse(input) as unknown;

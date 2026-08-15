@@ -17,25 +17,23 @@
 
 </div>
 
-Tether is a native desktop AI coding workbench engineered for repository-scale development. Built on Electron, React 19, and a dedicated local agent core ([`tether-agent-core`](https://github.com/tt-11-dd/tether-ai)), Tether gives you full autonomy to inspect codebases, execute scoped terminal operations, edit complex files with transactional checkpoints, and interact through rich diff previews—**all with complete privacy and zero cloud lock-in on your machine**.
+Tether is a native desktop AI coding workbench engineered for repository-scale development. Built on Electron, React 19, and a dedicated local agent core (`tether-agent-core`, a local pnpm workspace package at `../tether-runtime/packages/core`), Tether gives you full autonomy to inspect codebases, execute scoped terminal operations, edit complex files with transactional checkpoints, and interact through rich diff previews—**all with complete privacy and zero cloud lock-in on your machine**. The agent core is built on the open-source **Pi ecosystem** (`@earendil-works/pi-agent-core`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, `@earendil-works/pi-tui`), extended with Tether's own DeepSeek adaptation, custom endpoints, permission model, checkpoint rollback, desktop RPC, and local-first data management.
 
 ---
 
-## ⚡ Tether vs. Codex / Claude Code (Key Advantages)
+## ⚡ Key Features at a Glance
 
-While products like **OpenAI Codex** and **Anthropic Claude Code / Claude Desktop** provide strong agent capabilities, they frequently lock developers into proprietary closed ecosystems, strict cloud relays, rigid subscription tiers, and fixed API schemas. 
+**Tether is engineered from the ground up for developers who value model choice, data privacy, and full control:**
 
-**Tether is engineered from the ground up to solve these constraints:**
-
-| Capability | Tether | Codex / OpenAI | Claude Desktop / Claude Code |
-| :--- | :---: | :---: | :---: |
-| **DeepSeek & Domestic LLMs** | 🌟 **Native Deep Optimization** (Reasoning effort, Kimi, MiniMax, GLM) | ❌ Restricted to OpenAI | ❌ Restricted to Anthropic |
-| **Custom Endpoints & Proxies** | ✅ **100% Custom Base URL / OneAPI / Ollama / vLLM** | ❌ Fixed official endpoints | ❌ Fixed official endpoints |
-| **Zero-Config OCR Engine** | ✅ **Built-in Free MinerU OCR** (No API key required) | ❌ Needs vision tokens | ❌ Needs vision tokens |
-| **Data Privacy & Telemetry** | 🔒 **100% Local-First** (`~/.tether`), Zero telemetry | ⚠️ Cloud relay / Logging | ⚠️ Cloud relay / Logging |
-| **OS-Level Sandboxing** | 🛡️ **macOS Seatbelt & Windows Guard** | ⚠️ Limited container / Remote | ⚠️ Cloud container |
-| **Transactional Undo** | ⏪ **Atomic Checkpoint Rollback (`/undo`)** | ❌ Manual git reverts | ❌ Session-level resets |
-| **Desktop UI Adaptability** | 🎨 **Codex-style Top Tab + Claude Warm Layout** (1080p–4K responsive) | ⚠️ Web / Fixed layout | ⚠️ Fixed layout |
+| Capability | What You Get |
+| :--- | :--- |
+| **DeepSeek & Domestic LLMs** | 🌟 **Native deep optimization** — reasoning effort control, Kimi, MiniMax, Zhipu GLM |
+| **Custom Endpoints & Proxies** | ✅ **100% open Base URL / OneAPI / Ollama / vLLM** — connect any OpenAI-compatible gateway |
+| **Zero-Config OCR Engine** | ✅ **Built-in free MinerU OCR** — no API key, no vision tokens |
+| **Data Privacy & Telemetry** | 🔒 **100% local-first storage** (`~/.tether`) — zero telemetry, zero cloud relay |
+| **OS-Level Sandboxing** | 🛡️ **macOS Seatbelt & Windows guard** — native process isolation |
+| **Transactional Undo** | ⏪ **Atomic checkpoint rollback (`/undo`)** — restore file changes in one step |
+| **Modern Desktop UI** | 🎨 **Attached top tab + clean warm conversation layout** (1080p–4K responsive) |
 
 ---
 
@@ -57,7 +55,7 @@ While products like **OpenAI Codex** and **Anthropic Claude Code / Claude Deskto
 - **Atomic Rollback (`/undo`)**: Instantly restore modified files and undo agent actions with zero data loss.
 
 ### 5. 🎨 Modern Desktop Engineering
-- Combines **Codex's structured attached project header** with **Claude's clean, warm conversational breathing room**.
+- Combines a **structured attached project header** with a **clean, warm conversational breathing room**.
 - Full high-DPI scaling across 1080p, 2K, and 4K displays, with dynamic macOS traffic light / fullscreen management and Windows TitleBarOverlay integration.
 
 ---
@@ -108,13 +106,18 @@ While products like **OpenAI Codex** and **Anthropic Claude Code / Claude Deskto
 - **Node.js**: `>= 22.19.0`
 - **pnpm**: `>= 10.x` or `11.x`
 - Supported OS: **macOS** (Apple Silicon / Intel), **Windows 10/11** (x64), **Linux** (x64)
+- **tether-runtime repo**: `tether-agent-core` is linked from a sibling repository. Keep `tether-runtime` next to `tether-ai` (`../tether-runtime`); `pnpm dev` compiles its `packages/core` and links it as `node_modules/tether-agent-core`.
 
 ### Installation & Run
 
 ```bash
-# Clone the repository
+# Clone the repository (tether-agent-core depends on the local tether-runtime repo;
+# place both repositories in the same parent directory)
 git clone https://github.com/tt-11-dd/tether-ai.git
 cd tether-ai
+
+# If tether-runtime is not prepared yet: clone it (its packages/core is tether-agent-core)
+# into a sibling directory of tether-ai, then continue with the steps below.
 
 # Install dependencies
 pnpm install
@@ -191,6 +194,7 @@ Tether is 100% unconstrained by vendor lock-in. Configure your models via **Sett
 
 - **Clean Process Isolation**: The renderer never touches Node.js APIs directly; all interactions go through strongly-typed IPC contracts in `src/shared/types.ts`.
 - **Stateless UI, Persistent State**: The renderer is completely reactive; state recovery is driven by local session `.jsonl` streams.
+- **Built on Pi (open-source)**: `tether-agent-core` reuses Pi's agent loop, model, TUI, and coding-agent capabilities instead of rewriting the loop from scratch. Tether adds the desktop product layer, local-first data, DeepSeek / domestic model adapters, permission sandboxing, checkpoint rollback, and custom endpoints.
 
 ---
 
@@ -211,10 +215,18 @@ tether-ai/
 │   │   ├── highlight.ts      # Zero-dependency syntax tokenizer
 │   │   └── styles.css        # Responsive adaptive styles
 │   ├── extensions/           # Agent runtime extensions
-│   │   └── vision.ts         # Multimodal GLM + MinerU OCR plugin
+│   │   ├── vision.ts         # Multimodal GLM + MinerU OCR plugin
+│   │   └── vision.test.ts    # Vision extension unit tests
 │   └── shared/               # Shared types & contract interfaces
 │       ├── types.ts          # DesktopApi & agent protocol types
-│       └── vision-api.ts     # Vision and OCR data formatting
+│       ├── chat-profiles.ts  # Chat model configuration profiles
+│       ├── openai-models.ts  # Dynamic model discovery for OpenAI-compatible endpoints
+│       ├── vision-api.ts     # Vision and OCR data formatting
+│       └── *.test.ts         # Shared module unit tests
+├── .agents/skills/           # Long-running workflow skills (init / continue-long-run)
+├── tsup.config.ts            # Main-process bundling (Electron)
+├── electron-builder.yml      # Desktop installer build config
+├── vite.config.ts            # Renderer bundling config
 └── package.json
 ```
 

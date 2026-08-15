@@ -680,6 +680,7 @@ export function App() {
       <Chat
         home={home}
         stats={stats}
+        model={model}
         title={sessions.find((session) => isSameSession(session, activeSession))?.title || workspace?.split("/").pop()}
         composer={home ? undefined : composer}
         nav={<TurnNav items={anchors} />}

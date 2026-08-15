@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitPatch, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
+import { applyAgentEvent, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
 
 describe("conversation events", () => {
   it("calculates prompt cache hit rate from reported token usage", () => {
@@ -518,6 +518,12 @@ describe("conversation events", () => {
     expect(repairMarkdownTables("| 部分 | 作用 || ------ | ------ || name | 包标识名 |")).toBe(
       "| 部分 | 作用 |\n| ------ | ------ |\n| name | 包标识名 |",
     );
+  });
+
+  it("drops empty fenced code blocks that would paint blank gray boxes", () => {
+    expect(stripEmptyMarkdown("英文版对比表：\n\n```markdown\n\n```\n\n继续")).toBe("英文版对比表：\n\n继续");
+    expect(stripEmptyMarkdown("前面\n```\n```\n后面")).toBe("前面\n\n后面");
+    expect(stripEmptyMarkdown("```ts\nconst x = 1\n```")).toBe("```ts\nconst x = 1\n```");
   });
 
   it("pairs patch lines into a split view", () => {
