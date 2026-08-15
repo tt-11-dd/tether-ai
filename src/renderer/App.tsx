@@ -251,6 +251,7 @@ export function App() {
   const [toast, setToast] = useState<string>();
   const [uiRequest, setUiRequest] = useState<ExtensionUiRequest>();
   const [fullscreen, setFullscreen] = useState(false);
+  const [maximized, setMaximized] = useState(false);
   const [openProjects, setOpenProjects] = useState<Record<string, boolean>>({});
   const [preview, setPreview] = useState<FileChange>();
   const [featureTodos, setFeatureTodos] = useState<SessionTodo[]>([]);
@@ -683,6 +684,8 @@ export function App() {
       if (command === "open-folder") void openFolder();
       if (command === "fullscreen-on") setFullscreen(true);
       if (command === "fullscreen-off") setFullscreen(false);
+      if (command === "maximized-on") setMaximized(true);
+      if (command === "maximized-off") setMaximized(false);
     });
     return () => {
       offEvent();
@@ -764,7 +767,7 @@ export function App() {
   );
 
   return (
-    <div className={["app", darwin && "darwin", fullscreen && "fullscreen"].filter(Boolean).join(" ")}>
+    <div className={["app", darwin && "darwin", fullscreen && "fullscreen", maximized && "maximized"].filter(Boolean).join(" ")}>
       <SidebarNav
         onNew={() => void newThread()}
         onOpen={() => void openFolder()}

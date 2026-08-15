@@ -23,8 +23,8 @@
   --shadow-card: 0 0 0 1px var(--line), 0 1px 2px #1c19170a, 0 8px 24px #1c191712;
   --shadow-raised: 0 0 0 1px var(--line), 0 2px 10px #1c19170e;
   --shadow-overlay: 0 0 0 1px var(--line), 0 12px 40px #1c19171a;
-  --sans: ui-sans-serif, system-ui, "SF Pro Text", sans-serif;
-  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --sans: "Inter Variable", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, monospace;
   color-scheme: light;
   accent-color: var(--ink);
 }
@@ -38,6 +38,20 @@ body {
   font: 14px/1.5 var(--sans);
   letter-spacing: -.011em;
 }
+/* Frameless Windows windows are transparent so the shell can clip to a mac-like radius. */
+html:not(.platform-darwin),
+html:not(.platform-darwin) body { background: transparent; }
+.app:not(.darwin) {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px #1c191714, 0 18px 48px #1c191728;
+}
+.app.maximized:not(.darwin),
+.app.fullscreen:not(.darwin) {
+  border-radius: 0;
+  box-shadow: none;
+}
+
 button, input, textarea, select { font: inherit; color: inherit; letter-spacing: inherit; }
 /* UA buttons carry 1px 6px padding; icon buttons then shift off-center when the glyph
    overflows that content box, so every button opts in to its own padding. */
@@ -1365,10 +1379,6 @@ button:disabled { cursor: default; opacity: .4; }
 .terminal-copy-btn:hover {
   color: var(--ink);
   background: var(--hover);
-}
-.terminal-copied {
-  font-size: 11px;
-  color: var(--green);
 }
 .terminal-body {
   padding: 8px 12px;

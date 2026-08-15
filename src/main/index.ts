@@ -106,13 +106,19 @@ function createWindow(): void {
     minWidth: 880,
     minHeight: 600,
     show: false,
-    backgroundColor: "#fafafb",
+    backgroundColor: process.platform === "darwin" ? "#fafafb" : "#00000000",
     icon: appIconPath(),
     // The Windows controls overlay always paints above page content, so dialogs could never
     // cover it. Going frameless lets the renderer draw its own buttons in normal stacking order.
     ...(process.platform === "darwin"
       ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 16, y: 14 } }
-      : { frame: false }),
+      : {
+          frame: false,
+          // Win11 DWM corners + transparent chrome so CSS can match macOS radius.
+          roundedCorners: true,
+          transparent: true,
+          hasShadow: true,
+        }),
     webPreferences: {
       preload: path.join(currentDirectory, "../preload/index.cjs"),
       contextIsolation: true,
@@ -131,7 +137,14 @@ function createWindow(): void {
   const reportFullscreen = () => sendAppCommand(mainWindow?.isFullScreen() ? "fullscreen-on" : "fullscreen-off");
   mainWindow.on("enter-full-screen", reportFullscreen);
   mainWindow.on("leave-full-screen", reportFullscreen);
-  mainWindow.webContents.on("did-finish-load", reportFullscreen);
+  // Squared corners while maximized look less broken than floating radius against the screen edge.
+  const reportMaximized = () => sendAppCommand(mainWindow?.isMaximized() ? "maximized-on" : "maximized-off");
+  mainWindow.on("maximize", reportMaximized);
+  mainWindow.on("unmaximize", reportMaximized);
+  mainWindow.webContents.on("did-finish-load", () => {
+    reportFullscreen();
+    reportMaximized();
+  });
   mainWindow.on("closed", () => {
     mainWindow = undefined;
     void agentHost?.stop();

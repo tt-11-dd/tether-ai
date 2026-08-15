@@ -52,24 +52,37 @@ export function UserTurn({ text, images = [], anchor }: { text: string; images?:
   );
 }
 
-function CopyAction({ text }: { text: string }) {
+export function CopyButton({
+  text,
+  className = "bubble-action",
+  size = 14,
+  label = "复制",
+}: {
+  text: string;
+  className?: string;
+  size?: number;
+  label?: string;
+}) {
   const [copied, setCopied] = useState(false);
-  if (!text.trim()) return null;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* silent: icon-only affordance already covers the happy path */
+    }
+  };
   return (
-    <button
-      type="button"
-      className="bubble-action"
-      aria-label={copied ? "已复制" : "复制"}
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1200);
-        });
-      }}
-    >
-      <Icon path={copied ? "M5 12.5l4 4 10-10" : "M8 8h12v12H8zM4 16V4h12"} size={14} />
+    <button type="button" className={className} aria-label={copied ? "已复制" : label} onClick={() => void copy()}>
+      <Icon path={copied ? "M5 12.5l4 4 10-10" : "M8 8h12v12H8zM4 16V4h12"} size={size} />
     </button>
   );
+}
+
+function CopyAction({ text }: { text: string }) {
+  if (!text.trim()) return null;
+  return <CopyButton text={text} />;
 }
 
 export function Dots() {
@@ -565,7 +578,6 @@ function traceDetail(row: TraceRow): ReactNode {
 }
 
 function TerminalBlock({ command, tool }: { command: string; tool: ToolActivity }) {
-  const [copied, setCopied] = useState(false);
   const [showOutput, setShowOutput] = useState(tool.status === "error");
   const [expandedAll, setExpandedAll] = useState(false);
   const rawOutput = tool.output?.trim() ?? "";
@@ -576,13 +588,6 @@ function TerminalBlock({ command, tool }: { command: string; tool: ToolActivity 
   const lines = rawOutput ? rawOutput.split("\n") : [];
   const isTooLong = lines.length > 40;
   const displayOutput = isTooLong && !expandedAll ? `${lines.slice(0, 40).join("\n")}\n…` : rawOutput;
-
-  const onCopy = () => {
-    void navigator.clipboard.writeText(command).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1200);
-    });
-  };
 
   return (
     <div className={`terminal-box ${tool.status}`}>
@@ -608,15 +613,7 @@ function TerminalBlock({ command, tool }: { command: string; tool: ToolActivity 
               {showOutput ? "收起输出" : "输出"}
             </button>
           )}
-          <button
-            type="button"
-            className="terminal-copy-btn"
-            aria-label={copied ? "已复制" : "复制命令"}
-            onClick={onCopy}
-          >
-            <Icon path={copied ? "M5 12.5l4 4 10-10" : "M8 8h12v12H8zM4 16V4h12"} size={12} />
-            {copied && <span className="terminal-copied">已复制</span>}
-          </button>
+          <CopyButton text={command} className="terminal-copy-btn" size={12} label="复制命令" />
         </div>
       </div>
       <div className="terminal-body">
@@ -1020,9 +1017,7 @@ export function FileDrawer({ file, workspace, onClose }: { file: FileChange; wor
             <Icon path={preview ? "M16 18l6-6-6-6M8 6l-6 6 6 6" : "M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8M12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6"} size={16} />
           </button>
         )}
-        <button type="button" className="drawer-btn" aria-label="复制" onClick={() => void navigator.clipboard.writeText(body)}>
-          <Icon path="M8 8h12v12H8zM4 16V4h12" size={16} />
-        </button>
+        <CopyButton text={body} className="drawer-btn" size={16} />
         <button type="button" className="drawer-btn" aria-label="打开" onClick={() => void window.harness.workspace.open(file.path, workspace)}>
           <Icon path="M14 4h6v6M20 4l-8 8M10 4H5v16h14v-5" size={16} />
         </button>
@@ -2333,14 +2328,24 @@ export function Login({
               </button>
             )}
             {pane === "about" && (
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => void window.harness.app.openExternal("https://github.com/tt-11-dd/tether-ai")}
-              >
-                <Icon path="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" size={14} />
-                <span>GitHub 仓库</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => void window.harness.app.openExternal("https://github.com/tt-11-dd/tether-ai/issues")}
+                >
+                  <Icon path="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" size={14} />
+                  <span>反馈问题</span>
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => void window.harness.app.openExternal("https://github.com/tt-11-dd/tether-ai")}
+                >
+                  <Icon path="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" size={14} />
+                  <span>GitHub 仓库</span>
+                </button>
+              </>
             )}
             {pane !== "chat" && pane !== "vision" ? (
               <button type="button" className="primary" onClick={onClose}>
