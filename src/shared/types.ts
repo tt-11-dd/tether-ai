@@ -119,6 +119,7 @@ export interface DesktopApi {
   app: {
     version(): Promise<string>;
     openExternal(url: string): Promise<void>;
+    checkUpdate(): Promise<void>;
   };
   /** Frameless windows off macOS need the renderer to drive the caption buttons. */
   window: {

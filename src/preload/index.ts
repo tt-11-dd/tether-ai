@@ -12,6 +12,7 @@ const api: DesktopApi = {
   app: {
     version: () => ipcRenderer.invoke("app:version"),
     openExternal: (url) => ipcRenderer.invoke("app:open-external", url),
+    checkUpdate: () => ipcRenderer.invoke("app:check-update"),
   },
   window: {
     minimize: () => ipcRenderer.invoke("window:minimize"),

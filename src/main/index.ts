@@ -24,6 +24,7 @@ import { AgentHost } from "./agent-host";
 import { listOpenAiModels } from "../shared/openai-models";
 import { activeChat, mergeChatProfiles, migrateChatProfiles, parseChatProfiles, type ChatProfiles } from "../shared/chat-profiles";
 import { DEFAULT_VISION_CONFIG, resolveVisionSettings, visionTitle, type VisionConfig } from "../shared/vision-api";
+import { getLatestUpdate } from "./update-check";
 import {
   PREVIEW_SCHEME,
   UPLOADS_HOST,
@@ -75,6 +76,7 @@ let activeSessionPath: string | undefined;
 let workspaceWatcher: fs.FSWatcher | undefined;
 let watchedWorkspace = "";
 let watchTimer: ReturnType<typeof setTimeout> | undefined;
+let updateCheckStarted = false;
 
 // A privileged scheme gives previews a real origin: storage APIs work, and the app stays cross-origin.
 protocol.registerSchemesAsPrivileged([{
@@ -97,6 +99,60 @@ function applyDockIcon(): void {
   const image = nativeImage.createFromPath(appIconPath());
   if (image.isEmpty()) return;
   void app.dock?.setIcon(image);
+}
+
+async function checkForUpdates(manual = false): Promise<void> {
+  if (!manual && (!app.isPackaged || updateCheckStarted)) return;
+  updateCheckStarted = true;
+
+  try {
+    const update = await getLatestUpdate(
+      app.getVersion(),
+      (url, init) => net.fetch(url, init),
+    );
+    const window = mainWindow;
+    if (!window || window.isDestroyed()) return;
+
+    const icon = nativeImage.createFromPath(appIconPath());
+    if (!update) {
+      if (manual) {
+        await dialog.showMessageBox(window, {
+          type: "info",
+          icon,
+          title: "Tether 更新",
+          message: "已是最新版本",
+          detail: `当前版本：v${app.getVersion()}`,
+          buttons: ["好"],
+          noLink: true,
+        });
+      }
+      return;
+    }
+
+    const result = await dialog.showMessageBox(window, {
+      type: "info",
+      icon,
+      title: "Tether 更新",
+      message: `发现新版本 Tether v${update.version}`,
+      detail: `当前版本：v${app.getVersion()}\n可前往 GitHub 下载并安装新版本。`,
+      buttons: ["下载更新", "稍后"],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (result.response === 0) await shell.openExternal(update.url);
+  } catch (error) {
+    // Startup checks stay silent; a manual click deserves an answer.
+    if (!manual || !mainWindow || mainWindow.isDestroyed()) return;
+    await dialog.showMessageBox(mainWindow, {
+      type: "warning",
+      title: "Tether 更新",
+      message: "检查更新失败",
+      detail: error instanceof Error ? error.message : "请稍后重试或前往 GitHub 查看。",
+      buttons: ["好"],
+      noLink: true,
+    });
+  }
 }
 
 function createWindow(): void {
@@ -132,7 +188,10 @@ function createWindow(): void {
     (message) => mainWindow?.webContents.send("agent:error", message),
   );
 
-  mainWindow.once("ready-to-show", () => mainWindow?.show());
+  mainWindow.once("ready-to-show", () => {
+    mainWindow?.show();
+    void checkForUpdates();
+  });
   // Fullscreen hides the macOS traffic lights, so the renderer must stop reserving room for them.
   const reportFullscreen = () => sendAppCommand(mainWindow?.isFullScreen() ? "fullscreen-on" : "fullscreen-off");
   mainWindow.on("enter-full-screen", reportFullscreen);
@@ -185,6 +244,7 @@ function installMenu(): void {
 
 function registerIpc(): void {
   ipcMain.handle("app:version", () => app.getVersion());
+  ipcMain.handle("app:check-update", () => checkForUpdates(true));
   ipcMain.handle("app:open-external", async (_event, url: string) => {
     if (!isSafeExternalUrl(url)) throw new Error("Only http(s) links can be opened");
     await shell.openExternal(url);
