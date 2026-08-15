@@ -13,6 +13,22 @@ function ct(key: MessageKey, vars?: Record<string, string | number>): string {
   return t(activeLocale, key, vars);
 }
 
+export function friendlyAgentError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const detail = raw
+    .replace(/^Error invoking remote method 'agent:(?:command|start)':\s*/i, "")
+    .replace(/^Error:\s*/i, "")
+    .trim();
+  if (/context (?:length|window)|maximum context|too many tokens|token limit/i.test(detail)) return ct("toast.errorContext");
+  if (/\b401\b|\b403\b|unauthori[sz]ed|forbidden|invalid api.?key|authentication|credential/i.test(detail)) return ct("toast.errorAuth");
+  if (/\b402\b|\b429\b|rate.?limit|too many requests|quota|insufficient (?:balance|credit|funds)/i.test(detail)) return ct("toast.errorQuota");
+  if (/timeout|timed out|ETIMEDOUT|AbortError/i.test(detail)) return ct("toast.errorTimeout");
+  if (/model .*(?:not found|unavailable|unknown)|unknown model|invalid model|model.*does not exist/i.test(detail)) return ct("toast.errorModel");
+  if (/\b404\b|\/chat\/completions.*not found|endpoint.*not found/i.test(detail)) return ct("toast.errorEndpoint");
+  if (/fetch failed|network|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up/i.test(detail)) return ct("toast.errorNetwork");
+  return detail || ct("error.modelFailed");
+}
+
 export interface ToolActivity {
   id: string;
   name: string;
@@ -342,7 +358,7 @@ function messageFromRecord(value: JsonRecord, id: string): ChatMessage | undefin
   const tools = getTools(content, timestamp);
   const work = value.role === "assistant" ? getWork(content) : [];
   const error = value.role === "assistant" && value.stopReason === "error"
-    ? (typeof value.errorMessage === "string" && value.errorMessage.trim() ? value.errorMessage.trim() : ct("error.modelFailed"))
+    ? friendlyAgentError(value.errorMessage ?? ct("error.modelFailed"))
     : undefined;
   return {
     id,

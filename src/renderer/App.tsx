@@ -16,6 +16,7 @@ import {
   collectTodos,
   collectWorkingFiles,
   dropLastTurn,
+  friendlyAgentError,
   groupConversation,
   lastTurnRestoreFiles,
   mentionedFiles,
@@ -355,7 +356,6 @@ export function App() {
   const [toast, setToast] = useState<string>();
   const [uiRequest, setUiRequest] = useState<ExtensionUiRequest>();
   const [fullscreen, setFullscreen] = useState(false);
-  const [maximized, setMaximized] = useState(false);
   const [openProjects, setOpenProjects] = useState<Record<string, boolean>>({});
   const [preview, setPreview] = useState<FileChange>();
   const [featureTodos, setFeatureTodos] = useState<SessionTodo[]>([]);
@@ -429,17 +429,25 @@ export function App() {
     mode = permission,
     seedMessage?: ChatMessage,
   ) => {
-    const accounts = await window.harness.auth.status();
+    setLoading(true);
+    setUiRequest(undefined);
+    let accounts: ProviderStatus[];
+    try {
+      accounts = await window.harness.auth.status();
+    } catch (error) {
+      setToast(friendlyAgentError(error));
+      setLoading(false);
+      return false;
+    }
     setProviders(accounts);
     const chat = accounts.find((item) => item.id === "deepseek");
     if (!chat?.configured) {
       setLoginOpen(true);
       setToast(t("toast.fillConfig"));
+      setLoading(false);
       return false;
     }
     const modelId = modelRef.current.trim() || chat.defaultModel;
-    setLoading(true);
-    setUiRequest(undefined);
     if (!resume) {
       setActiveSession(sessionPath);
       sessionRef.current = sessionPath;
@@ -496,7 +504,7 @@ export function App() {
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (!/Agent session closed/.test(message)) setToast(message);
+      if (!/Agent session closed/.test(message)) setToast(friendlyAgentError(error));
       if (/not configured|credential|login|api key/i.test(message)) setLoginOpen(true);
       return false;
     } finally {
@@ -724,6 +732,7 @@ export function App() {
       };
     });
     let optimistic: ChatMessage | undefined;
+    const alreadyRunning = running;
     try {
       let cwd = workspace ?? agentCwd.current;
       if (!cwd) {
@@ -733,7 +742,6 @@ export function App() {
       }
 
       // Paint the user turn immediately so first-send doesn't sit on the home screen.
-      const alreadyRunning = running;
       optimistic = optimisticUserMessage(question, alreadyRunning, thumbs);
       setDraft("");
       setMessages((current) => [...current, optimistic!]);
@@ -752,13 +760,14 @@ export function App() {
       const message = images?.length
         ? visionAgentPrompt(question, await window.harness.vision.stage(images))
         : question;
-      try {
-        await window.harness.agent.command(alreadyRunning ? "steer" : "prompt", { message });
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        if (!/Agent session closed/.test(detail)) setToast(detail);
-        setRunning(alreadyRunning);
-      }
+      await window.harness.agent.command(alreadyRunning ? "steer" : "prompt", { message });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const optimisticId = optimistic?.id;
+      if (optimisticId) setMessages((current) => current.filter((item) => item.id !== optimisticId));
+      setDraft(text);
+      setRunning(alreadyRunning);
+      if (!/Agent session closed/.test(detail)) setToast(friendlyAgentError(error));
     } finally {
       sending.current = false;
     }
@@ -801,7 +810,7 @@ export function App() {
         }).catch(() => undefined);
         void window.harness.sessions.list().then(setSessions);
       }
-      if (event.type === "extension_error" && typeof event.error === "string") setToast(event.error);
+      if (event.type === "extension_error" && typeof event.error === "string") setToast(friendlyAgentError(event.error));
       if (event.type === "tool_execution_end" && event.isError === true) {
         const detail = typeof event.result === "string" ? event.result : JSON.stringify(event.result ?? "");
         if (/read-only|permission denied|not permitted|sandbox/i.test(detail)) {
@@ -819,15 +828,13 @@ export function App() {
       if (!live.current) return;
       if (/Agent session closed/.test(message)) return;
       setRunning(false);
-      setToast(message);
+      setToast(friendlyAgentError(message));
     });
     const offCommand = window.harness.onAppCommand((command) => {
       if (command === "new-thread") void newThread();
       if (command === "open-folder") void openFolder();
       if (command === "fullscreen-on") setFullscreen(true);
       if (command === "fullscreen-off") setFullscreen(false);
-      if (command === "maximized-on") setMaximized(true);
-      if (command === "maximized-off") setMaximized(false);
     });
     return () => {
       offEvent();
@@ -909,7 +916,7 @@ export function App() {
   );
 
   return (
-    <div className={["app", darwin && "darwin", fullscreen && "fullscreen", maximized && "maximized"].filter(Boolean).join(" ")}>
+    <div className={["app", darwin && "darwin", fullscreen && "fullscreen"].filter(Boolean).join(" ")}>
       <SidebarNav
         onNew={() => void newThread()}
         onOpen={() => void openFolder()}
@@ -1082,7 +1089,13 @@ export function App() {
               {waiting && (
                 <article className="turn">
                   <div className="turn-trace">
-                    <Thinking text="" work={[]} tools={[]} live />
+                    <Thinking
+                      text=""
+                      work={[]}
+                      tools={[]}
+                      live
+                      label={loading ? t("think.starting") : t("think.waiting")}
+                    />
                   </div>
                 </article>
               )}

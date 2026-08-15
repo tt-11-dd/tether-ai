@@ -38,20 +38,6 @@ body {
   font: 14px/1.5 var(--sans);
   letter-spacing: -.011em;
 }
-/* Frameless Windows windows are transparent so the shell can clip to a mac-like radius. */
-html:not(.platform-darwin),
-html:not(.platform-darwin) body { background: transparent; }
-.app:not(.darwin) {
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 0 0 1px #1c191714, 0 18px 48px #1c191728;
-}
-.app.maximized:not(.darwin),
-.app.fullscreen:not(.darwin) {
-  border-radius: 0;
-  box-shadow: none;
-}
-
 button, input, textarea, select { font: inherit; color: inherit; letter-spacing: inherit; }
 /* UA buttons carry 1px 6px padding; icon buttons then shift off-center when the glyph
    overflows that content box, so every button opts in to its own padding. */

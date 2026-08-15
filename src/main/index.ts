@@ -164,7 +164,7 @@ function createWindow(): void {
     minWidth: 880,
     minHeight: 600,
     show: false,
-    backgroundColor: process.platform === "darwin" ? "#fafafb" : "#00000000",
+    backgroundColor: "#fafafb",
     icon: appIconPath(),
     // The Windows controls overlay always paints above page content, so dialogs could never
     // cover it. Going frameless lets the renderer draw its own buttons in normal stacking order.
@@ -172,9 +172,9 @@ function createWindow(): void {
       ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 16, y: 14 } }
       : {
           frame: false,
-          // Win11 DWM corners + transparent chrome so CSS can match macOS radius.
+          // ponytail: transparent frameless windows lose the Windows resize border, so corners are
+          // left to Win11 DWM (Win10 stays square) instead of a CSS radius over a transparent shell.
           roundedCorners: true,
-          transparent: true,
           hasShadow: true,
         }),
     webPreferences: {
@@ -198,14 +198,7 @@ function createWindow(): void {
   const reportFullscreen = () => sendAppCommand(mainWindow?.isFullScreen() ? "fullscreen-on" : "fullscreen-off");
   mainWindow.on("enter-full-screen", reportFullscreen);
   mainWindow.on("leave-full-screen", reportFullscreen);
-  // Squared corners while maximized look less broken than floating radius against the screen edge.
-  const reportMaximized = () => sendAppCommand(mainWindow?.isMaximized() ? "maximized-on" : "maximized-off");
-  mainWindow.on("maximize", reportMaximized);
-  mainWindow.on("unmaximize", reportMaximized);
-  mainWindow.webContents.on("did-finish-load", () => {
-    reportFullscreen();
-    reportMaximized();
-  });
+  mainWindow.webContents.on("did-finish-load", reportFullscreen);
   mainWindow.on("closed", () => {
     mainWindow = undefined;
     void agentHost?.stop();

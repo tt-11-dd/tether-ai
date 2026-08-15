@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
+import { applyAgentEvent, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
 
 describe("conversation events", () => {
   it("calculates prompt cache hit rate from reported token usage", () => {
@@ -84,8 +84,16 @@ describe("conversation events", () => {
     });
     expect(messages.at(-1)).toMatchObject({
       role: "assistant",
-      error: "404 Not Found: /chat/completions",
+      error: "接口地址不可用，请检查 Base URL 是否包含正确的 API 路径",
     });
+  });
+
+  it("turns common provider failures into actionable messages", () => {
+    expect(friendlyAgentError("Error: 401 Unauthorized")).toContain("API Key");
+    expect(friendlyAgentError("429 insufficient quota")).toContain("额度");
+    expect(friendlyAgentError("TypeError: fetch failed")).toContain("网络");
+    expect(friendlyAgentError("maximum context length exceeded")).toContain("压缩上下文");
+    expect(friendlyAgentError("unknown model deepseek-x")).toContain("切换模型");
   });
 
   it("keeps the command title when the end event has no args", () => {

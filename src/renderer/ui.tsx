@@ -470,6 +470,7 @@ export function Thinking({
   work,
   tools,
   live,
+  label,
   startedAt,
   endedAt,
 }: {
@@ -477,6 +478,7 @@ export function Thinking({
   work: WorkItem[];
   tools: ToolActivity[];
   live: boolean;
+  label?: string;
   startedAt?: number;
   endedAt?: number;
 }) {
@@ -490,7 +492,7 @@ export function Thinking({
     [tools, rows, locale],
   );
   const current = useMemo(() => liveStatus(tools), [tools, locale]);
-  const header = live ? t("think.live") : t("think.done");
+  const header = live ? label ?? t("think.live") : t("think.done");
   const showLive = live && current !== header;
   const hasBody = rows.length > 0 || showLive;
   if (!hasBody && !live) return null;

@@ -6,10 +6,6 @@ import { LocaleProvider } from "./i18n";
 import "@fontsource-variable/inter/wght.css";
 import "./styles.css";
 
-if (window.harness.platform === "darwin") {
-  document.documentElement.classList.add("platform-darwin");
-}
-
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <LocaleProvider>
