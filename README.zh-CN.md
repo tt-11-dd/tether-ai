@@ -13,7 +13,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19-blue)](https://nodejs.org)
 [![Electron](https://img.shields.io/badge/Electron-37-blueviolet)](https://www.electronjs.org)
-[![Platform: macOS / Linux / Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](https://github.com/tt-11-dd/tether-ai)
+[![Platform: macOS / Windows](https://img.shields.io/badge/platform-macOS%20(arm64)%20%7C%20Windows%20(x64)-lightgrey)](https://github.com/tt-11-dd/tether-ai)
 
 </div>
 
@@ -106,7 +106,7 @@ Tether 是一款专为代码仓库级开发打造的原生桌面 AI 编程工作
 ### 环境依赖
 - **Node.js**：`>= 22.19.0`
 - **pnpm**：`>= 10.x` 或 `11.x`
-- 支持系统：**macOS**（Apple Silicon / Intel）、**Windows 10/11**（x64）、**Linux**（x64）
+- 安装包支持系统：**macOS**（Apple Silicon / arm64）、**Windows 10/11**（x64）。Linux 与 Intel Mac 暂未打包；本地开发仍可用 `pnpm dev`。
 - **tether-runtime 仓库**：`tether-agent-core` 以本地链接方式引入，需将 `tether-runtime` 仓库放在与 `tether-ai` 同级目录（`../tether-runtime`）；`pnpm dev` 会自动编译其 `packages/core` 并链接为 `node_modules/tether-agent-core`。
 
 ### 安装与运行
@@ -241,7 +241,7 @@ tether-ai/
 | `pnpm test` | 执行 Vitest 单元测试套件 |
 | `pnpm build` | 编译主进程（`tsup`）并打包渲染端（`vite`） |
 | `pnpm check` | 执行全量 CI 校验（类型检查 + 测试 + 构建） |
-| `pnpm pack` | 构建当前平台的生产安装包（`.dmg` / `.exe`） |
+| `pnpm pack` | 构建生产安装包：macOS arm64 `.dmg` 与 Windows x64 `.exe` |
 | `pnpm start` | 启动已编译的生产包预览 |
 
 ---
@@ -256,10 +256,10 @@ pnpm run pack
 ```
 
 - **打包输出目录**：`release/`
-- **支持目标格式**：
-  - macOS：`.dmg` / `.zip`（支持 Apple Silicon 与 Intel 架构）
-  - Windows：`.exe` / `.zip`（x64）
-  - Linux：`.AppImage` / `.tar.gz`（x64）
+- **支持目标格式**（与 `electron-builder.yml` 一致）：
+  - macOS：`Tether-*-arm64.dmg`（仅 Apple Silicon）
+  - Windows：`Tether-Setup-*.exe`（x64 NSIS）
+  - Linux / Intel Mac：暂未提供安装包
 
 ---
 

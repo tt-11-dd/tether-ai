@@ -13,7 +13,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19-blue)](https://nodejs.org)
 [![Electron](https://img.shields.io/badge/Electron-37-blueviolet)](https://www.electronjs.org)
-[![Platform: macOS / Linux / Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](https://github.com/tt-11-dd/tether-ai)
+[![Platform: macOS / Windows](https://img.shields.io/badge/platform-macOS%20(arm64)%20%7C%20Windows%20(x64)-lightgrey)](https://github.com/tt-11-dd/tether-ai)
 
 </div>
 
@@ -105,7 +105,7 @@ Tether is a native desktop AI coding workbench engineered for repository-scale d
 ### Prerequisites
 - **Node.js**: `>= 22.19.0`
 - **pnpm**: `>= 10.x` or `11.x`
-- Supported OS: **macOS** (Apple Silicon / Intel), **Windows 10/11** (x64), **Linux** (x64)
+- Supported OS for packaged builds: **macOS** (Apple Silicon / arm64), **Windows 10/11** (x64). Linux and Intel Mac are not packaged yet; `pnpm dev` may still work for local development.
 - **tether-runtime repo**: `tether-agent-core` is linked from a sibling repository. Keep `tether-runtime` next to `tether-ai` (`../tether-runtime`); `pnpm dev` compiles its `packages/core` and links it as `node_modules/tether-agent-core`.
 
 ### Installation & Run
@@ -241,7 +241,7 @@ tether-ai/
 | `pnpm test` | Execute unit test suite with Vitest |
 | `pnpm build` | Compile main process (`tsup`) and bundle renderer (`vite`) |
 | `pnpm check` | Full CI verification (`typecheck` + `test` + `build`) |
-| `pnpm pack` | Build production binaries for macOS (`.dmg`) & Windows (`.zip`) |
+| `pnpm pack` | Build production installers: macOS arm64 `.dmg` and Windows x64 `.exe` |
 | `pnpm start` | Launch the compiled production package |
 
 ---
@@ -256,10 +256,10 @@ pnpm run pack
 ```
 
 - **Output Directory**: `release/`
-- **Targets**:
-  - macOS: `.dmg` / `.zip` (Apple Silicon & Intel)
-  - Windows: `.exe` / `.zip` (x64)
-  - Linux: `.AppImage` / `.tar.gz` (x64)
+- **Targets** (matches `electron-builder.yml`):
+  - macOS: `Tether-*-arm64.dmg` (Apple Silicon only)
+  - Windows: `Tether-Setup-*.exe` (x64 NSIS)
+  - Linux / Intel Mac: not shipped yet
 
 ---
 

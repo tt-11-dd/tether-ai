@@ -529,6 +529,52 @@ export function App() {
     }
   }, [running, startAgent, workspace]);
 
+  const compactContext = useCallback(async () => {
+    if (running) {
+      setToast("请等待当前回答结束后再压缩上下文");
+      return;
+    }
+    if (!agentCwd.current && !workspace && !sessionRef.current) {
+      setToast("当前没有可压缩的对话");
+      return;
+    }
+    if (!agentCwd.current) {
+      const started = await startAgent(workspace, sessionRef.current, true, true);
+      if (!started) {
+        setToast("没有可压缩的活动会话");
+        return;
+      }
+    }
+    setLoading(true);
+    setToast("正在压缩旧对话…");
+    try {
+      const result = await window.harness.agent.command<{ tokensBefore?: number; summary?: string }>("compact");
+      const [history, nextStats] = await Promise.all([
+        window.harness.agent.command<{ messages: unknown[] }>("get_messages"),
+        window.harness.agent.command<AgentSessionStats>("get_session_stats"),
+      ]);
+      setMessages(normalizeMessages(history.messages));
+      setStats(nextStats);
+      setToast(
+        result.tokensBefore
+          ? `上下文压缩完成（压缩前约 ${result.tokensBefore.toLocaleString("zh-CN")} tokens）`
+          : "上下文压缩完成",
+      );
+      void window.harness.sessions.list().then(setSessions);
+    } catch (error) {
+      const raw = error instanceof Error ? error.message : String(error);
+      if (/nothing to compact|session too small/i.test(raw)) {
+        setToast("对话还很短，暂时不需要压缩");
+      } else if (/no workspace session|not active|no agent/i.test(raw)) {
+        setToast("没有可压缩的活动会话");
+      } else {
+        setToast(`上下文压缩失败：${raw.replace(/^Error invoking remote method 'agent:command':\s*/i, "").replace(/^Error:\s*/i, "")}`);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [running, startAgent, workspace]);
+
   const sendMessage = useCallback(async (preset?: string, images?: string[]) => {
     const text = (preset ?? draft).trim();
     if (text === "/undo") {
@@ -709,6 +755,7 @@ export function App() {
         if (command === "/new") void newThread();
         if (command === "/open") void openFolder();
         if (command === "/undo") void undoLastTurn();
+        if (command === "/compact") void compactContext();
         if (command === "/login") setLoginOpen(true);
       }}
       stats={stats}

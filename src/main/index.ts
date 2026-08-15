@@ -49,6 +49,7 @@ const ALLOWED_AGENT_COMMANDS = new Set([
   "get_fork_messages",
   "get_entries",
   "fork",
+  "compact",
 ]);
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));

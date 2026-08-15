@@ -1234,6 +1234,7 @@ export function PromptBar({
   const slash = value === "/" || /^\/[^\s]*$/.test(value);
   const commands = [
     { id: "/undo", label: "撤回上一轮改动" },
+    { id: "/compact", label: "压缩旧对话，释放上下文" },
     { id: "/new", label: "新对话" },
     { id: "/open", label: "打开仓库" },
     { id: "/login", label: "设置" },

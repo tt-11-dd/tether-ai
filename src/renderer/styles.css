@@ -337,13 +337,14 @@ button:disabled { cursor: default; opacity: .4; }
   flex: none;
   display: flex;
   align-items: center;
+  /* Pack right so the caption buttons stay in the corner even with an empty bar. */
+  justify-content: flex-end;
   gap: 8px;
   padding: 0 0 0 16px;
   -webkit-app-region: drag;
 }
 .win-controls {
   flex: none;
-  margin-left: auto;
   align-self: stretch;
   display: flex;
   -webkit-app-region: no-drag;

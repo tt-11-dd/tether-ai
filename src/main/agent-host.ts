@@ -19,6 +19,7 @@ const LONG_RUNNING_REQUESTS = new Set([
   "get_messages",
   "get_session_stats",
   "fork",
+  "compact",
 ]);
 
 export class AgentHost {
