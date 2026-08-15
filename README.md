@@ -284,6 +284,8 @@ git push origin v0.1.0
 ```
 
 > The tag must point at a commit that already contains this workflow, otherwise Actions never runs and the release only gets source archives.
+>
+> Also add an Actions secret **`TETHER_RUNTIME_TOKEN`**: a GitHub PAT that can read the private repo `tt-11-dd/tether-runtime` (fine-grained: Contents → Read on that repo; or classic: `repo` scope). Without it, the Release workflow fails with `Not Found` while checking out `tether-runtime`.
 
 Installers land at: `https://github.com/tt-11-dd/tether-ai/releases/tag/v0.1.0`  
 Each release uploads **only two files**: the macOS `.dmg` and Windows `.exe` (no blockmaps / debug yaml).

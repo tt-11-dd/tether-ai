@@ -42,13 +42,15 @@ jobs:
         with:
           path: tether-ai
 
-      # Agent core lives in a sibling repo (link:../tether-runtime/packages/core).
+      # Agent core lives in a sibling private repo. GITHUB_TOKEN cannot read
+      # other private repos — set secret TETHER_RUNTIME_TOKEN (PAT with
+      # Contents: Read on tt-11-dd/tether-runtime).
       - name: Check out tether-runtime
         uses: actions/checkout@v4
         with:
           repository: tt-11-dd/tether-runtime
           path: tether-runtime
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.TETHER_RUNTIME_TOKEN }}
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4

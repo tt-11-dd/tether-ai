@@ -284,6 +284,10 @@ git push origin v0.1.0
 ```
 
 > 注意：tag 必须指向**已经包含该 workflow 的提交**，否则 Actions 不会运行，Release 里就只有源码包。
+>
+> 另外需要在仓库 Settings → Secrets and variables → Actions 里配置  
+> **`TETHER_RUNTIME_TOKEN`**：一个能读取私有仓库 `tt-11-dd/tether-runtime` 的 GitHub PAT（Fine-grained：对该仓勾选 Contents → Read；或 Classic：勾选 `repo`）。  
+> 没有这个 secret 时，Release workflow 会在 checkout `tether-runtime` 时报 `Not Found`。
 
 完成后安装包会出现在：`https://github.com/tt-11-dd/tether-ai/releases/tag/v0.1.0`  
 每个 Release **只上传 2 个文件**：macOS `.dmg` + Windows `.exe`（不上传 blockmap / 调试 yaml）。
