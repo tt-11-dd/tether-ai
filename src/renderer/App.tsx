@@ -12,6 +12,7 @@ import type {
 import { visionAgentPrompt } from "../shared/vision-api";
 import {
   applyAgentEvent,
+  baseName,
   collectTodos,
   collectWorkingFiles,
   dropLastTurn,
@@ -799,14 +800,14 @@ export function App() {
 
       <Chat
         home={home}
-        title={sessions.find((session) => isSameSession(session, activeSession))?.title || workspace?.split("/").pop()}
+        title={sessions.find((session) => isSameSession(session, activeSession))?.title || (workspace ? baseName(workspace) : undefined)}
         composer={home ? undefined : composer}
         nav={<TurnNav items={anchors} />}
         inspect={workspace ? (
           <InspectPanel
             files={workingFiles}
             todos={todos}
-            folder={workspace.split("/").pop()}
+            folder={baseName(workspace)}
             workspace={workspace}
             refresh={running}
             running={running}
@@ -827,7 +828,7 @@ export function App() {
             <div className="empty">
               <div className="empty-hero">
                 <img className="empty-logo" src={logo} alt="" width={30} height={17} />
-                <h1>{workspace ? workspace.split("/").pop() : "今天想做点什么？"}</h1>
+                <h1>{workspace ? baseName(workspace) : "今天想做点什么？"}</h1>
               </div>
               {composer}
               <div className="suggestions">

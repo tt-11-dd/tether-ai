@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
+import { applyAgentEvent, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
 
 describe("conversation events", () => {
   it("calculates prompt cache hit rate from reported token usage", () => {
@@ -749,5 +749,12 @@ describe("conversation events", () => {
     const anchors = turnAnchors(groupConversation(messages));
     expect(anchors.map((item) => item.label)).toEqual(["新增友链页面 顺便加个入口", "修复样式问题"]);
     expect(anchors[0]?.id).toBe(turnAnchorId(messages[0]!.id));
+  });
+
+  it("reads the folder name from both posix and windows paths", () => {
+    expect(baseName("/Users/code/tether-ai")).toBe("tether-ai");
+    expect(baseName("D:\\code\\agnes-images")).toBe("agnes-images");
+    expect(baseName("D:\\code\\agnes-images\\")).toBe("agnes-images");
+    expect(baseName("src/renderer/ui.tsx")).toBe("ui.tsx");
   });
 });

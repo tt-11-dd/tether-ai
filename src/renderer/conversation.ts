@@ -526,7 +526,7 @@ function commandTitle(command: string): string {
   const lines = formatCommand(command).split("\n").filter(Boolean);
   if (lines.length === 0) return "Ran a command";
   if (lines.length === 1) return `Ran ${crop(lines[0]!, 72)}`;
-  const bin = lines[0]!.split(/\s+/)[0]?.split("/").pop() ?? "command";
+  const bin = baseName(lines[0]!.split(/\s+/)[0] ?? "") || "command";
   return `Ran ${bin} · ${lines.length} 条命令`;
 }
 
@@ -823,11 +823,11 @@ export function liveStatus(tools: ToolActivity[]): string {
   const count = bytes > 0 ? ` · 约 ${bytes.toLocaleString("zh-CN")} 字符` : "";
   if (/write|edit|patch/i.test(running.name)) {
     const args = isRecord(running.args) ? running.args : {};
-    const file = (toolPath(running) || patchTarget(stringField(args, "input"))?.path || "").split("/").pop();
+    const file = baseName(toolPath(running) || patchTarget(stringField(args, "input"))?.path || "");
     return file ? `正在写入 ${file}${count}` : `正在写入文件…${count}`;
   }
   if (/read/i.test(running.name)) {
-    const file = (toolPath(running) || "").split("/").pop();
+    const file = baseName(toolPath(running));
     return file ? `正在读取 ${file}` : "正在读取…";
   }
   if (/exec|bash|command/i.test(running.name)) return "正在执行命令…";
@@ -957,8 +957,9 @@ function writtenLines(tool: ToolActivity): number {
   return body ? body.split("\n").length : 0;
 }
 
-function baseName(file: string): string {
-  return file.replace(/\/+$/, "").split("/").pop() ?? "";
+/** Windows hands back `D:\code\app`, so both separators have to count as one. */
+export function baseName(file: string): string {
+  return file.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
 }
 
 /** Markdown thinking reads badly inside a one-line chip, so drop its syntax. */

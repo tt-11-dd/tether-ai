@@ -107,11 +107,11 @@ function createWindow(): void {
     show: false,
     backgroundColor: "#fafafb",
     icon: appIconPath(),
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
-    trafficLightPosition: { x: 16, y: 14 },
-    ...(process.platform === "darwin" ? {} : {
-      titleBarOverlay: { color: "#f6f4f0", symbolColor: "#1c1917", height: 38 },
-    }),
+    // The Windows controls overlay always paints above page content, so dialogs could never
+    // cover it. Going frameless lets the renderer draw its own buttons in normal stacking order.
+    ...(process.platform === "darwin"
+      ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 16, y: 14 } }
+      : { frame: false }),
     webPreferences: {
       preload: path.join(currentDirectory, "../preload/index.cjs"),
       contextIsolation: true,
@@ -175,6 +175,14 @@ function registerIpc(): void {
     if (!isSafeExternalUrl(url)) throw new Error("Only http(s) links can be opened");
     await shell.openExternal(url);
   });
+
+  ipcMain.handle("window:minimize", () => mainWindow?.minimize());
+  ipcMain.handle("window:toggle-maximize", () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+  });
+  ipcMain.handle("window:close", () => mainWindow?.close());
 
   ipcMain.handle("workspace:choose", async () => {
     const result = await dialog.showOpenDialog(mainWindow!, {

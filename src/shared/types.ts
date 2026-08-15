@@ -120,6 +120,12 @@ export interface DesktopApi {
     version(): Promise<string>;
     openExternal(url: string): Promise<void>;
   };
+  /** Frameless windows off macOS need the renderer to drive the caption buttons. */
+  window: {
+    minimize(): Promise<void>;
+    toggleMaximize(): Promise<void>;
+    close(): Promise<void>;
+  };
   workspace: {
     choose(): Promise<string | null>;
     recent(): Promise<WorkspaceItem[]>;

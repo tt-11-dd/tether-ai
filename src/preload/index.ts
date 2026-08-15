@@ -13,6 +13,11 @@ const api: DesktopApi = {
     version: () => ipcRenderer.invoke("app:version"),
     openExternal: (url) => ipcRenderer.invoke("app:open-external", url),
   },
+  window: {
+    minimize: () => ipcRenderer.invoke("window:minimize"),
+    toggleMaximize: () => ipcRenderer.invoke("window:toggle-maximize"),
+    close: () => ipcRenderer.invoke("window:close"),
+  },
   workspace: {
     choose: () => ipcRenderer.invoke("workspace:choose"),
     recent: () => ipcRenderer.invoke("workspace:recent"),

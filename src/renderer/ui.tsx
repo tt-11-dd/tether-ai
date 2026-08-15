@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 import { PREVIEW_HOST, PREVIEW_SCHEME, type AgentSessionStats, type ExtensionUiRequest, type PermissionMode } from "../shared/types";
 import { DEFAULT_VISION_CONFIG, visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, type ChatKind } from "../shared/chat-profiles";
-import { cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, liveStatus, omitFinalReply, repairMarkdownTables, splitPatch, stripEmptyMarkdown, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, undoDialogTitle, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
+import { baseName, cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, liveStatus, omitFinalReply, repairMarkdownTables, splitPatch, stripEmptyMarkdown, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, undoDialogTitle, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
 import logo from "./logo.svg";
 
@@ -165,6 +165,7 @@ export function Chat({
             <Icon path="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M15.5 4v16" />
           </button>
         )}
+        <WindowControls />
       </header>
       <div className="chat-body">
         <div className="chat-main">
@@ -174,6 +175,30 @@ export function Chat({
         {drawer && inspect}
       </div>
     </section>
+  );
+}
+
+/** Caption buttons for the frameless window on Windows/Linux; macOS keeps its traffic lights. */
+function WindowControls() {
+  if (window.harness.platform === "darwin") return null;
+  return (
+    <div className="win-controls">
+      <button type="button" aria-label="最小化" onClick={() => void window.harness.window.minimize()}>
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M0 5h10" stroke="currentColor" strokeWidth="1" />
+        </svg>
+      </button>
+      <button type="button" aria-label="最大化或还原" onClick={() => void window.harness.window.toggleMaximize()}>
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1" />
+        </svg>
+      </button>
+      <button type="button" className="close" aria-label="关闭" onClick={() => void window.harness.window.close()}>
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1" />
+        </svg>
+      </button>
+    </div>
   );
 }
 
@@ -826,7 +851,7 @@ export function InspectPanel({
             {edits.map((file) => (
               <button key={file.path} type="button" className="inspect-file edit" onClick={() => onOpen(file)}>
                 <Icon path={fileGlyph(file.path)} size={14} />
-                <span>{file.path.split("/").pop()}</span>
+                <span>{baseName(file.path)}</span>
                 <small>
                   {file.additions > 0 ? <b className="add">+{file.additions}</b> : null}
                   {file.deletions > 0 ? <b className="del">-{file.deletions}</b> : null}
@@ -919,7 +944,7 @@ function ChangeSummary({ files, onOpen }: { files: FileChange[]; onOpen?(file: F
       )}
       {files.map((file) => (
         <button key={file.path} type="button" className="change-file" onClick={() => onOpen?.(file)}>
-          {file.path.split("/").pop()}
+          {baseName(file.path)}
           {(file.additions > 0 || file.deletions > 0) && (
             <small>
               {file.additions > 0 ? `+${file.additions}` : ""}
@@ -963,7 +988,7 @@ export function FileDrawer({ file, workspace, onClose }: { file: FileChange; wor
     <aside className={wide ? "drawer wide" : "drawer"}>
       <header>
         <div>
-          <strong>{file.path.split("/").pop()}</strong>
+          <strong>{baseName(file.path)}</strong>
           <small>{file.path}</small>
         </div>
         {file.patch ? (
@@ -1304,7 +1329,7 @@ export function PromptBar({
   };
 
   const hero = placement === "hero";
-  const folder = workspace?.split("/").pop();
+  const folder = workspace ? baseName(workspace) : undefined;
   return (
     <div className={hero ? "prompt-wrap hero" : "prompt-wrap"}>
       <div className="prompt-shell">

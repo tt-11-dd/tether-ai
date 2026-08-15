@@ -321,7 +321,7 @@ button:disabled { cursor: default; opacity: .4; }
 
 .chat {
   /* Reading column grows with the viewport so 1080p+ screens don't leave both sides empty. */
-  --col: min(100%, 1180px, max(720px, 60vw));
+  --col: min(100%, 1320px, max(720px, 68vw));
   min-width: 0;
   min-height: 0;
   flex: 1;
@@ -338,10 +338,27 @@ button:disabled { cursor: default; opacity: .4; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 calc(10px + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)) 0 16px;
+  padding: 0 0 0 16px;
   -webkit-app-region: drag;
 }
-.darwin .chat-bar { height: 42px; }
+.win-controls {
+  flex: none;
+  margin-left: auto;
+  align-self: stretch;
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+.win-controls button {
+  width: 46px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-2);
+  border-radius: 0;
+}
+.win-controls button:hover { background: var(--hover); color: var(--ink); }
+.win-controls button.close:hover { background: #c4473a; color: #fff; }
+.darwin .win-controls { display: none; }
+.darwin .chat-bar { height: 42px; padding-right: 12px; }
 .chat-title {
   min-width: 0;
   flex: 1;
@@ -664,7 +681,8 @@ button:disabled { cursor: default; opacity: .4; }
 .conversation.home { display: flex; align-items: center; }
 .messages { width: var(--col); padding: 28px 28px 180px; margin: 0 auto; }
 .empty {
-  width: min(100%, 640px);
+  /* Hero column tracks the viewport like the reading column, so 1080p+ stops looking pinched. */
+  width: min(100%, 880px, max(640px, 46vw));
   margin: 0 auto;
   padding: 8px 24px 48px;
   display: flex;
@@ -1688,7 +1706,10 @@ button:disabled { cursor: default; opacity: .4; }
   field-sizing: content;
   font-size: 15px;
 }
-.prompt-wrap.hero textarea:placeholder-shown { min-height: 54px; }
+/* Only the empty field gets the roomier box; typing collapses it back to content height so the
+   `@` file list stays close to the caret. */
+.prompt textarea:placeholder-shown { min-height: 46px; }
+.prompt-wrap.hero textarea:placeholder-shown { min-height: 72px; }
 .prompt textarea::placeholder { color: var(--ink-3); }
 .prompt-bar { display: flex; align-items: center; gap: 4px; min-height: 32px; flex-wrap: wrap; }
 .send {
