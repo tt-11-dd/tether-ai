@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { Locale } from "../shared/i18n";
 import type { AgentEvent, DesktopApi } from "../shared/types";
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
@@ -13,6 +14,8 @@ const api: DesktopApi = {
     version: () => ipcRenderer.invoke("app:version"),
     openExternal: (url) => ipcRenderer.invoke("app:open-external", url),
     checkUpdate: () => ipcRenderer.invoke("app:check-update"),
+    getLocale: () => ipcRenderer.invoke("app:get-locale"),
+    setLocale: (locale: Locale) => ipcRenderer.invoke("app:set-locale", locale),
   },
   window: {
     minimize: () => ipcRenderer.invoke("window:minimize"),

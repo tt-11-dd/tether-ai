@@ -45,31 +45,21 @@ import {
   UserTurn,
 } from "./ui";
 import logo from "./logo.svg";
+import { useI18n } from "./i18n";
+import type { MessageKey } from "../shared/i18n";
 
 const PERMISSIONS: PermissionMode[] = ["plan", "ask", "auto", "full"];
-const DEFAULT_SUGGESTIONS = [
-  { label: "打开本地项目", icon: "M3 7h6l2 2h10v10H3z", action: "open" },
-  { label: "解释代码架构", hint: "结构和入口" },
-  { label: "找出可疑的 bug", hint: "排查风险" },
-  { label: "编写一组测试", hint: "覆盖核心路径" },
-];
-const REPO_SUGGESTIONS = [
-  { label: "解释这个仓库", hint: "结构和入口" },
-  { label: "找出最可疑的 bug", hint: "先看风险" },
-  { label: "补一组测试", hint: "覆盖核心路径" },
-  { label: "拆成可跨会话的任务清单", hint: "先铺 features.json" },
-];
 
-function relativeTime(iso: string) {
+function relativeTime(iso: string, t: (key: MessageKey, vars?: Record<string, string | number>) => string) {
   const delta = Date.now() - Date.parse(iso);
   const minutes = Math.round(delta / 60_000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 1) return t("common.justNow");
+  if (minutes < 60) return t("common.minutesAgo", { n: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
+  if (hours < 24) return t("common.hoursAgo", { n: hours });
   const days = Math.round(hours / 24);
-  if (days === 1) return "昨天";
-  if (days < 7) return `${days} 天前`;
+  if (days === 1) return t("common.yesterday");
+  if (days < 7) return t("common.daysAgo", { n: days });
   return new Date(iso).toLocaleDateString();
 }
 
@@ -113,6 +103,7 @@ function SessionRow({
   onRename(title: string): void;
   onRemove(): void;
 }) {
+  const { t } = useI18n();
   const [menu, setMenu] = useState<{ x: number; y: number }>();
   const [editing, setEditing] = useState(false);
 
@@ -170,13 +161,13 @@ function SessionRow({
       ) : (
         <button type="button" className="session-row" onClick={onOpen}>
           {session.pinned && <Icon path={PIN_ICON} size={12} />}
-          <span>{session.title || "未命名"}</span>
+          <span>{session.title || t("common.unnamed")}</span>
         </button>
       )}
       <button
         type="button"
         className="session-del session-more"
-        aria-label="对话菜单"
+        aria-label={t("nav.sessionMenu")}
         onClick={(event) => {
           event.stopPropagation();
           const rect = event.currentTarget.getBoundingClientRect();
@@ -194,16 +185,16 @@ function SessionRow({
         >
           <button type="button" role="menuitem" onClick={() => action(onPin)}>
             <Icon path={PIN_ICON} size={16} />
-            <span>{session.pinned ? "取消置顶" : "置顶"}</span>
+            <span>{session.pinned ? t("common.unpin") : t("common.pin")}</span>
           </button>
           <button type="button" role="menuitem" onClick={() => action(() => setEditing(true))}>
             <Icon path={PENCIL_ICON} size={16} />
-            <span>重命名</span>
+            <span>{t("common.rename")}</span>
           </button>
           <div className="session-menu-separator" />
           <button type="button" role="menuitem" className="danger" onClick={() => action(onRemove)}>
             <Icon path={TRASH_ICON} size={16} />
-            <span>移除</span>
+            <span>{t("common.remove")}</span>
           </button>
         </div>,
         document.body,
@@ -224,16 +215,129 @@ function allowedProjects(): Set<string> {
 }
 
 /** Windows/Linux have no Seatbelt; workspace-write cannot run commands without Docker. */
-function confirmUnsandboxedProject(cwd?: string): boolean {
+function confirmUnsandboxedProject(cwd: string | undefined, message: string): boolean {
   if (window.harness.platform === "darwin" || !cwd) return false;
   const remembered = allowedProjects();
   if (remembered.has(cwd)) return true;
-  const ok = window.confirm(`当前系统没有命令沙箱，agent 需要直接读写这个项目才能执行命令。\n\n允许访问：\n${cwd}`);
+  const ok = window.confirm(message);
   if (ok) localStorage.setItem(SANDBOX_OK_KEY, JSON.stringify([...remembered, cwd]));
   return ok;
 }
 
+function AccountMenu({
+  model,
+  configured,
+  onOpenSettings,
+}: {
+  model: string;
+  configured: boolean;
+  onOpenSettings(): void;
+}) {
+  const { t, locale, setLocale } = useI18n();
+  const [menu, setMenu] = useState<{ left: number; bottom: number }>();
+  const [langOpen, setLangOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => {
+      setMenu(undefined);
+      setLangOpen(false);
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("blur", close);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [menu]);
+
+  const open = () => {
+    const node = root.current;
+    if (!node) return;
+    const rect = node.getBoundingClientRect();
+    setLangOpen(false);
+    setMenu({
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 220)),
+      bottom: Math.max(8, window.innerHeight - rect.top + 6),
+    });
+  };
+
+  return (
+    <div ref={root} className={menu ? "account-wrap open" : "account-wrap"}>
+      <button type="button" className="account" title={t("nav.settingsTitle")} onClick={open}>
+        <div className="account-icon">
+          <Icon path="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H2.8a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.2 8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4V3.8a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1z" size={15} />
+        </div>
+        <div className="account-meta">
+          <strong>{configured ? model : t("nav.modelUnset")}</strong>
+          <small>{configured ? t("nav.manageKeys") : t("nav.configureKeys")}</small>
+        </div>
+      </button>
+      {menu && createPortal(
+        <div
+          className="account-menu"
+          style={{ left: menu.left, bottom: menu.bottom }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setMenu(undefined);
+              onOpenSettings();
+            }}
+          >
+            <Icon path="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H2.8a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.2 8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4V3.8a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1z" size={15} />
+            <span>{t("menu.settings")}</span>
+          </button>
+          <div
+            className={langOpen ? "account-menu-item has-sub open" : "account-menu-item has-sub"}
+            onMouseEnter={() => setLangOpen(true)}
+            onMouseLeave={() => setLangOpen(false)}
+          >
+            <button type="button" className={langOpen ? "on" : ""} onClick={() => setLangOpen((open) => !open)}>
+              <Icon path="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z M2 12h20 M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" size={15} />
+              <span>{t("menu.language")}</span>
+              <Icon className="account-chevron" path="M9 18l6-6-6-6" size={14} />
+            </button>
+            {langOpen && (
+              <div className="account-submenu">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void setLocale("zh");
+                    setMenu(undefined);
+                    setLangOpen(false);
+                  }}
+                >
+                  <span>{t("menu.langZh")}</span>
+                  {locale === "zh" && <Icon className="account-check" path="M20 6L9 17l-5-5" size={15} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void setLocale("en");
+                    setMenu(undefined);
+                    setLangOpen(false);
+                  }}
+                >
+                  <span>{t("menu.langEn")}</span>
+                  {locale === "en" && <Icon className="account-check" path="M20 6L9 17l-5-5" size={15} />}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
 export function App() {
+  const { t, locale } = useI18n();
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
@@ -276,7 +380,19 @@ export function App() {
   const darwin = window.harness.platform === "darwin";
   const connected = providers.find((item) => item.id === "deepseek");
   const waiting = running && (groups.length === 0 || groups.at(-1)?.type === "user");
-  const suggestions = workspace ? REPO_SUGGESTIONS : DEFAULT_SUGGESTIONS;
+  const suggestions = workspace
+    ? [
+        { label: t("suggest.explainRepo"), hint: t("suggest.hintStructure") },
+        { label: t("suggest.findRiskiest"), hint: t("suggest.hintRiskFirst") },
+        { label: t("suggest.addTests"), hint: t("suggest.hintCoverage") },
+        { label: t("suggest.taskList"), hint: t("suggest.hintFeatures") },
+      ]
+    : [
+        { label: t("suggest.openProject"), icon: "M3 7h6l2 2h10v10H3z", action: "open" as const },
+        { label: t("suggest.explainArch"), hint: t("suggest.hintStructure") },
+        { label: t("suggest.findBugs"), hint: t("suggest.hintRisk") },
+        { label: t("suggest.writeTests"), hint: t("suggest.hintCoverage") },
+      ];
 
   const projects = useMemo(() => {
     const byPath = new Map<string, { item: WorkspaceItem; sessions: SessionSummary[] }>();
@@ -311,7 +427,7 @@ export function App() {
     const chat = accounts.find((item) => item.id === "deepseek");
     if (!chat?.configured) {
       setLoginOpen(true);
-      setToast("先填写自定义配置");
+      setToast(t("toast.fillConfig"));
       return false;
     }
     const modelId = modelRef.current.trim() || chat.defaultModel;
@@ -328,11 +444,11 @@ export function App() {
       }
     }
     const sandbox = asProject
-      ? (mode === "full" || confirmUnsandboxedProject(cwd) ? "danger-full-access" : "workspace-write")
+      ? (mode === "full" || confirmUnsandboxedProject(cwd, t("confirm.unsandboxed", { cwd: cwd ?? "" })) ? "danger-full-access" : "workspace-write")
       : "read-only";
     if (asProject && sandbox !== "danger-full-access" && window.harness.platform !== "darwin") {
       setLoading(false);
-      setToast("已取消。Windows 没有沙箱时，必须允许直接读写才能跑命令。");
+      setToast(t("toast.sandboxCancelled"));
       return false;
     }
     try {
@@ -373,11 +489,11 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, [hydrate, permission]);
+  }, [hydrate, permission, t]);
 
   const bindProject = useCallback(async (cwd: string): Promise<boolean> => {
     if (running && agentCwd.current && agentCwd.current !== cwd) {
-      setToast("当前 agent 仍在运行，停止后再切换项目");
+      setToast(t("toast.agentBusySwitch"));
       return false;
     }
     if (running && agentCwd.current === cwd) return true;
@@ -397,8 +513,7 @@ export function App() {
     agentCwd.current = undefined;
     if (!running) await window.harness.agent.stop().catch(() => undefined);
     return true;
-  }, [running]);
-
+  }, [running, t]);
   const openFolder = useCallback(async () => {
     const selected = await window.harness.workspace.choose();
     if (!selected) return;
@@ -507,7 +622,7 @@ export function App() {
     if (!agentCwd.current) {
       const started = await startAgent(workspace, sessionRef.current, true, true);
       if (!started) {
-        setToast("没有活动会话");
+        setToast(t("toast.noActiveSession"));
         return;
       }
     }
@@ -515,7 +630,7 @@ export function App() {
       const log = await window.harness.agent.command<{ entries: Parameters<typeof lastTurnRestoreFiles>[0] }>("get_entries");
       const files = lastTurnRestoreFiles(log.entries ?? []);
       if (files.length === 0) {
-        setToast("这一轮没有可撤回的文件改动");
+        setToast(t("toast.nothingToUndo"));
         return;
       }
       pendingUndo.current = { files };
@@ -528,26 +643,26 @@ export function App() {
     } catch (error) {
       setToast(error instanceof Error ? error.message : String(error));
     }
-  }, [running, startAgent, workspace]);
+  }, [running, startAgent, t, workspace]);
 
   const compactContext = useCallback(async () => {
     if (running) {
-      setToast("请等待当前回答结束后再压缩上下文");
+      setToast(t("toast.waitBeforeCompact"));
       return;
     }
     if (!agentCwd.current && !workspace && !sessionRef.current) {
-      setToast("当前没有可压缩的对话");
+      setToast(t("toast.nothingToCompact"));
       return;
     }
     if (!agentCwd.current) {
       const started = await startAgent(workspace, sessionRef.current, true, true);
       if (!started) {
-        setToast("没有可压缩的活动会话");
+        setToast(t("toast.noCompactSession"));
         return;
       }
     }
     setLoading(true);
-    setToast("正在压缩旧对话…");
+    setToast(t("toast.compacting"));
     try {
       const result = await window.harness.agent.command<{ tokensBefore?: number; summary?: string }>("compact");
       const [history, nextStats] = await Promise.all([
@@ -558,23 +673,25 @@ export function App() {
       setStats(nextStats);
       setToast(
         result.tokensBefore
-          ? `上下文压缩完成（压缩前约 ${result.tokensBefore.toLocaleString("zh-CN")} tokens）`
-          : "上下文压缩完成",
+          ? t("toast.compactDoneTokens", { tokens: result.tokensBefore.toLocaleString(locale === "en" ? "en-US" : "zh-CN") })
+          : t("toast.compactDone"),
       );
       void window.harness.sessions.list().then(setSessions);
     } catch (error) {
       const raw = error instanceof Error ? error.message : String(error);
       if (/nothing to compact|session too small/i.test(raw)) {
-        setToast("对话还很短，暂时不需要压缩");
+        setToast(t("toast.compactTooShort"));
       } else if (/no workspace session|not active|no agent/i.test(raw)) {
-        setToast("没有可压缩的活动会话");
+        setToast(t("toast.noCompactSession"));
       } else {
-        setToast(`上下文压缩失败：${raw.replace(/^Error invoking remote method 'agent:command':\s*/i, "").replace(/^Error:\s*/i, "")}`);
+        setToast(t("toast.compactFailed", {
+          error: raw.replace(/^Error invoking remote method 'agent:command':\s*/i, "").replace(/^Error:\s*/i, ""),
+        }));
       }
     } finally {
       setLoading(false);
     }
-  }, [running, startAgent, workspace]);
+  }, [locale, running, startAgent, t, workspace]);
 
   const sendMessage = useCallback(async (preset?: string, images?: string[]) => {
     const text = (preset ?? draft).trim();
@@ -595,7 +712,7 @@ export function App() {
         const started = await startAgent(workspace, undefined, true);
         if (!started) return;
       }
-      const question = text || "请详细描述这张图片的内容";
+      const question = text || t("toast.defaultImagePrompt");
       const thumbs = (images ?? []).map((item) => {
         const match = item.match(/^data:([^;]+);base64,(.+)$/);
         return {
@@ -620,7 +737,7 @@ export function App() {
     } finally {
       sending.current = false;
     }
-  }, [draft, loading, openFolder, running, startAgent, undoLastTurn, workspace, workspaces.length]);
+  }, [draft, loading, openFolder, running, startAgent, t, undoLastTurn, workspace, workspaces.length]);
 
   useEffect(() => {
     void refresh().then((status) => {
@@ -663,12 +780,12 @@ export function App() {
       if (event.type === "tool_execution_end" && event.isError === true) {
         const detail = typeof event.result === "string" ? event.result : JSON.stringify(event.result ?? "");
         if (/read-only|permission denied|not permitted|sandbox/i.test(detail)) {
-          setToast("当前是只读会话。点输入框里的「打开仓库」后才能改本地文件。");
+          setToast(t("toast.readOnlySession"));
         }
       }
       if (event.type === "extension_ui_request") {
         const request = event as ExtensionUiRequest;
-        if (request.method === "notify") setToast(request.message ?? "通知");
+        if (request.method === "notify") setToast(request.message ?? t("toast.notify"));
         else if (["select", "confirm", "input", "editor"].includes(request.method)) setUiRequest(request);
       }
       setMessages((current) => (live.current ? applyAgentEvent(current, event) : current));
@@ -692,7 +809,7 @@ export function App() {
       offError();
       offCommand();
     };
-  }, [newThread, openFolder, workspace]);
+  }, [newThread, openFolder, t, workspace]);
 
   useEffect(() => {
     if (!workspace) {
@@ -751,7 +868,7 @@ export function App() {
         void (async () => {
           await window.harness.agent.stop().catch(() => undefined);
           const ok = await startAgent(workspace, sessionRef.current, Boolean(workspace), true, mode);
-          if (ok) setToast(mode === "full" ? "已关闭沙箱，命令不再询问主机权限" : "已按当前权限重新开会话");
+          if (ok) setToast(mode === "full" ? t("toast.sandboxOff") : t("toast.sessionRestarted"));
         })();
       }}
       onCommand={(command) => {
@@ -772,19 +889,15 @@ export function App() {
         onNew={() => void newThread()}
         onOpen={() => void openFolder()}
         account={(
-          <button type="button" className="account" title="设置与模型管理" onClick={() => setLoginOpen(true)}>
-            <div className="account-icon">
-              <Icon path="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H2.8a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.2 8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4V3.8a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1z" size={15} />
-            </div>
-            <div className="account-meta">
-              <strong>{connected?.configured ? model : "未配置模型"}</strong>
-              <small>{connected?.configured ? "管理接口与密钥" : "配置接口与密钥"}</small>
-            </div>
-          </button>
+          <AccountMenu
+            model={model}
+            configured={Boolean(connected?.configured)}
+            onOpenSettings={() => setLoginOpen(true)}
+          />
         )}
       >
-        <div className="section-label">项目</div>
-        {projects.length === 0 && <p className="sidebar-empty">还没有打开过文件夹</p>}
+        <div className="section-label">{t("nav.sectionProjects")}</div>
+        {projects.length === 0 && <p className="sidebar-empty">{t("nav.noProjects")}</p>}
         {projects.map(({ item, sessions: threads }) => {
           const open = openProjects[item.path] !== false;
           return (
@@ -815,7 +928,7 @@ export function App() {
               <button
                 type="button"
                 className="session-del"
-                aria-label="移除项目"
+                aria-label={t("nav.removeProject")}
                 onClick={(event) => {
                   event.stopPropagation();
                   void removeProject(item.path);
@@ -826,7 +939,7 @@ export function App() {
               </div>
               {open && (
                 <div className="session-list nested">
-                  {threads.length === 0 && <p className="task-empty">还没有对话</p>}
+                  {threads.length === 0 && <p className="task-empty">{t("nav.noThreads")}</p>}
                   {threads.map((session) => (
                     <SessionRow
                       key={session.id}
@@ -878,7 +991,7 @@ export function App() {
             <div className="empty">
               <div className="empty-hero">
                 <img className="empty-logo" src={logo} alt="" width={30} height={17} />
-                <h1>{workspace ? baseName(workspace) : "今天想做点什么？"}</h1>
+                <h1>{workspace ? baseName(workspace) : t("home.greeting")}</h1>
               </div>
               {composer}
               <div className="suggestions">
@@ -902,7 +1015,7 @@ export function App() {
               {homeRecents.length > 0 && (
                 <div className="home-recents">
                   <div className="home-recents-head">
-                    <span>最近活跃</span>
+                    <span>{t("nav.recentActive")}</span>
                   </div>
                   {homeRecents.map((session) => (
                     <button
@@ -916,9 +1029,9 @@ export function App() {
                     >
                       <div className="home-recent-main">
                         <Icon path="M19 3H5a2 2 0 0 0-2 2v14l4-4h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z" size={14} />
-                        <span>{session.title || "未命名会话"}</span>
+                        <span>{session.title || t("common.unnamedSession")}</span>
                       </div>
-                      <small>{relativeTime(session.updatedAt)}</small>
+                      <small>{relativeTime(session.updatedAt, t)}</small>
                     </button>
                   ))}
                 </div>
@@ -973,7 +1086,7 @@ export function App() {
         {toast && (
           <button type="button" className="toast" onClick={() => setToast(undefined)}>
             <Icon path="M9 18h6M10 22h4M12 2a7 7 0 0 1 4 12c-.8.8-1 1.5-1 3H9c0-1.5-.2-2.2-1-3A7 7 0 0 1 12 2z" size={16} />
-            <span>{/unrestricted host filesystem/i.test(toast) ? "本次命令已允许访问本机文件和网络" : toast}</span>
+            <span>{/unrestricted host filesystem/i.test(toast) ? t("toast.hostAccessAllowed") : toast}</span>
           </button>
         )}
       </Chat>

@@ -276,6 +276,9 @@ button:disabled { cursor: default; opacity: .4; }
   background: var(--page);
   flex: none;
 }
+.account-wrap {
+  width: 100%;
+}
 .account {
   width: 100%;
   min-height: 42px;
@@ -288,7 +291,8 @@ button:disabled { cursor: default; opacity: .4; }
   transition: background 0.12s ease;
   cursor: pointer;
 }
-.account:hover {
+.account:hover,
+.account-wrap.open .account {
   background: var(--hover);
 }
 .account-icon {
@@ -302,7 +306,8 @@ button:disabled { cursor: default; opacity: .4; }
   color: var(--ink-2);
   transition: background 0.12s ease, color 0.12s ease;
 }
-.account:hover .account-icon {
+.account:hover .account-icon,
+.account-wrap.open .account-icon {
   background: var(--hover-2);
   color: var(--ink);
 }
@@ -331,6 +336,81 @@ button:disabled { cursor: default; opacity: .4; }
   color: var(--ink-3);
   font-size: 11.5px;
   line-height: 1.2;
+}
+.account-menu {
+  position: fixed;
+  z-index: 1000;
+  width: 210px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+  animation: sessionMenuIn .12s ease-out;
+}
+.account-menu > button,
+.account-menu-item > button {
+  width: 100%;
+  height: 34px;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  text-align: left;
+}
+.account-menu > button:hover,
+.account-menu-item > button:hover,
+.account-menu-item > button.on {
+  background: var(--hover);
+}
+.account-menu svg {
+  flex: none;
+  color: var(--ink-2);
+}
+.account-menu-item {
+  position: relative;
+}
+.account-menu-item > button span {
+  flex: 1;
+  min-width: 0;
+}
+.account-chevron {
+  margin-left: auto;
+  color: var(--ink-3) !important;
+}
+.account-submenu {
+  position: absolute;
+  left: calc(100% + 4px);
+  bottom: 0;
+  width: 220px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+  animation: sessionMenuIn .12s ease-out;
+}
+.account-submenu button {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  text-align: left;
+}
+.account-submenu button:hover {
+  background: var(--hover);
+}
+.account-check {
+  color: var(--accent) !important;
 }
 
 .chat {

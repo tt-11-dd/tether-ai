@@ -1,5 +1,17 @@
 import type { AgentEvent } from "../shared/types";
+import { DEFAULT_LOCALE, t, type Locale, type MessageKey } from "../shared/i18n";
 import { isVisionHandoff, mimeFromImagePath, visibleUserText, visionHandoffPaths, visionToolTitle, visionUploadUrl } from "../shared/vision-api";
+
+let activeLocale: Locale = DEFAULT_LOCALE;
+
+/** Keep conversation chrome in sync with the UI language. */
+export function setConversationLocale(locale: Locale): void {
+  activeLocale = locale;
+}
+
+function ct(key: MessageKey, vars?: Record<string, string | number>): string {
+  return t(activeLocale, key, vars);
+}
 
 export interface ToolActivity {
   id: string;
@@ -167,8 +179,10 @@ function entryUserText(content: unknown): string {
 export function undoDialogTitle(heading: string | undefined, lastTurn?: string): string | undefined {
   if (!heading || !/^Undo\s/i.test(heading)) return heading;
   const label = lastTurn?.replace(/\s+/g, " ").trim();
-  if (!label) return "撤回上一轮改动？";
-  return `撤回「${label.length > 36 ? `${label.slice(0, 36)}…` : label}」？`;
+  if (!label) return ct("undo.confirm");
+  return ct("undo.confirmNamed", {
+    label: label.length > 36 ? `${label.slice(0, 36)}…` : label,
+  });
 }
 
 export function groupConversation(messages: ChatMessage[]): ConversationGroup[] {
@@ -328,7 +342,7 @@ function messageFromRecord(value: JsonRecord, id: string): ChatMessage | undefin
   const tools = getTools(content, timestamp);
   const work = value.role === "assistant" ? getWork(content) : [];
   const error = value.role === "assistant" && value.stopReason === "error"
-    ? (typeof value.errorMessage === "string" && value.errorMessage.trim() ? value.errorMessage.trim() : "模型请求失败")
+    ? (typeof value.errorMessage === "string" && value.errorMessage.trim() ? value.errorMessage.trim() : ct("error.modelFailed"))
     : undefined;
   return {
     id,
@@ -477,7 +491,7 @@ function toolTitle(name: string, args: unknown): string {
   if (name.includes("write") || target?.action === "add") return file ? `Wrote ${file}` : "Wrote a file";
   if (name.includes("edit") || name.includes("patch")) return file ? `Edited ${file}` : "Edited files";
   if (name.includes("search")) return "Searched the workspace";
-  if (name === "vision") return "图片识别";
+  if (name === "vision") return ct("tool.vision");
   return name.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
 }
 
@@ -527,7 +541,7 @@ function commandTitle(command: string): string {
   if (lines.length === 0) return "Ran a command";
   if (lines.length === 1) return `Ran ${crop(lines[0]!, 72)}`;
   const bin = baseName(lines[0]!.split(/\s+/)[0] ?? "") || "command";
-  return `Ran ${bin} · ${lines.length} 条命令`;
+  return ct("cmd.ranN", { bin, n: lines.length });
 }
 
 function upsertLastAssistantTool(messages: ChatMessage[], activity: ToolActivity): ChatMessage[] {
@@ -676,7 +690,7 @@ function findLastAssistant(messages: ChatMessage[], streamingOnly: boolean): num
 export function toolErrorText(tools: ToolActivity[]): string {
   return tools
     .filter((tool) => tool.status === "error")
-    .map((tool) => tool.output?.trim() || `${tool.title}失败，没有返回详情`)
+    .map((tool) => tool.output?.trim() || ct("error.toolFailed", { title: tool.title }))
     .join("\n");
 }
 
@@ -798,11 +812,11 @@ export function toolSummary(tools: ToolActivity[], thoughts = 0): string {
   const edits = files.filter((file) => file.kind === "edit").length;
   const commands = tools.filter((tool) => /exec|bash|command/i.test(tool.name)).length;
   const parts: string[] = [];
-  if (thoughts) parts.push(`思考了 ${thoughts} 次`);
-  if (reads) parts.push(`读了 ${reads} 个文件`);
-  if (commands) parts.push(`跑了 ${commands} 条命令`);
-  if (edits) parts.push(`改了 ${edits} 个文件`);
-  return parts.join("，");
+  if (thoughts) parts.push(ct("summary.thoughts", { n: thoughts }));
+  if (reads) parts.push(ct("summary.reads", { n: reads }));
+  if (commands) parts.push(ct("summary.commands", { n: commands }));
+  if (edits) parts.push(ct("summary.edits", { n: edits }));
+  return parts.join(ct("summary.join"));
 }
 
 export function writePayloadSize(tool: ToolActivity): number {
@@ -818,20 +832,22 @@ export function writePayloadSize(tool: ToolActivity): number {
 /** Live status line while tools run: Thinking... / Writing file... · ~N characters */
 export function liveStatus(tools: ToolActivity[]): string {
   const running = [...tools].reverse().find((tool) => tool.status === "running");
-  if (!running) return "思考中…";
+  if (!running) return ct("live.thinking");
   const bytes = writePayloadSize(running);
-  const count = bytes > 0 ? ` · 约 ${bytes.toLocaleString("zh-CN")} 字符` : "";
+  const count = bytes > 0
+    ? ct("live.chars", { n: bytes.toLocaleString(activeLocale === "en" ? "en-US" : "zh-CN") })
+    : "";
   if (/write|edit|patch/i.test(running.name)) {
     const args = isRecord(running.args) ? running.args : {};
     const file = baseName(toolPath(running) || patchTarget(stringField(args, "input"))?.path || "");
-    return file ? `正在写入 ${file}${count}` : `正在写入文件…${count}`;
+    return file ? ct("live.writing", { file, count }) : ct("live.writingFile", { count });
   }
   if (/read/i.test(running.name)) {
     const file = baseName(toolPath(running));
-    return file ? `正在读取 ${file}` : "正在读取…";
+    return file ? ct("live.reading", { file }) : ct("live.readingFile");
   }
-  if (/exec|bash|command/i.test(running.name)) return "正在执行命令…";
-  return "思考中…";
+  if (/exec|bash|command/i.test(running.name)) return ct("live.running");
+  return ct("live.thinking");
 }
 
 export function thoughtSteps(
@@ -895,7 +911,7 @@ export function traceRows(work: WorkItem[], tools: ToolActivity[], fallback = ""
     rows.push({
       id: `think-${rows.length}`,
       kind: "think",
-      label: "思考",
+      label: ct("trace.think"),
       chip: crop(headline(pending[0]!), 72),
       mono: false,
       text: pending.join("\n\n"),
@@ -920,11 +936,11 @@ function toolRow(tool: ToolActivity, index: number): TraceRow {
     return {
       ...base,
       kind: "run",
-      label: lines.length > 1 ? `执行 ${lines.length} 条命令` : "执行命令",
+      label: lines.length > 1 ? ct("trace.runN", { n: lines.length }) : ct("trace.run"),
       chip: lines[0] ?? "",
     };
   }
-  if (tool.name === "vision") return { ...base, kind: "look", label: "识图", chip: "", mono: false };
+  if (tool.name === "vision") return { ...base, kind: "look", label: ct("trace.look"), chip: "", mono: false };
   const args = isRecord(tool.args) ? tool.args : {};
   const file = toolPath(tool) || patchTarget(stringField(args, "input"))?.path || "";
   const name = tool.name.toLowerCase();
@@ -933,7 +949,7 @@ function toolRow(tool: ToolActivity, index: number): TraceRow {
     return {
       ...base,
       kind: "write",
-      label: lines > 0 ? `写入 ${lines} 行` : "写入文件",
+      label: lines > 0 ? ct("trace.writeLines", { n: lines }) : ct("trace.write"),
       chip: baseName(file),
     };
   }
@@ -941,11 +957,11 @@ function toolRow(tool: ToolActivity, index: number): TraceRow {
     return {
       ...base,
       kind: "read",
-      label: "搜索",
-      chip: stringField(args, "pattern") || stringField(args, "query") || baseName(file) || "工作区",
+      label: ct("trace.search"),
+      chip: stringField(args, "pattern") || stringField(args, "query") || baseName(file) || ct("trace.workspace"),
     };
   }
-  if (/read|cat|view/.test(name)) return { ...base, kind: "read", label: "读取", chip: baseName(file) || "文件" };
+  if (/read|cat|view/.test(name)) return { ...base, kind: "read", label: ct("trace.read"), chip: baseName(file) || ct("trace.file") };
   return { ...base, kind: "tool", label: tool.title, chip: baseName(file), mono: Boolean(file) };
 }
 

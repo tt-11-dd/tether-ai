@@ -24,6 +24,7 @@ import { AgentHost } from "./agent-host";
 import { listOpenAiModels } from "../shared/openai-models";
 import { activeChat, mergeChatProfiles, migrateChatProfiles, parseChatProfiles, type ChatProfiles } from "../shared/chat-profiles";
 import { DEFAULT_VISION_CONFIG, resolveVisionSettings, visionTitle, type VisionConfig } from "../shared/vision-api";
+import { DEFAULT_LOCALE, isLocale, resolveLocale, t, type Locale } from "../shared/i18n";
 import { getLatestUpdate } from "./update-check";
 import {
   PREVIEW_SCHEME,
@@ -77,6 +78,7 @@ let workspaceWatcher: fs.FSWatcher | undefined;
 let watchedWorkspace = "";
 let watchTimer: ReturnType<typeof setTimeout> | undefined;
 let updateCheckStarted = false;
+let appLocale: Locale = DEFAULT_LOCALE;
 
 // A privileged scheme gives previews a real origin: storage APIs work, and the app stays cross-origin.
 protocol.registerSchemesAsPrivileged([{
@@ -119,10 +121,10 @@ async function checkForUpdates(manual = false): Promise<void> {
         await dialog.showMessageBox(window, {
           type: "info",
           icon,
-          title: "Tether 更新",
-          message: "已是最新版本",
-          detail: `当前版本：v${app.getVersion()}`,
-          buttons: ["好"],
+          title: t(appLocale, "update.title"),
+          message: t(appLocale, "update.latest"),
+          detail: t(appLocale, "update.currentVersion", { version: app.getVersion() }),
+          buttons: [t(appLocale, "update.ok")],
           noLink: true,
         });
       }
@@ -132,10 +134,10 @@ async function checkForUpdates(manual = false): Promise<void> {
     const result = await dialog.showMessageBox(window, {
       type: "info",
       icon,
-      title: "Tether 更新",
-      message: `发现新版本 Tether v${update.version}`,
-      detail: `当前版本：v${app.getVersion()}\n可前往 GitHub 下载并安装新版本。`,
-      buttons: ["下载更新", "稍后"],
+      title: t(appLocale, "update.title"),
+      message: t(appLocale, "update.available", { version: update.version }),
+      detail: t(appLocale, "update.detail", { current: app.getVersion() }),
+      buttons: [t(appLocale, "update.download"), t(appLocale, "update.later")],
       defaultId: 0,
       cancelId: 1,
       noLink: true,
@@ -146,10 +148,10 @@ async function checkForUpdates(manual = false): Promise<void> {
     if (!manual || !mainWindow || mainWindow.isDestroyed()) return;
     await dialog.showMessageBox(mainWindow, {
       type: "warning",
-      title: "Tether 更新",
-      message: "检查更新失败",
-      detail: error instanceof Error ? error.message : "请稍后重试或前往 GitHub 查看。",
-      buttons: ["好"],
+      title: t(appLocale, "update.title"),
+      message: t(appLocale, "update.failed"),
+      detail: error instanceof Error ? error.message : t(appLocale, "update.failedDetail"),
+      buttons: [t(appLocale, "update.ok")],
       noLink: true,
     });
   }
@@ -229,10 +231,10 @@ function installMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === "darwin" ? [{ role: "appMenu" as const }] : []),
     {
-      label: "File",
+      label: t(appLocale, "menu.file"),
       submenu: [
-        { label: "New thread", accelerator: "CmdOrCtrl+N", click: () => sendAppCommand("new-thread") },
-        { label: "Open folder…", accelerator: "CmdOrCtrl+O", click: () => sendAppCommand("open-folder") },
+        { label: t(appLocale, "menu.newThread"), accelerator: "CmdOrCtrl+N", click: () => sendAppCommand("new-thread") },
+        { label: t(appLocale, "menu.openFolder"), accelerator: "CmdOrCtrl+O", click: () => sendAppCommand("open-folder") },
         { type: "separator" },
         process.platform === "darwin" ? { role: "close" } : { role: "quit" },
       ],
@@ -245,6 +247,11 @@ function installMenu(): void {
 function registerIpc(): void {
   ipcMain.handle("app:version", () => app.getVersion());
   ipcMain.handle("app:check-update", () => checkForUpdates(true));
+  ipcMain.handle("app:get-locale", () => appLocale);
+  ipcMain.handle("app:set-locale", async (_event, locale: unknown) => {
+    if (!isLocale(locale)) throw new Error("Unsupported locale");
+    await saveLocale(locale);
+  });
   ipcMain.handle("app:open-external", async (_event, url: string) => {
     if (!isSafeExternalUrl(url)) throw new Error("Only http(s) links can be opened");
     await shell.openExternal(url);
@@ -260,9 +267,9 @@ function registerIpc(): void {
 
   ipcMain.handle("workspace:choose", async () => {
     const result = await dialog.showOpenDialog(mainWindow!, {
-      title: "Open a workspace",
+      title: t(appLocale, "dialog.openWorkspace"),
       properties: ["openDirectory", "createDirectory"],
-      buttonLabel: "Open",
+      buttonLabel: t(appLocale, "dialog.open"),
     });
     if (result.canceled || !result.filePaths[0]) return null;
     return recentWorkspaces.touch(result.filePaths[0]);
@@ -516,6 +523,35 @@ async function saveDefaultModel(providerId: string, modelId: string): Promise<vo
   settings.defaultModel = modelId;
   await fsp.mkdir(path.dirname(settingsPath), { recursive: true, mode: 0o700 });
   await fsp.writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
+}
+
+async function readSettingsFile(): Promise<Record<string, unknown>> {
+  const settingsPath = path.join(getTetherHome(), "settings.json");
+  try {
+    return JSON.parse(await fsp.readFile(settingsPath, "utf8")) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+async function loadLocale(): Promise<Locale> {
+  const settings = await readSettingsFile();
+  const stored = typeof settings.locale === "string" ? settings.locale : null;
+  const system = typeof app.getPreferredSystemLanguages === "function"
+    ? app.getPreferredSystemLanguages()
+    : [];
+  appLocale = resolveLocale(stored, system);
+  return appLocale;
+}
+
+async function saveLocale(locale: Locale): Promise<void> {
+  const settingsPath = path.join(getTetherHome(), "settings.json");
+  const settings = await readSettingsFile();
+  settings.locale = locale;
+  await fsp.mkdir(path.dirname(settingsPath), { recursive: true, mode: 0o700 });
+  await fsp.writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
+  appLocale = locale;
+  installMenu();
 }
 
 function isSafeExternalUrl(url: string): boolean {
@@ -784,6 +820,7 @@ async function addSkillManifests(root: string, files: string[]): Promise<void> {
 
 app.whenReady().then(async () => {
   await initializeTetherHome();
+  await loadLocale();
   protocol.handle(PREVIEW_SCHEME, servePreview);
   registerIpc();
   installMenu();

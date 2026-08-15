@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -7,6 +7,7 @@ import { DEFAULT_VISION_CONFIG, visibleUserText, visionResultSections, visionToo
 import { DEEPSEEK_PRESET, type ChatKind } from "../shared/chat-profiles";
 import { baseName, cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, liveStatus, omitFinalReply, repairMarkdownTables, splitPatch, stripEmptyMarkdown, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, undoDialogTitle, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
+import { useI18n } from "./i18n";
 import logo from "./logo.svg";
 
 const MAX_UPLOAD_IMAGES = 4;
@@ -56,13 +57,14 @@ export function CopyButton({
   text,
   className = "bubble-action",
   size = 14,
-  label = "复制",
+  label,
 }: {
   text: string;
   className?: string;
   size?: number;
   label?: string;
 }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -74,7 +76,7 @@ export function CopyButton({
     }
   };
   return (
-    <button type="button" className={className} aria-label={copied ? "已复制" : label} onClick={() => void copy()}>
+    <button type="button" className={className} aria-label={copied ? t("common.copied") : label ?? t("common.copy")} onClick={() => void copy()}>
       <Icon path={copied ? "M5 12.5l4 4 10-10" : "M8 8h12v12H8zM4 16V4h12"} size={size} />
     </button>
   );
@@ -123,6 +125,7 @@ export function SidebarNav({
   account: ReactNode;
   children: ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <aside className="sidebar">
       <header className="sidebar-titlebar">
@@ -134,11 +137,11 @@ export function SidebarNav({
       <div className="sidebar-primary">
         <button type="button" className="nav-btn new" onClick={onNew}>
           <Icon path="M12 5v14M5 12h14" />
-          新对话
+          {t("nav.newThread")}
         </button>
         <button type="button" className="nav-btn" onClick={onOpen}>
           <Icon path="M3 7h6l2 2h10v10H3z" />
-          项目
+          {t("nav.projects")}
         </button>
       </div>
       <div className="thread-list">{children}</div>
@@ -162,6 +165,7 @@ export function Chat({
   nav?: ReactNode;
   title?: string;
 }) {
+  const { t } = useI18n();
   const [drawer, setDrawer] = useState(true);
   return (
     <section className={home ? "chat home" : "chat"}>
@@ -172,7 +176,7 @@ export function Chat({
           <button
             type="button"
             className={drawer ? "inspect-toggle on" : "inspect-toggle"}
-            aria-label={drawer ? "收起右侧抽屉" : "打开右侧抽屉"}
+            aria-label={drawer ? t("nav.closeDrawer") : t("nav.openDrawer")}
             onClick={() => setDrawer((current) => !current)}
           >
             <Icon path="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M15.5 4v16" />
@@ -193,20 +197,21 @@ export function Chat({
 
 /** Caption buttons for the frameless window on Windows/Linux; macOS keeps its traffic lights. */
 function WindowControls() {
+  const { t } = useI18n();
   if (window.harness.platform === "darwin") return null;
   return (
     <div className="win-controls">
-      <button type="button" aria-label="最小化" onClick={() => void window.harness.window.minimize()}>
+      <button type="button" aria-label={t("nav.minimize")} onClick={() => void window.harness.window.minimize()}>
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0 5h10" stroke="currentColor" strokeWidth="1" />
         </svg>
       </button>
-      <button type="button" aria-label="最大化或还原" onClick={() => void window.harness.window.toggleMaximize()}>
+      <button type="button" aria-label={t("nav.maximize")} onClick={() => void window.harness.window.toggleMaximize()}>
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1" />
         </svg>
       </button>
-      <button type="button" className="close" aria-label="关闭" onClick={() => void window.harness.window.close()}>
+      <button type="button" className="close" aria-label={t("nav.closeWindow")} onClick={() => void window.harness.window.close()}>
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" strokeWidth="1" />
         </svg>
@@ -224,6 +229,7 @@ export function ContextStats({
   model?: string;
   up?: boolean;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
@@ -250,8 +256,8 @@ export function ContextStats({
         className={`stats-toggle${open ? " on" : ""}${
           percent !== undefined && percent >= 90 ? " hot" : percent !== undefined && percent >= 75 ? " warm" : ""
         }`}
-        aria-label="对话上下文与用量监控"
-        title="对话上下文与用量监控"
+        aria-label={t("context.monitor")}
+        title={t("context.monitor")}
         onClick={() => setOpen((was) => !was)}
       >
         <svg width="14" height="14" viewBox="0 0 14 14" className="stats-dial" aria-hidden="true">
@@ -271,18 +277,18 @@ export function ContextStats({
             />
           )}
         </svg>
-        <span>{percent !== undefined ? `${percent}%` : "上下文"}</span>
+        <span>{percent !== undefined ? `${percent}%` : t("context.label")}</span>
       </button>
 
       {open && (
         <div className="context-popover" role="dialog">
           <div className="context-popover-head">
             <div className="context-popover-title">
-              <span>对话上下文</span>
+              <span>{t("context.title")}</span>
             </div>
             {rate !== undefined && (
               <span className="context-badge-hit">
-                <i /> 缓存 {rate.toFixed(0)}%
+                <i /> {t("context.cacheRate", { rate: rate.toFixed(0) })}
               </span>
             )}
           </div>
@@ -311,22 +317,22 @@ export function ContextStats({
                   </svg>
                   <div className="context-ring-label">
                     <strong>{percent !== undefined ? `${percent}%` : "—"}</strong>
-                    <small>{percent !== undefined ? "已使用" : "未统计"}</small>
+                    <small>{percent !== undefined ? t("context.used") : t("context.untracked")}</small>
                   </div>
                 </div>
                 <div className="context-capacity-info">
-                  <span className="context-label">上下文容量</span>
+                  <span className="context-label">{t("context.capacity")}</span>
                   <span className="context-ratio">
                     {contextTokens !== undefined ? formatCompactNumber(contextTokens) : "—"} / {formatCompactNumber(contextWindow)}
                   </span>
                   <small className={`context-hint ${percent && percent >= 80 ? "warn" : ""}`}>
                     {percent === undefined
-                      ? "首次响应后显示用量"
+                      ? t("context.waitFirst")
                       : percent >= 90
-                        ? "容量告急，建议 /compact"
+                        ? t("context.critical")
                         : percent >= 75
-                          ? "用量偏高，可适时压缩"
-                          : "容量充裕 · 自动保持活跃"}
+                          ? t("context.high")
+                          : t("context.ok")}
                   </small>
                 </div>
               </div>
@@ -335,18 +341,18 @@ export function ContextStats({
             {/* Token 总量 */}
             <div className="context-card">
               <div className="context-section-head">
-                <span>Token 总量</span>
+                <span>{t("context.tokenTotal")}</span>
                 {stats?.tokens?.total ? (
-                  <span className="context-token-sum">共 {formatCompactNumber(stats.tokens.total)}</span>
+                  <span className="context-token-sum">{t("context.tokenSum", { n: formatCompactNumber(stats.tokens.total) })}</span>
                 ) : null}
               </div>
               <div className="context-token-grid">
                 <div className="context-token-box">
-                  <span className="context-token-sub">输入</span>
+                  <span className="context-token-sub">{t("context.input")}</span>
                   <strong>{stats?.tokens?.input !== undefined ? formatCompactNumber(stats.tokens.input) : "—"}</strong>
                 </div>
                 <div className="context-token-box">
-                  <span className="context-token-sub">输出</span>
+                  <span className="context-token-sub">{t("context.output")}</span>
                   <strong>{stats?.tokens?.output !== undefined ? formatCompactNumber(stats.tokens.output) : "—"}</strong>
                 </div>
               </div>
@@ -355,7 +361,7 @@ export function ContextStats({
             {/* 缓存率 */}
             <div className="context-card">
               <div className="context-section-head">
-                <span>缓存率</span>
+                <span>{t("context.cacheTitle")}</span>
                 <strong className="context-rate-text">{rate !== undefined ? `${rate.toFixed(1)}%` : "—"}</strong>
               </div>
               <div className="context-bar-track">
@@ -365,11 +371,11 @@ export function ContextStats({
                 />
               </div>
               <div className="context-cache-meta">
-                <span>命中读取 <b>{stats?.tokens?.cacheRead ? formatCompactNumber(stats.tokens.cacheRead) : "0"}</b></span>
+                <span>{t("context.cacheHit")} <b>{stats?.tokens?.cacheRead ? formatCompactNumber(stats.tokens.cacheRead) : "0"}</b></span>
                 {Boolean(stats?.tokens?.cacheWrite) ? (
-                  <span>缓存写入 <b>{formatCompactNumber(stats!.tokens.cacheWrite)}</b></span>
+                  <span>{t("context.cacheWrite")} <b>{formatCompactNumber(stats!.tokens.cacheWrite)}</b></span>
                 ) : (
-                  <span>未命中输入 <b>{stats?.tokens?.input !== undefined ? formatCompactNumber(stats.tokens.input) : "—"}</b></span>
+                  <span>{t("context.cacheMiss")} <b>{stats?.tokens?.input !== undefined ? formatCompactNumber(stats.tokens.input) : "—"}</b></span>
                 )}
               </div>
             </div>
@@ -377,11 +383,11 @@ export function ContextStats({
             {/* 底部模型与费用 */}
             <div className="context-popover-foot">
               <div className="context-foot-item">
-                <span className="context-foot-label">模型</span>
-                <code className="context-model-tag">{model || "默认模型"}</code>
+                <span className="context-foot-label">{t("common.model")}</span>
+                <code className="context-model-tag">{model || t("context.defaultModel")}</code>
               </div>
               <div className="context-foot-item right">
-                <span className="context-foot-label">费用</span>
+                <span className="context-foot-label">{t("context.cost")}</span>
                 <span className="context-cost-val">
                   {stats?.cost ? `$${stats.cost.toFixed(4)}` : "—"}
                 </span>
@@ -401,6 +407,7 @@ function formatCompactNumber(value: number) {
 }
 
 export function TurnNav({ items }: { items: Array<{ id: string; label: string }> }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState<string>();
   const box = useRef<HTMLDivElement>(null);
@@ -426,14 +433,14 @@ export function TurnNav({ items }: { items: Array<{ id: string; label: string }>
       <button
         type="button"
         className="combo-trigger turn-nav-trigger"
-        aria-label="跳转到某一轮对话"
+        aria-label={t("context.jumpTurn")}
         onClick={() => {
           setActive(visibleTurn());
           setOpen((was) => !was);
         }}
       >
         <Icon path="M4 6h16M4 12h10M4 18h6" size={14} />
-        <span>{items.length} 轮</span>
+        <span>{t("context.turns", { n: items.length })}</span>
       </button>
       {open && (
         <div className="combo-menu turn-nav-menu" role="listbox">
@@ -473,13 +480,17 @@ export function Thinking({
   startedAt?: number;
   endedAt?: number;
 }) {
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
   const [born] = useState(() => Date.now());
-  const rows = traceRows(work, tools, text);
+  const rows = useMemo(() => traceRows(work, tools, text), [work, tools, text, locale]);
   const start = startedAt ?? (live ? born : undefined);
-  const summary = toolSummary(tools, rows.filter((row) => row.kind === "think").length);
-  const current = liveStatus(tools);
-  const header = live ? "思考中…" : "思考过程";
+  const summary = useMemo(
+    () => toolSummary(tools, rows.filter((row) => row.kind === "think").length),
+    [tools, rows, locale],
+  );
+  const current = useMemo(() => liveStatus(tools), [tools, locale]);
+  const header = live ? t("think.live") : t("think.done");
   const showLive = live && current !== header;
   const hasBody = rows.length > 0 || showLive;
   if (!hasBody && !live) return null;
@@ -578,6 +589,7 @@ function traceDetail(row: TraceRow): ReactNode {
 }
 
 function TerminalBlock({ command, tool }: { command: string; tool: ToolActivity }) {
+  const { t } = useI18n();
   const [showOutput, setShowOutput] = useState(tool.status === "error");
   const [expandedAll, setExpandedAll] = useState(false);
   const rawOutput = tool.output?.trim() ?? "";
@@ -596,11 +608,11 @@ function TerminalBlock({ command, tool }: { command: string; tool: ToolActivity 
           <span className="terminal-dot red" />
           <span className="terminal-dot yellow" />
           <span className="terminal-dot green" />
-          <span className="terminal-title">{tool.title || "命令执行"}</span>
+          <span className="terminal-title">{tool.title || t("terminal.command")}</span>
         </div>
         <div className="terminal-actions">
-          {isRunning && <span className="terminal-badge running"><i />运行中</span>}
-          {isError && <span className="terminal-badge error">失败</span>}
+          {isRunning && <span className="terminal-badge running"><i />{t("terminal.running")}</span>}
+          {isError && <span className="terminal-badge error">{t("terminal.failed")}</span>}
           {!isRunning && !isError && tool.endedAt && tool.startedAt && (
             <span className="terminal-time">{formatDuration(tool.startedAt, tool.endedAt)}</span>
           )}
@@ -610,10 +622,10 @@ function TerminalBlock({ command, tool }: { command: string; tool: ToolActivity 
               className={`terminal-toggle-btn ${showOutput ? "on" : ""}`}
               onClick={() => setShowOutput((v) => !v)}
             >
-              {showOutput ? "收起输出" : "输出"}
+              {showOutput ? t("terminal.hideOutput") : t("terminal.output")}
             </button>
           )}
-          <CopyButton text={command} className="terminal-copy-btn" size={12} label="复制命令" />
+          <CopyButton text={command} className="terminal-copy-btn" size={12} label={t("terminal.copyCommand")} />
         </div>
       </div>
       <div className="terminal-body">
@@ -631,7 +643,7 @@ function TerminalBlock({ command, tool }: { command: string; tool: ToolActivity 
               className="terminal-expand-btn"
               onClick={() => setExpandedAll((v) => !v)}
             >
-              {expandedAll ? "折叠长输出" : `展开全部 (${lines.length} 行)`}
+              {expandedAll ? t("terminal.collapse") : t("terminal.expandAll", { n: lines.length })}
             </button>
           )}
         </div>
@@ -726,6 +738,7 @@ export function AssistantTurn({
   onOpenFile?(file: FileChange): void;
   onRetry?(): void;
 }) {
+  const { t } = useI18n();
   const thinking = collapseThinking(...messages.map((item) => item.thinking));
   const tools = [...new Map(messages.flatMap((item) => item.tools).map((tool) => [tool.id, tool])).values()];
   const work = turnWork(messages);
@@ -755,7 +768,7 @@ export function AssistantTurn({
       {error && (
         <div className="turn-error">
           <p>{error}</p>
-          {onRetry && <button type="button" className="ghost" onClick={onRetry}>继续</button>}
+          {onRetry && <button type="button" className="ghost" onClick={onRetry}>{t("common.continue")}</button>}
         </div>
       )}
     </article>
@@ -798,6 +811,7 @@ export function InspectPanel({
   onOpen(file: FileChange): void;
   onUndo?(): void;
 }) {
+  const { t } = useI18n();
   const [progress, setProgress] = useState(true);
   const [changesOpen, setChangesOpen] = useState(true);
   const [working, setWorking] = useState(true);
@@ -831,7 +845,7 @@ export function InspectPanel({
   return (
     <aside className="inspect">
       {todos.length > 0 && (
-        <Fold title="任务规划" open={progress} onToggle={() => setProgress((current) => !current)}>
+        <Fold title={t("inspect.progress")} open={progress} onToggle={() => setProgress((current) => !current)}>
           <ol className="inspect-todos">
             {todos.map((todo, index) => (
               <li key={todo.id} className={todo.done ? "done" : ""}>
@@ -843,7 +857,7 @@ export function InspectPanel({
         </Fold>
       )}
       {edits.length > 0 && (
-        <Fold title="本轮改动" open={changesOpen} onToggle={() => setChangesOpen((current) => !current)}>
+        <Fold title={t("inspect.changes")} open={changesOpen} onToggle={() => setChangesOpen((current) => !current)}>
           <div className="inspect-changes">
             {edits.map((file) => (
               <button key={file.path} type="button" className="inspect-file edit" onClick={() => onOpen(file)}>
@@ -852,18 +866,18 @@ export function InspectPanel({
                 <small>
                   {file.additions > 0 ? <b className="add">+{file.additions}</b> : null}
                   {file.deletions > 0 ? <b className="del">-{file.deletions}</b> : null}
-                  {file.additions === 0 && file.deletions === 0 ? "改" : null}
+                  {file.additions === 0 && file.deletions === 0 ? t("inspect.changed") : null}
                 </small>
               </button>
             ))}
             {onUndo && !running && (
-              <button type="button" className="inspect-undo" onClick={onUndo}>撤回上一轮改动</button>
+              <button type="button" className="inspect-undo" onClick={onUndo}>{t("inspect.undo")}</button>
             )}
           </div>
         </Fold>
       )}
       {workspace && (
-        <Fold title="文件" open={working} onToggle={() => setWorking((current) => !current)}>
+        <Fold title={t("inspect.files")} open={working} onToggle={() => setWorking((current) => !current)}>
           <div className="tree">
             <button
               type="button"
@@ -879,9 +893,9 @@ export function InspectPanel({
             >
               <Icon className="chevron" path="M6 9l6 6 6-6" size={12} />
               <Icon path="M3 7h6l2 2h10v10H3z" size={14} />
-              {prefix ? prefix.replace(/\/$/, "") : folder ?? "工作区"}
+              {prefix ? prefix.replace(/\/$/, "") : folder ?? t("inspect.workspace")}
             </button>
-            {treeOpen && visible.length === 0 && <p className="sidebar-empty">没有文件</p>}
+            {treeOpen && visible.length === 0 && <p className="sidebar-empty">{t("inspect.noFiles")}</p>}
             {treeOpen && visible.map((file) => {
               const dir = file.endsWith("/");
               const name = (prefix ? file.slice(prefix.length) : file).replace(/\/$/, "");
@@ -955,7 +969,8 @@ function ChangeSummary({ files, onOpen }: { files: FileChange[]; onOpen?(file: F
 }
 
 export function FileDrawer({ file, workspace, onClose }: { file: FileChange; workspace?: string; onClose(): void }) {
-  const [body, setBody] = useState("读取中…");
+  const { t } = useI18n();
+  const [body, setBody] = useState(() => t("preview.reading"));
   const [wide, setWide] = useState(false);
   const markdown = /\.(md|markdown)$/i.test(file.path);
   const html = /\.html?$/i.test(file.path);
@@ -967,9 +982,10 @@ export function FileDrawer({ file, workspace, onClose }: { file: FileChange; wor
   }, [file.path, markdown]);
   useEffect(() => {
     let gone = false;
+    setBody(t("preview.reading"));
     void window.harness.workspace.read(file.path, workspace).then(
       (result) => {
-        if (!gone) setBody(result.binary ? "二进制文件" : result.content);
+        if (!gone) setBody(result.binary ? t("preview.binary") : result.content);
       },
       (error: unknown) => {
         if (!gone) setBody(error instanceof Error ? error.message : String(error));
@@ -978,7 +994,7 @@ export function FileDrawer({ file, workspace, onClose }: { file: FileChange; wor
     return () => {
       gone = true;
     };
-  }, [file.path, workspace]);
+  }, [file.path, workspace, t]);
   const preview = rendered && (markdown || html);
   const diff = Boolean(file.patch && diffOpen && !preview);
   return (
@@ -997,7 +1013,7 @@ export function FileDrawer({ file, workspace, onClose }: { file: FileChange; wor
               setRendered(false);
             }}
           >
-            {diffOpen ? "当前文件" : "查看改动"}
+            {diffOpen ? t("preview.currentFile") : t("preview.viewDiff")}
             {file.additions > 0 && <b className="add">+{file.additions}</b>}
             {file.deletions > 0 && <b className="del">-{file.deletions}</b>}
           </button>
@@ -1011,20 +1027,20 @@ export function FileDrawer({ file, workspace, onClose }: { file: FileChange; wor
           <button
             type="button"
             className={preview ? "drawer-btn on" : "drawer-btn"}
-            aria-label={preview ? "查看源码" : "预览"}
+            aria-label={preview ? t("preview.source") : t("preview.preview")}
             onClick={() => setRendered((current) => !current)}
           >
             <Icon path={preview ? "M16 18l6-6-6-6M8 6l-6 6 6 6" : "M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8M12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6"} size={16} />
           </button>
         )}
         <CopyButton text={body} className="drawer-btn" size={16} />
-        <button type="button" className="drawer-btn" aria-label="打开" onClick={() => void window.harness.workspace.open(file.path, workspace)}>
+        <button type="button" className="drawer-btn" aria-label={t("preview.open")} onClick={() => void window.harness.workspace.open(file.path, workspace)}>
           <Icon path="M14 4h6v6M20 4l-8 8M10 4H5v16h14v-5" size={16} />
         </button>
-        <button type="button" className="drawer-btn" aria-label={wide ? "还原" : "放大"} onClick={() => setWide((current) => !current)}>
+        <button type="button" className="drawer-btn" aria-label={wide ? t("preview.restore") : t("preview.expand")} onClick={() => setWide((current) => !current)}>
           <Icon path={wide ? "M4 14h6v6M20 10h-6V4M14 20v-6h6M10 4v6H4" : "M15 3h6v6M9 21H3v-6M21 15v6h-6M3 9V3h6"} size={16} />
         </button>
-        <button type="button" className="drawer-close" aria-label="关闭" onClick={onClose}>
+        <button type="button" className="drawer-close" aria-label={t("common.close")} onClick={onClose}>
           <Icon path="M6 6l12 12M18 6L6 18" size={16} />
         </button>
       </header>
@@ -1043,7 +1059,7 @@ export function FileDrawer({ file, workspace, onClose }: { file: FileChange; wor
       {diff ? null : preview && html ? (
         <iframe
           className="file-frame"
-          title={`${file.path} 预览`}
+          title={t("preview.title", { path: file.path })}
           src={previewUrl(file.path)}
           sandbox="allow-scripts allow-same-origin allow-forms"
         />
@@ -1132,6 +1148,7 @@ export function PromptBar({
   stats?: AgentSessionStats;
   placement?: "dock" | "hero";
 }) {
+  const { t } = useI18n();
   const [cursor, setCursor] = useState(value.length);
   const [files, setFiles] = useState<string[]>([]);
   const [listing, setListing] = useState(false);
@@ -1193,7 +1210,7 @@ export function PromptBar({
       next.push({
         id: `${file.name}-${file.size}-${file.lastModified}-${Math.random()}`,
         name: file.name,
-        dataUri: await readDataUri(file),
+        dataUri: await readDataUri(file, t),
       });
     }
     if (next.length === 0) return;
@@ -1228,11 +1245,11 @@ export function PromptBar({
 
   const slash = value === "/" || /^\/[^\s]*$/.test(value);
   const commands = [
-    { id: "/undo", label: "撤回上一轮改动" },
-    { id: "/compact", label: "压缩旧对话，释放上下文" },
-    { id: "/new", label: "新对话" },
-    { id: "/open", label: "打开仓库" },
-    { id: "/login", label: "设置" },
+    { id: "/undo", label: t("slash.undo") },
+    { id: "/compact", label: t("slash.compact") },
+    { id: "/new", label: t("slash.new") },
+    { id: "/open", label: t("slash.open") },
+    { id: "/login", label: t("slash.login") },
   ].filter((item) => item.id.startsWith(value || "/"));
 
   const onKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1334,10 +1351,10 @@ export function PromptBar({
             type="button"
             className={folder ? "prompt-folder on" : "prompt-folder"}
             onClick={onPickWorkspace}
-            title={workspace ?? "选择或打开本地项目"}
+            title={workspace ?? t("composer.selectOrOpen")}
           >
             <Icon path="M3 7h6l2 2h10v10H3z" size={13} />
-            <span>{folder ?? "选择项目"}</span>
+            <span>{folder ?? t("composer.selectProject")}</span>
           </button>
         </div>
         <form
@@ -1403,7 +1420,7 @@ export function PromptBar({
                 type="button"
                 className="prompt-tag"
                 onClick={() => setAttachments((current) => current.filter((item) => item !== file))}
-                aria-label={`移除 ${file}`}
+                aria-label={t("composer.removeFile", { name: file })}
               >
                 <span>@{file}</span>
                 <Icon path="M18 6L6 18M6 6l12 12" size={12} />
@@ -1414,7 +1431,7 @@ export function PromptBar({
                 key={item.id}
                 type="button"
                 className="prompt-upload"
-                aria-label={`移除 ${item.name}`}
+                aria-label={t("composer.removeFile", { name: item.name })}
                 onClick={() => setUploads((current) => current.filter((entry) => entry.id !== item.id))}
               >
                 <img src={item.dataUri} alt="" />
@@ -1438,12 +1455,12 @@ export function PromptBar({
             event.preventDefault();
             void addUploads(images);
           }}
-          placeholder={workspace ? "输入你的需求或问题，输入 @ 可选择文件…" : "输入你的想法或指令，或从上方选择项目开始…"}
+          placeholder={workspace ? t("composer.placeholderWorkspace") : t("composer.placeholderEmpty")}
           rows={hero && !value ? 2 : 1}
         />
         {slash && (
           <div className="slash-menu">
-            {commands.length === 0 && <p className="slash-empty">无匹配命令</p>}
+            {commands.length === 0 && <p className="slash-empty">{t("composer.noCommands")}</p>}
             {commands.map((item, index) => (
               <button
                 key={item.id}
@@ -1466,7 +1483,7 @@ export function PromptBar({
             ref={menu}
             onWheel={(event) => event.stopPropagation()}
           >
-            {matches.length === 0 && <p className="slash-empty">{listing ? "正在列出文件…" : "没有匹配的文件"}</p>}
+            {matches.length === 0 && <p className="slash-empty">{listing ? t("composer.listingFiles") : t("composer.noFiles")}</p>}
             {matches.map((file, index) => (
               <button
                 key={file}
@@ -1475,7 +1492,7 @@ export function PromptBar({
                 onClick={() => insertFile(file)}
               >
                 <span>{file}</span>
-                {file.endsWith("/") && mention.query === file && <small>选中此目录</small>}
+                {file.endsWith("/") && mention.query === file && <small>{t("composer.selectDir")}</small>}
               </button>
             ))}
           </div>
@@ -1495,21 +1512,21 @@ export function PromptBar({
           <button
             type="button"
             className="prompt-attach"
-            aria-label="上传图片"
+            aria-label={t("composer.uploadImage")}
             disabled={uploads.length >= MAX_UPLOAD_IMAGES}
             onClick={() => picker.current?.click()}
           >
             <Icon path="M12 5v14M5 12h14" size={15} />
           </button>
-          <Combo value={model} options={models} searchable placeholder="筛选模型" down={hero} onChange={onModel} />
+          <Combo value={model} options={models} searchable placeholder={t("composer.filterModels")} down={hero} onChange={onModel} />
           <PermissionPicker value={permission} down={hero} onChange={onPermission} />
           {!hero && <ContextStats stats={stats} model={model} up />}
           {running ? (
-            <button type="button" className="send stop" onClick={onStop} aria-label="中止">
+            <button type="button" className="send stop" onClick={onStop} aria-label={t("composer.abort")}>
               <i />
             </button>
           ) : (
-            <button type="submit" className="send" disabled={disabled || (!compose().trim() && uploads.length === 0)} aria-label="发送">
+            <button type="submit" className="send" disabled={disabled || (!compose().trim() && uploads.length === 0)} aria-label={t("composer.send")}>
               <Icon path="M12 19V5M5 12l7-7 7 7" size={15} />
             </button>
           )}
@@ -1520,11 +1537,11 @@ export function PromptBar({
   );
 }
 
-function readDataUri(file: File): Promise<string> {
+function readDataUri(file: File, t: ReturnType<typeof useI18n>["t"]): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error(`无法读取 ${file.name}`));
+    reader.onerror = () => reject(new Error(t("readError", { name: file.name })));
     reader.readAsDataURL(file);
   });
 }
@@ -1537,33 +1554,35 @@ export interface PermissionOptionConfig {
   danger?: boolean;
 }
 
-export const PERMISSION_OPTIONS: PermissionOptionConfig[] = [
+function permissionOptions(t: ReturnType<typeof useI18n>["t"]): PermissionOptionConfig[] {
+  return [
   {
     value: "plan",
-    label: "仅规划",
-    desc: "只分析和规划，不修改文件或运行命令。",
+    label: t("perm.plan"),
+    desc: t("perm.planDesc"),
     icon: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
   },
   {
     value: "ask",
-    label: "编辑时询问",
-    desc: "编辑外部文件或使用互联网时始终询问。",
+    label: t("perm.ask"),
+    desc: t("perm.askDesc"),
     icon: "M12 22a10 10 0 1 0-10-10 10 10 0 0 0 10 10zm0-14v5m0 3h.01",
   },
   {
     value: "auto",
-    label: "工作区权限",
-    desc: "仅对检测到的风险操作请求批准。",
+    label: t("perm.auto"),
+    desc: t("perm.autoDesc"),
     icon: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
   },
   {
     value: "full",
-    label: "完全访问",
-    desc: "可不受限制地访问互联网和这台电脑上的任何文件。",
+    label: t("perm.full"),
+    desc: t("perm.fullDesc"),
     icon: "M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 0c2.5 0 4.5 4.5 4.5 10s-2 10-4.5 10-4.5-4.5-4.5-10 2-10 4.5-10z M2 12h20",
     danger: true,
   },
-];
+  ];
+}
 
 export function PermissionPicker({
   value,
@@ -1574,9 +1593,11 @@ export function PermissionPicker({
   onChange(value: string): void;
   down?: boolean;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  const selected = PERMISSION_OPTIONS.find((item) => item.value === value) ?? PERMISSION_OPTIONS[2];
+  const options = permissionOptions(t);
+  const selected = options.find((item) => item.value === value) ?? options[2]!;
 
   useEffect(() => {
     if (!open) return;
@@ -1604,7 +1625,7 @@ export function PermissionPicker({
 
       {open && (
         <div className="permission-menu" role="listbox">
-          {PERMISSION_OPTIONS.map((item) => {
+          {options.map((item) => {
             const isSelected = item.value === value;
             return (
               <button
@@ -1642,7 +1663,7 @@ export function Combo({
   options,
   onChange,
   searchable,
-  placeholder = "筛选…",
+  placeholder,
   down,
 }: {
   value: string;
@@ -1652,6 +1673,7 @@ export function Combo({
   placeholder?: string;
   down?: boolean;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [anchor, setAnchor] = useState<DOMRect>();
@@ -1705,7 +1727,7 @@ export function Combo({
           className="combo-input"
           value={query}
           autoFocus
-          placeholder={placeholder}
+          placeholder={placeholder ?? t("combo.filter")}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
@@ -1746,7 +1768,7 @@ export function Combo({
               {query.trim()}
             </button>
           ) : (
-            <div className="combo-empty">没有匹配项</div>
+            <div className="combo-empty">{t("combo.empty")}</div>
           ))}
           {filtered.map((item) => (
             <button
@@ -1785,6 +1807,7 @@ export function ApprovalCard({
   onError(message: string): void;
   onRespond?(response: Record<string, unknown>): void | Promise<void>;
 }) {
+  const { t } = useI18n();
   const [value, setValue] = useState(request.prefill ?? "");
   const respond = async (response: Record<string, unknown>) => {
     try {
@@ -1796,7 +1819,7 @@ export function ApprovalCard({
     }
   };
   // The agent packs question, command and sandbox state into one newline-separated title.
-  const [heading, ...detail] = (request.title ?? (request.method === "confirm" ? "需要批准" : "需要选择"))
+  const [heading, ...detail] = (request.title ?? (request.method === "confirm" ? t("approval.needConfirm") : t("approval.needSelect")))
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
@@ -1817,15 +1840,15 @@ export function ApprovalCard({
         <textarea value={value} onChange={(event) => setValue(event.target.value)} rows={3} />
       )}
       <div className="row-actions">
-        <button type="button" className="ghost" onClick={() => void respond({ cancelled: true })}>取消</button>
+        <button type="button" className="ghost" onClick={() => void respond({ cancelled: true })}>{t("common.cancel")}</button>
         {request.method === "confirm" && (
           <>
-            <button type="button" className="ghost" onClick={() => void respond({ confirmed: false })}>拒绝</button>
-            <button type="button" className="primary" onClick={() => void respond({ confirmed: true })}>允许</button>
+            <button type="button" className="ghost" onClick={() => void respond({ confirmed: false })}>{t("common.reject")}</button>
+            <button type="button" className="primary" onClick={() => void respond({ confirmed: true })}>{t("common.allow")}</button>
           </>
         )}
         {(request.method === "input" || request.method === "editor") && (
-          <button type="button" className="primary" onClick={() => void respond({ value })}>继续</button>
+          <button type="button" className="primary" onClick={() => void respond({ value })}>{t("common.continue")}</button>
         )}
       </div>
     </div>
@@ -1849,20 +1872,21 @@ function ModelField({
   onList(): void;
   placeholder?: string;
 }) {
+  const { t } = useI18n();
   const options = [...new Set([value, ...models].filter(Boolean))].map((id) => ({ value: id, label: id }));
   return (
     <label>
-      模型
+      {t("common.model")}
       <span className="settings-model">
         <Combo
           value={value}
           options={options}
           searchable
-          placeholder={placeholder ?? "筛选模型"}
+          placeholder={placeholder ?? t("composer.filterModels")}
           onChange={onChange}
         />
         <button type="button" className="ghost" disabled={!canList || listing} onClick={onList}>
-          {listing ? "获取中…" : "获取模型"}
+          {listing ? t("combo.fetching") : t("combo.fetchModels")}
         </button>
       </span>
     </label>
@@ -1878,6 +1902,7 @@ function SecretField({
   onChange(value: string): void;
   placeholder?: string;
 }) {
+  const { t } = useI18n();
   const [show, setShow] = useState(false);
   return (
     <label>
@@ -1891,7 +1916,7 @@ function SecretField({
           spellCheck={false}
           placeholder={placeholder}
         />
-        <button type="button" className="secret-toggle" aria-label={show ? "隐藏密钥" : "显示密钥"} onClick={() => setShow((open) => !open)}>
+        <button type="button" className="secret-toggle" aria-label={show ? t("secret.hide") : t("secret.show")} onClick={() => setShow((open) => !open)}>
           <Icon
             path={show
               ? "M3 3l18 18M10.7 10.7a3 3 0 0 0 4.2 4.2M9.9 5.1A11 11 0 0 1 12 5c6 0 10 7 10 7a18 18 0 0 1-3.3 3.9M6.1 6.1A16 16 0 0 0 2 12s4 8 10 8a10 10 0 0 0 4.3-.9"
@@ -1906,30 +1931,32 @@ function SecretField({
 
 type SettingsPane = "chat" | "vision" | "shortcuts" | "about";
 
-const SETTINGS_NAV: Array<{ label: string; items: Array<{ id: SettingsPane; label: string; icon: string }> }> = [
+function settingsNav(t: ReturnType<typeof useI18n>["t"]): Array<{ label: string; items: Array<{ id: SettingsPane; label: string; icon: string }> }> {
+  return [
   {
-    label: "模型与服务",
+    label: t("settings.groupModels"),
     items: [
-      { id: "chat", label: "对话模型", icon: "M4 6h16v10H8l-4 4V6z" },
-      { id: "vision", label: "图片识别", icon: "M4 6h16v12H4zM8 14l3-3 2 2 3-4 4 5" },
+      { id: "chat", label: t("settings.chat"), icon: "M4 6h16v10H8l-4 4V6z" },
+      { id: "vision", label: t("settings.vision"), icon: "M4 6h16v12H4zM8 14l3-3 2 2 3-4 4 5" },
     ],
   },
   {
-    label: "帮助与系统",
+    label: t("settings.groupHelp"),
     items: [
       {
         id: "shortcuts",
-        label: "快捷键指南",
+        label: t("settings.shortcuts"),
         icon: "M2 5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5zm3 3h2v2H5V8zm4 0h2v2H9V8zm4 0h2v2h-2V8zm4 0h2v2h-2V8zm-12 4h2v2H5v-2zm4 0h6v2H9v-2zm8 0h2v2h-2v-2z",
       },
       {
         id: "about",
-        label: "关于应用",
+        label: t("settings.about"),
         icon: "M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 14a1.2 1.2 0 1 1 1.2-1.2A1.2 1.2 0 0 1 12 16zm1.2-5.5h-2.4V7h2.4z",
       },
     ],
   },
-];
+  ];
+}
 
 export function Login({
   configured,
@@ -1944,6 +1971,7 @@ export function Login({
   onClose(): void;
   onSaved(): Promise<void>;
 }) {
+  const { t } = useI18n();
   const [pane, setPane] = useState<SettingsPane>("chat");
   const [kind, setKind] = useState<ChatKind>("deepseek");
   const [deepseekKey, setDeepseekKey] = useState("");
@@ -1969,7 +1997,7 @@ export function Login({
     const base = target === "chat" ? chatUrl : visionEndpoint;
     const secret = target === "chat" ? chatKey : visionKey;
     if (!base.trim() || !secret.trim()) {
-      setTestStatus({ target, ok: false, message: "请先填写 API URL 与 Key" });
+      setTestStatus({ target, ok: false, message: t("settings.fillUrlKey") });
       return;
     }
     setListing(target);
@@ -1981,15 +2009,15 @@ export function Login({
       if (target === "chat") setChatModels(ids);
       else setVisionModels(ids);
       if (ids.length === 0) {
-        setTestStatus({ target, ok: true, message: `连通正常 (${elapsed}ms)，但未返回模型列表` });
+        setTestStatus({ target, ok: true, message: t("settings.okNoModels", { ms: elapsed }) });
       } else {
-        setTestStatus({ target, ok: true, message: `连通成功 (${elapsed}ms) · 发现 ${ids.length} 个模型` });
+        setTestStatus({ target, ok: true, message: t("settings.okModels", { ms: elapsed, n: ids.length }) });
       }
     } catch (error) {
       setTestStatus({
         target,
         ok: false,
-        message: error instanceof Error ? error.message : "连接失败，请检查 URL 与 Key",
+        message: error instanceof Error ? error.message : t("settings.connectFailed"),
       });
     } finally {
       setListing(null);
@@ -2056,7 +2084,7 @@ export function Login({
         }}
       >
         <nav className="settings-nav">
-          {SETTINGS_NAV.map((group) => (
+          {settingsNav(t).map((group) => (
             <div key={group.label} className="settings-group">
               <div className="settings-group-label">{group.label}</div>
               {group.items.map((item) => (
@@ -2077,14 +2105,14 @@ export function Login({
           <header className="settings-head">
             <h2>
               {pane === "chat"
-                ? "对话模型"
+                ? t("settings.chat")
                 : pane === "vision"
-                  ? "图片识别"
+                  ? t("settings.vision")
                   : pane === "shortcuts"
-                    ? "快捷键指南"
-                    : "关于应用"}
+                    ? t("settings.shortcuts")
+                    : t("settings.about")}
             </h2>
-            <button type="button" className="settings-close" aria-label="关闭" onClick={onClose}>
+            <button type="button" className="settings-close" aria-label={t("common.close")} onClick={onClose}>
               <Icon path="M6 6l12 12M18 6L6 18" />
             </button>
           </header>
@@ -2092,7 +2120,7 @@ export function Login({
             {pane === "chat" && (
               <>
                 <div className="settings-seg">
-                  {([["deepseek", "DeepSeek 预设"], ["custom", "自定义 API"]] as const).map(([id, label]) => (
+                  {([["deepseek", t("settings.deepseekPreset")], ["custom", t("settings.customApi")]] as const).map(([id, label]) => (
                     <button
                       key={id}
                       type="button"
@@ -2112,18 +2140,14 @@ export function Login({
                 <div className="settings-card">
                   <div className="settings-card-body">
                     {kind === "deepseek" ? (
-                      <p className="settings-hint">
-                        直连 DeepSeek 官方接口（<code>https://api.deepseek.com</code>）。只需填入 API Key 即可开始对话。
-                      </p>
+                      <p className="settings-hint">{t("settings.deepseekHint")}</p>
                     ) : (
-                      <p className="settings-hint">
-                        兼容任意符合 OpenAI Chat Completions 规范的服务（如 OneAPI、Ollama、NewAPI 或第三方聚合商）。
-                      </p>
+                      <p className="settings-hint">{t("settings.customHint")}</p>
                     )}
 
                     {kind === "custom" && (
                       <label>
-                        接口地址 (Base URL)
+                        {t("settings.baseUrl")}
                         <input
                           value={customUrl}
                           onChange={(event) => setCustomUrl(event.target.value)}
@@ -2158,22 +2182,20 @@ export function Login({
               <>
                 <div className="settings-card">
                   <div className="settings-card-head">
-                    <strong>GLM-4V-Flash 视觉分析</strong>
-                    <span className="settings-card-badge">主视觉</span>
+                    <strong>{t("settings.visionTitle")}</strong>
+                    <span className="settings-card-badge">{t("settings.visionBadge")}</span>
                   </div>
                   <div className="settings-card-body">
-                    <p className="settings-hint">
-                      用于对话中贴图识别、截图还原与 UI 布局解析。填入智谱开放平台 API Key 即可。
-                    </p>
+                    <p className="settings-hint">{t("settings.visionHint")}</p>
                     <label>
-                      接口地址 (Endpoint)
+                      {t("settings.endpoint")}
                       <input
                         value={visionEndpoint}
                         onChange={(event) => setVisionEndpoint(event.target.value)}
                         placeholder={DEFAULT_VISION_CONFIG.endpoint}
                       />
                     </label>
-                    <SecretField value={visionKey} onChange={setVisionKey} placeholder="智谱 API Key" />
+                    <SecretField value={visionKey} onChange={setVisionKey} placeholder={t("settings.zhipuKey")} />
                     <ModelField
                       value={visionModel}
                       onChange={setVisionModel}
@@ -2195,13 +2217,11 @@ export function Login({
 
                 <div className="settings-card muted">
                   <div className="settings-card-head">
-                    <strong>MinerU OCR 识别引擎</strong>
-                    <span className="settings-card-badge free">免配内置</span>
+                    <strong>{t("settings.mineruTitle")}</strong>
+                    <span className="settings-card-badge free">{t("settings.mineruBadge")}</span>
                   </div>
                   <div className="settings-card-body">
-                    <p className="settings-hint">
-                      高精度开源文档与截图 OCR 引擎已预置就绪，上传图片时自动提取文字，无需单独配置密钥。
-                    </p>
+                    <p className="settings-hint">{t("settings.mineruHint")}</p>
                   </div>
                 </div>
               </>
@@ -2212,31 +2232,31 @@ export function Login({
                 <div className="settings-card-body">
                   <div className="shortcut-list">
                     <div className="shortcut-item">
-                      <span className="shortcut-label">发送当前消息</span>
+                      <span className="shortcut-label">{t("shortcut.send")}</span>
                       <kbd>Enter</kbd>
                     </div>
                     <div className="shortcut-item">
-                      <span className="shortcut-label">输入框内换行</span>
+                      <span className="shortcut-label">{t("shortcut.newline")}</span>
                       <span className="kbd-group"><kbd>Shift</kbd> + <kbd>Enter</kbd></span>
                     </div>
                     <div className="shortcut-item">
-                      <span className="shortcut-label">快速引用工作区文件</span>
-                      <kbd>@文件名</kbd>
+                      <span className="shortcut-label">{t("shortcut.mention")}</span>
+                      <kbd>{t("shortcut.mentionKey")}</kbd>
                     </div>
                     <div className="shortcut-item">
-                      <span className="shortcut-label">撤回上一轮修改</span>
+                      <span className="shortcut-label">{t("shortcut.undo")}</span>
                       <kbd>/undo</kbd>
                     </div>
                     <div className="shortcut-item">
-                      <span className="shortcut-label">新建对话会话</span>
+                      <span className="shortcut-label">{t("shortcut.new")}</span>
                       <kbd>/new</kbd>
                     </div>
                     <div className="shortcut-item">
-                      <span className="shortcut-label">切换 / 打开项目</span>
+                      <span className="shortcut-label">{t("shortcut.open")}</span>
                       <kbd>/open</kbd>
                     </div>
                     <div className="shortcut-item">
-                      <span className="shortcut-label">关闭弹窗与抽屉</span>
+                      <span className="shortcut-label">{t("shortcut.escape")}</span>
                       <kbd>Esc</kbd>
                     </div>
                   </div>
@@ -2252,8 +2272,8 @@ export function Login({
                       <img src={logo} alt="" width={32} height={18} />
                     </div>
                     <div>
-                      <h3>Tether 工作台 (Tether AI)</h3>
-                      <p>面向开发者的开放式、本地优先 AI 编程工作台</p>
+                      <h3>{t("about.title")}</h3>
+                      <p>{t("about.subtitle")}</p>
                     </div>
                   </div>
 
@@ -2261,52 +2281,52 @@ export function Login({
                     <div className="about-feature-item">
                       <Icon path="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-6h2zm0-8h-2V7h2z" size={15} />
                       <div>
-                        <strong>DeepSeek 深度优化</strong>：支持推理思考强度调节（High / Medium / Low）、思维链流式展示与长上下文大仓库解析。
+                        <strong>{t("about.f1Title")}</strong>{t("about.f1Body")}
                       </div>
                     </div>
                     <div className="about-feature-item">
                       <Icon path="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" size={15} />
                       <div>
-                        <strong>100% 开放自定义接口</strong>：自由接入 OneAPI、Ollama、vLLM、企业内部私有网关，无任何厂商闭源锁定。
+                        <strong>{t("about.f2Title")}</strong>{t("about.f2Body")}
                       </div>
                     </div>
                     <div className="about-feature-item">
                       <Icon path="M4 6h16v12H4zM8 14l3-3 2 2 3-4 4 5" size={15} />
                       <div>
-                        <strong>内置 MinerU OCR 引擎</strong>：无需 API Key 即可本地免费提取设计稿与报错截图中的高精度代码与 Markdown。
+                        <strong>{t("about.f3Title")}</strong>{t("about.f3Body")}
                       </div>
                     </div>
                     <div className="about-feature-item">
                       <Icon path="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" size={15} />
                       <div>
-                        <strong>纯粹本地优先与原子级撤销</strong>：所有会话和密钥存储于本机 <code>~/.tether</code>，支持 <code>/undo</code> 事务级检查点一键还原。
+                        <strong>{t("about.f4Title")}</strong>{t("about.f4Body")}
                       </div>
                     </div>
                   </div>
 
                   <div className="about-grid">
                     <div className="about-cell">
-                      <span className="about-key">应用版本</span>
+                      <span className="about-key">{t("about.version")}</span>
                       <span className="about-val">v{appVersion || "0.1.0"}</span>
                     </div>
                     <div className="about-cell">
-                      <span className="about-key">Agent 内核</span>
-                      <span className="about-val">Tether Agent Core (本地隔离)</span>
+                      <span className="about-key">{t("about.core")}</span>
+                      <span className="about-val">{t("about.coreVal")}</span>
                     </div>
                     <div className="about-cell">
-                      <span className="about-key">运行架构</span>
+                      <span className="about-key">{t("about.arch")}</span>
                       <span className="about-val">Electron 37 · React 19 · Node 22</span>
                     </div>
                     <div className="about-cell">
-                      <span className="about-key">沙箱状态</span>
-                      <span className="about-val">已就绪 (macOS / Windows 隔离防护)</span>
+                      <span className="about-key">{t("about.sandbox")}</span>
+                      <span className="about-val">{t("about.sandboxVal")}</span>
                     </div>
                     <div className="about-cell">
-                      <span className="about-key">本地数据目录</span>
-                      <span className="about-val">~/.tether (0600 私有权限)</span>
+                      <span className="about-key">{t("about.dataDir")}</span>
+                      <span className="about-val">{t("about.dataDirVal")}</span>
                     </div>
                     <div className="about-cell">
-                      <span className="about-key">开源协议</span>
+                      <span className="about-key">{t("about.license")}</span>
                       <span className="about-val">MIT License</span>
                     </div>
                   </div>
@@ -2324,7 +2344,7 @@ export function Login({
                   await onSaved();
                 }}
               >
-                清除配置
+                {t("settings.clearConfig")}
               </button>
             )}
             {pane === "about" && (
@@ -2335,7 +2355,7 @@ export function Login({
                   onClick={() => void window.harness.app.checkUpdate()}
                 >
                   <Icon path="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" size={14} />
-                  <span>检查更新</span>
+                  <span>{t("about.checkUpdate")}</span>
                 </button>
                 <button
                   type="button"
@@ -2343,7 +2363,7 @@ export function Login({
                   onClick={() => void window.harness.app.openExternal("https://github.com/tt-11-dd/tether-ai/issues")}
                 >
                   <Icon path="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" size={14} />
-                  <span>反馈问题</span>
+                  <span>{t("about.feedback")}</span>
                 </button>
                 <button
                   type="button"
@@ -2351,13 +2371,13 @@ export function Login({
                   onClick={() => void window.harness.app.openExternal("https://github.com/tt-11-dd/tether-ai")}
                 >
                   <Icon path="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" size={14} />
-                  <span>GitHub 仓库</span>
+                  <span>{t("about.github")}</span>
                 </button>
               </>
             )}
             {pane !== "chat" && pane !== "vision" ? (
               <button type="button" className="primary" onClick={onClose}>
-                关闭
+                {t("settings.close")}
               </button>
             ) : (
               <button
@@ -2372,7 +2392,7 @@ export function Login({
                     : !customUrl.trim() || !customModel.trim() || !customKey.trim())
                 }
               >
-                保存配置
+                {t("settings.save")}
               </button>
             )}
           </footer>

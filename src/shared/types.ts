@@ -1,3 +1,5 @@
+import type { Locale } from "./i18n";
+
 /** Previews load through their own origin so page storage works without reaching the app. */
 export const PREVIEW_SCHEME = "harness-preview";
 export const PREVIEW_HOST = "workspace";
@@ -120,6 +122,8 @@ export interface DesktopApi {
     version(): Promise<string>;
     openExternal(url: string): Promise<void>;
     checkUpdate(): Promise<void>;
+    getLocale(): Promise<Locale>;
+    setLocale(locale: Locale): Promise<void>;
   };
   /** Frameless windows off macOS need the renderer to drive the caption buttons. */
   window: {
