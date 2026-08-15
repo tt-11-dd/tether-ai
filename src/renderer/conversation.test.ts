@@ -632,6 +632,18 @@ describe("conversation events", () => {
     ].join("\n"));
   });
 
+  it("splits long live thinking into visible steps", () => {
+    expect(thoughtSteps([
+      { type: "thinking", id: "t1", text: "先看结构 1. `a.ts` 2. `b.ts` - 当前结构 - 对接时需要做的事" },
+    ], []).map((step) => step.text)).toEqual([
+      "先看结构",
+      "1. `a.ts`",
+      "2. `b.ts`",
+      "- 当前结构",
+      "- 对接时需要做的事",
+    ]);
+  });
+
   it("strips model think tags so they are not shown as raw markup", () => {
     expect(formatThinking("<thinking>Inspecting key file contents for summary</thinking>"))
       .toBe("Inspecting key file contents for summary");

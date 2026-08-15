@@ -797,8 +797,11 @@ export function thoughtSteps(
   let current: { text: string; tools: ToolActivity[] } | undefined;
   for (const item of work) {
     if (item.type === "thinking" || item.type === "text") {
-      current = { text: item.text, tools: [] };
-      steps.push(current);
+      const segments = thinkingSegments(item.text);
+      for (const text of segments) {
+        current = { text, tools: [] };
+        steps.push(current);
+      }
       continue;
     }
     const tool = byId.get(item.toolId);
@@ -811,13 +814,30 @@ export function thoughtSteps(
   }
   // Tool-only steps carry no narrative, so fall back to the collapsed thinking text.
   if (!steps.some((step) => step.text.trim()) && fallback.trim()) {
-    const paragraphs = formatThinking(fallback).split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+    const paragraphs = thinkingSegments(fallback);
     return paragraphs.map((text, index) => ({
       text,
       tools: index === paragraphs.length - 1 ? tools : [],
     }));
   }
   return steps.map((step) => ({ ...step, text: step.text ? formatThinking(step.text) : step.text }));
+}
+
+function thinkingSegments(text: string): string[] {
+  const formatted = formatThinking(text).trim();
+  if (!formatted) return [];
+  const blocks = formatted.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+  const lines = blocks.flatMap((block) => {
+    const rows = block.split("\n").map((part) => part.trim()).filter(Boolean);
+    return rows.length > 1 ? rows : [block];
+  });
+  if (lines.length > 1) return lines;
+  if (formatted.length <= 220) return [formatted];
+  return formatted
+    .split(/(?<=[。！？.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .flatMap((part) => part.length > 260 ? part.match(/.{1,220}(?:\s+|$)/g)?.map((item) => item.trim()).filter(Boolean) ?? [part] : [part]);
 }
 
 /** Drop the last text beat when it is already the visible reply. */

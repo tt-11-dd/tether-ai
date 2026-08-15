@@ -704,7 +704,17 @@ button:disabled { cursor: default; opacity: .4; }
   color: inherit;
   text-align: left;
 }
-.trace-toggle .trace-done, .trace-toggle .dots { flex: none; width: 16px; color: var(--ink-3); }
+.trace-toggle .trace-logo, .trace-toggle .dots {
+  flex: none;
+  width: 16px;
+  color: var(--ink-3);
+}
+.trace-toggle .trace-logo {
+  height: auto;
+  display: block;
+  object-fit: contain;
+  opacity: .72;
+}
 .trace-toggle span { min-width: 0; }
 .trace-toggle:hover { color: var(--ink); }
 .trace-toggle time {
@@ -721,6 +731,12 @@ button:disabled { cursor: default; opacity: .4; }
 .trace-toggle .trace-label {
   color: var(--ink-3);
   font-weight: 400;
+}
+.trace-subtle {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 400;
+  opacity: .72;
 }
 .loading-state .shimmer,
 .trace.live .shimmer {
@@ -1379,6 +1395,10 @@ button:disabled { cursor: default; opacity: .4; }
   bottom: auto;
   top: calc(100% + 6px);
 }
+.settings .combo-menu {
+  z-index: 90;
+  max-height: 190px;
+}
 .combo-item, .combo-empty {
   width: 100%;
   min-height: 32px;
@@ -1590,7 +1610,7 @@ button:disabled { cursor: default; opacity: .4; }
 .settings-nav-item.active { background: var(--hover-2); color: var(--ink); font-weight: 500; }
 .settings-nav-item svg { color: var(--ink-3); flex: none; }
 .settings-nav-item.active svg { color: var(--ink); }
-.settings-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-radius: 0 16px 16px 0; overflow: hidden; }
+.settings-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-radius: 0 16px 16px 0; overflow: visible; }
 .settings-head {
   height: 52px;
   padding: 0 16px 0 24px;
@@ -1613,13 +1633,19 @@ button:disabled { cursor: default; opacity: .4; }
 .settings-body {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
   padding: 16px 24px 20px;
   display: flex;
   flex-direction: column;
   gap: 14px;
   position: relative;
   z-index: 1;
+}
+.settings-body.scroll {
+  overflow-y: auto;
+  padding-bottom: 28px;
+}
+.settings-body.menu-layer {
+  overflow: visible;
 }
 .settings-hint { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.5; }
 .settings-hint code { font: 11.5px/1.2 var(--mono); background: var(--hover); padding: 2px 4px; border-radius: 4px; }
@@ -1653,7 +1679,7 @@ button:disabled { cursor: default; opacity: .4; }
   background: var(--surface);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
 }
 .settings-card.muted {
   background: var(--page);

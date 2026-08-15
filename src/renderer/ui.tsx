@@ -187,23 +187,24 @@ export function Thinking({
   startedAt?: number;
   endedAt?: number;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [born] = useState(() => Date.now());
   const steps = thoughtSteps(work, tools, text);
   const start = startedAt ?? (live ? born : undefined);
   const summary = toolSummary(tools);
   const current = liveStatus(tools);
-  const header = summary || (live ? "思考中…" : "思考过程");
+  const header = live ? "思考中…" : "思考过程";
   const showLive = live && current !== header;
   const hasBody = steps.length > 0 || showLive;
   if (!hasBody && !live) return null;
   return (
     <div className={live ? (open ? "trace live open" : "trace live") : open ? "trace open" : "trace"}>
       <button type="button" className="trace-toggle" onClick={() => hasBody && setOpen((value) => !value)}>
-        {live ? <Dots /> : <Icon className="trace-done" path="M5 12.5l4 4 10-10" size={16} />}
+        {live ? <Dots /> : <img className="trace-logo" src={logo} alt="" width={18} height={10} />}
         <span className={live ? "shimmer trace-label" : "trace-label"}>
           {header}
         </span>
+        {summary && <span className="trace-subtle">{summary}</span>}
         <Elapsed start={start} end={endedAt} live={live} />
         {hasBody ? <Icon className="chevron" path="M6 9l6 6 6-6" size={14} /> : null}
       </button>
@@ -468,15 +469,18 @@ export function AssistantTurn({
   const started = messages.find((item) => item.timestamp)?.timestamp ?? tools[0]?.startedAt;
   const ended = Math.max(0, ...messages.map((item) => item.timestamp ?? 0), ...tools.map((item) => item.endedAt ?? 0));
   const changes = collectFileChanges(tools);
+  const traceWork = thinking
+    ? omitFinalReply(work, text)
+    : work.filter((item) => item.type !== "text");
   return (
     <article className="turn">
-      {(live || thinking || work.length > 0 || tools.length > 0) && (
+      {(live || thinking || traceWork.length > 0 || tools.length > 0) && (
         <div className="turn-trace">
-          <Thinking text={thinking} work={omitFinalReply(work, live ? "" : text)} tools={tools} live={live} startedAt={started} endedAt={ended || undefined} />
+          <Thinking text={thinking} work={traceWork} tools={tools} live={live} startedAt={started} endedAt={ended || undefined} />
         </div>
       )}
       <ChangeSummary files={changes} onOpen={onOpenFile} />
-      <StreamingText text={live ? "" : text} streaming={false} />
+      <StreamingText text={text} streaming={live} />
       {!live && text.trim() && (
         <div className="bubble-actions assistant">
           <CopyAction text={text} />
@@ -1559,7 +1563,6 @@ function ModelField({
           value={value}
           options={options}
           searchable
-          down
           placeholder={placeholder ?? "筛选模型"}
           onChange={onChange}
         />
@@ -1790,7 +1793,7 @@ export function Login({
               <Icon path="M6 6l12 12M18 6L6 18" />
             </button>
           </header>
-          <div className="settings-body">
+          <div className={pane === "about" ? "settings-body scroll" : "settings-body menu-layer"}>
             {pane === "chat" && (
               <>
                 <div className="settings-seg">
