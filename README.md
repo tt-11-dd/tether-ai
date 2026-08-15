@@ -251,8 +251,10 @@ tether-ai/
 Packaging is powered by `electron-builder`:
 
 ```bash
-# Package for the current OS platform
-pnpm run pack
+# Local packaging (requires sibling tether-runtime checkout)
+pnpm pack:mac   # macOS arm64 .dmg only
+pnpm pack:win   # Windows x64 .exe only (more reliable on Windows)
+pnpm pack       # mac + win together (cross-packaging may need extra tooling)
 ```
 
 - **Output Directory**: `release/`
@@ -260,6 +262,23 @@ pnpm run pack
   - macOS: `Tether-*-arm64.dmg` (Apple Silicon only)
   - Windows: `Tether-Setup-*.exe` (x64 NSIS)
   - Linux / Intel Mac: not shipped yet
+
+### Automated GitHub Releases
+
+Push a tag like `v0.1.0` and Actions builds macOS / Windows installers, then uploads them to [Releases](https://github.com/tt-11-dd/tether-ai/releases):
+
+```bash
+# 1. Bump package.json version to match the tag (e.g. 0.1.0)
+# 2. Commit and push
+git add package.json && git commit -m "release 0.1.0" && git push
+
+# 3. Create and push the tag (triggers .github/workflows/release.yml)
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Installers land at: `https://github.com/tt-11-dd/tether-ai/releases/tag/v0.1.0`  
+Each release uploads **only two files**: the macOS `.dmg` and Windows `.exe` (no blockmaps / debug yaml).
 
 ---
 

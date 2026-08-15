@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: mac
+          - os: windows-latest
+            target: win
+
+    runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out tether-ai
+        uses: actions/checkout@v4
+        with:
+          path: tether-ai
+
+      # Agent core lives in a sibling repo (link:../tether-runtime/packages/core).
+      - name: Check out tether-runtime
+        uses: actions/checkout@v4
+        with:
+          repository: tt-11-dd/tether-runtime
+          path: tether-runtime
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.2
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: |
+            tether-ai/pnpm-lock.yaml
+            tether-runtime/pnpm-lock.yaml
+
+      - name: Set up Go (Windows sandbox helper)
+        if: matrix.target == 'win'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install tether-runtime dependencies
+        working-directory: tether-runtime
+        run: pnpm install --frozen-lockfile
+
+      - name: Build tether-agent-core
+        working-directory: tether-runtime/packages/core
+        run: |
+          pnpm build
+          if [ "${{ matrix.target }}" = "win" ]; then
+            pnpm build:windows-sandbox
+          fi
+
+      - name: Install tether-ai dependencies
+        working-directory: tether-ai
+        run: pnpm install --frozen-lockfile
+
+      - name: Link tether-agent-core
+        working-directory: tether-ai
+        run: pnpm core:link
+
+      - name: Build desktop app
+        working-directory: tether-ai
+        run: pnpm build:electron && pnpm build:renderer
+
+      - name: Pack installer
+        working-directory: tether-ai
+        env:
+          # Use the ad-hoc identity from electron-builder.yml; skip keychain discovery.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: pnpm exec electron-builder --${{ matrix.target }}
+
+      # Only ship the two installers — never blockmap / yaml / unpacked dirs.
+      - name: Stage release assets
+        working-directory: tether-ai
+        run: |
+          mkdir -p release-upload
+          if [ "${{ matrix.target }}" = "mac" ]; then
+            cp release/*.dmg release-upload/
+          else
+            cp release/*.exe release-upload/
+          fi
+          ls -la release-upload
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: tether-ai/release-upload/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

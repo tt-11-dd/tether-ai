@@ -251,8 +251,10 @@ tether-ai/
 基于 `electron-builder` 进行自动化打包：
 
 ```bash
-# 打包当前操作系统的安装文件
-pnpm run pack
+# 本机打包（需同时准备同级目录的 tether-runtime）
+pnpm pack:mac   # 仅 macOS arm64 .dmg
+pnpm pack:win   # 仅 Windows x64 .exe（在 Windows 上更稳）
+pnpm pack       # 同时打 mac + win（跨平台打包可能需要额外环境）
 ```
 
 - **打包输出目录**：`release/`
@@ -260,6 +262,23 @@ pnpm run pack
   - macOS：`Tether-*-arm64.dmg`（仅 Apple Silicon）
   - Windows：`Tether-Setup-*.exe`（x64 NSIS）
   - Linux / Intel Mac：暂未提供安装包
+
+### GitHub Releases 自动发版
+
+推送形如 `v0.1.0` 的 tag 后，Actions 会在 macOS / Windows runner 上分别打包，并上传到 [Releases](https://github.com/tt-11-dd/tether-ai/releases)：
+
+```bash
+# 1. 把 package.json 的 version 改成与 tag 一致，例如 0.1.0
+# 2. 提交并推送
+git add package.json && git commit -m "发布 0.1.0" && git push
+
+# 3. 打 tag 并推送（触发 .github/workflows/release.yml）
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+完成后安装包会出现在：`https://github.com/tt-11-dd/tether-ai/releases/tag/v0.1.0`  
+每个 Release **只上传 2 个文件**：macOS `.dmg` + Windows `.exe`（不上传 blockmap / 调试 yaml）。
 
 ---
 

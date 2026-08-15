@@ -20,6 +20,8 @@
     "test": "vitest run",
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "pack": "pnpm build && electron-builder --mac --win",
+    "pack:mac": "pnpm build && electron-builder --mac",
+    "pack:win": "pnpm build && electron-builder --win",
     "start": "electron ."
   },
   "dependencies": {
