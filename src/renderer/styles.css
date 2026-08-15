@@ -1826,6 +1826,7 @@ button:disabled { cursor: default; opacity: .4; }
   margin: 0 2px 4px;
   display: flex;
   flex-direction: column;
+  gap: 2px;
   max-height: 220px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -2109,7 +2110,7 @@ button:disabled { cursor: default; opacity: .4; }
 }
 .panel input:focus-visible, .settings input:focus-visible, .approval textarea:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 1.5px var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink-3);
 }
 .panel input::placeholder, .settings input::placeholder, .approval textarea::placeholder { color: var(--ink-3); }
 

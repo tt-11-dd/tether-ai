@@ -421,7 +421,14 @@ export function App() {
     return status;
   }, []);
 
-  const startAgent = useCallback(async (cwd?: string, sessionPath?: string, asProject = false, resume = false, mode = permission) => {
+  const startAgent = useCallback(async (
+    cwd?: string,
+    sessionPath?: string,
+    asProject = false,
+    resume = false,
+    mode = permission,
+    seedMessage?: ChatMessage,
+  ) => {
     const accounts = await window.harness.auth.status();
     setProviders(accounts);
     const chat = accounts.find((item) => item.id === "deepseek");
@@ -465,7 +472,13 @@ export function App() {
         ...(sessionPath ? { sessionPath } : {}),
         ...(resume ? { resume: true } : {}),
       });
-      hydrate(snapshot);
+      if (seedMessage) {
+        setMessages([...normalizeMessages(snapshot.messages), seedMessage]);
+        setStats(snapshot.stats);
+        setRunning(true);
+      } else {
+        hydrate(snapshot);
+      }
       live.current = true;
       agentCwd.current = snapshot.cwd ?? cwd ?? agentCwd.current;
       if (modelId) {
@@ -702,31 +715,43 @@ export function App() {
     }
     if ((!text && !images?.length) || loading || sending.current) return;
     sending.current = true;
+    const question = text || t("toast.defaultImagePrompt");
+    const thumbs = (images ?? []).map((item) => {
+      const match = item.match(/^data:([^;]+);base64,(.+)$/);
+      return {
+        mimeType: match?.[1] ?? "image/png",
+        data: match?.[2] ?? item.replace(/^data:[^;]+;base64,/, ""),
+      };
+    });
+    let optimistic: ChatMessage | undefined;
     try {
-      if (!workspace && !agentCwd.current) {
+      let cwd = workspace ?? agentCwd.current;
+      if (!cwd) {
         const opened = await openFolder();
         if (!opened) return;
-        const started = await startAgent(opened, undefined, true);
-        if (!started) return;
-      } else if (!agentCwd.current) {
-        const started = await startAgent(workspace, undefined, true);
-        if (!started) return;
+        cwd = opened;
       }
-      const question = text || t("toast.defaultImagePrompt");
-      const thumbs = (images ?? []).map((item) => {
-        const match = item.match(/^data:([^;]+);base64,(.+)$/);
-        return {
-          mimeType: match?.[1] ?? "image/png",
-          data: match?.[2] ?? item.replace(/^data:[^;]+;base64,/, ""),
-        };
-      });
+
+      // Paint the user turn immediately so first-send doesn't sit on the home screen.
+      const alreadyRunning = running;
+      optimistic = optimisticUserMessage(question, alreadyRunning, thumbs);
+      setDraft("");
+      setMessages((current) => [...current, optimistic!]);
+      setRunning(true);
+
+      if (!agentCwd.current) {
+        const started = await startAgent(cwd, undefined, true, false, permission, optimistic);
+        if (!started) {
+          setMessages((current) => current.filter((item) => item.id !== optimistic!.id));
+          setDraft(text);
+          setRunning(false);
+          return;
+        }
+      }
+
       const message = images?.length
         ? visionAgentPrompt(question, await window.harness.vision.stage(images))
         : question;
-      const alreadyRunning = running;
-      setDraft("");
-      setMessages((current) => [...current, optimisticUserMessage(question, alreadyRunning, thumbs)]);
-      setRunning(true);
       try {
         await window.harness.agent.command(alreadyRunning ? "steer" : "prompt", { message });
       } catch (error) {
@@ -737,7 +762,7 @@ export function App() {
     } finally {
       sending.current = false;
     }
-  }, [draft, loading, openFolder, running, startAgent, t, undoLastTurn, workspace, workspaces.length]);
+  }, [draft, loading, openFolder, permission, running, startAgent, t, undoLastTurn, workspace]);
 
   useEffect(() => {
     void refresh().then((status) => {
