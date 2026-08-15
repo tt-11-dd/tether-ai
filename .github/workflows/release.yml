@@ -4,12 +4,19 @@ on:
   push:
     tags:
       - "v*"
+  # One-click release from the Actions tab: pick a tag, hit Run workflow.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, e.g. v0.1.0'
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -97,6 +104,7 @@ jobs:
 
       # Only ship the two installers — never blockmap / yaml / unpacked dirs.
       - name: Stage release assets
+        id: stage
         working-directory: tether-ai
         run: |
           mkdir -p release-upload
@@ -106,10 +114,24 @@ jobs:
             cp release/*.exe release-upload/
           fi
           ls -la release-upload
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: Tether ${{ steps.stage.outputs.version }}
           files: tether-ai/release-upload/*
-          generate_release_notes: true
           fail_on_unmatched_files: true
+          body: |
+            ## Downloads
+            - macOS (Apple Silicon): `Tether-${{ steps.stage.outputs.version }}-arm64.dmg`
+            - Windows (x64): `Tether-Setup-${{ steps.stage.outputs.version }}.exe`
+
+            ## Notes
+            - Local-first AI coding workbench
+            - Supports DeepSeek and custom OpenAI-compatible endpoints
+            - If macOS says the app can't be opened, right-click → Open, or run:
+              `xattr -cr /Applications/Tether.app`
+
+            Feedback: https://github.com/tt-11-dd/tether-ai/issues

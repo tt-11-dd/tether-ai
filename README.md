@@ -265,7 +265,13 @@ pnpm pack       # mac + win together (cross-packaging may need extra tooling)
 
 ### Automated GitHub Releases
 
-Push a tag like `v0.1.0` and Actions builds macOS / Windows installers, then uploads them to [Releases](https://github.com/tt-11-dd/tether-ai/releases):
+Actions builds macOS / Windows installers and uploads them to [Releases](https://github.com/tt-11-dd/tether-ai/releases). Two ways to trigger it:
+
+**Option 1: one click in the browser (recommended)**
+
+Open [Actions → Release](https://github.com/tt-11-dd/tether-ai/actions/workflows/release.yml) → **Run workflow** → enter a tag (e.g. `v0.1.0`) → run. The tag is created from `main` if it doesn't exist yet.
+
+**Option 2: push a tag**
 
 ```bash
 # 1. Bump package.json version to match the tag (e.g. 0.1.0)
@@ -276,6 +282,8 @@ git add package.json && git commit -m "release 0.1.0" && git push
 git tag v0.1.0
 git push origin v0.1.0
 ```
+
+> The tag must point at a commit that already contains this workflow, otherwise Actions never runs and the release only gets source archives.
 
 Installers land at: `https://github.com/tt-11-dd/tether-ai/releases/tag/v0.1.0`  
 Each release uploads **only two files**: the macOS `.dmg` and Windows `.exe` (no blockmaps / debug yaml).

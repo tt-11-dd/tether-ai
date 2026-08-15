@@ -265,7 +265,13 @@ pnpm pack       # 同时打 mac + win（跨平台打包可能需要额外环境�
 
 ### GitHub Releases 自动发版
 
-推送形如 `v0.1.0` 的 tag 后，Actions 会在 macOS / Windows runner 上分别打包，并上传到 [Releases](https://github.com/tt-11-dd/tether-ai/releases)：
+Actions 会在 macOS / Windows runner 上分别打包，并上传到 [Releases](https://github.com/tt-11-dd/tether-ai/releases)。两种触发方式：
+
+**方式一：网页点一下（推荐）**
+
+打开 [Actions → Release](https://github.com/tt-11-dd/tether-ai/actions/workflows/release.yml) → **Run workflow** → 填 tag（如 `v0.1.0`）→ 点绿色按钮。tag 不存在时会自动基于当前 `main` 创建。
+
+**方式二：推 tag 触发**
 
 ```bash
 # 1. 把 package.json 的 version 改成与 tag 一致，例如 0.1.0
@@ -276,6 +282,8 @@ git add package.json && git commit -m "发布 0.1.0" && git push
 git tag v0.1.0
 git push origin v0.1.0
 ```
+
+> 注意：tag 必须指向**已经包含该 workflow 的提交**，否则 Actions 不会运行，Release 里就只有源码包。
 
 完成后安装包会出现在：`https://github.com/tt-11-dd/tether-ai/releases/tag/v0.1.0`  
 每个 Release **只上传 2 个文件**：macOS `.dmg` + Windows `.exe`（不上传 blockmap / 调试 yaml）。
