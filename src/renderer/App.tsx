@@ -139,6 +139,7 @@ export function App() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [toast, setToast] = useState<string>();
   const [uiRequest, setUiRequest] = useState<ExtensionUiRequest>();
+  const [fullscreen, setFullscreen] = useState(false);
   const [openProjects, setOpenProjects] = useState<Record<string, boolean>>({});
   const [preview, setPreview] = useState<FileChange>();
   const [featureTodos, setFeatureTodos] = useState<SessionTodo[]>([]);
@@ -508,6 +509,8 @@ export function App() {
     const offCommand = window.harness.onAppCommand((command) => {
       if (command === "new-thread") void newThread();
       if (command === "open-folder") void openFolder();
+      if (command === "fullscreen-on") setFullscreen(true);
+      if (command === "fullscreen-off") setFullscreen(false);
     });
     return () => {
       offEvent();
@@ -587,16 +590,16 @@ export function App() {
   );
 
   return (
-    <div className={darwin ? "app darwin" : "app"}>
+    <div className={["app", darwin && "darwin", fullscreen && "fullscreen"].filter(Boolean).join(" ")}>
       <SidebarNav
         onNew={() => void newThread()}
         onOpen={() => void openFolder()}
         account={(
           <button type="button" className="account" title="设置" onClick={() => setLoginOpen(true)}>
-            <img className="brand-mark" src={logo} alt="" width={24} height={14} />
+            <Icon path="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H2.8a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.2 8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4V3.8a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1z" />
             <span>
-              <strong>Tether</strong>
-              <small>{connected?.configured ? model : "未连接，点击填写接口和密钥"}</small>
+              <strong>{connected?.configured ? model : "未连接"}</strong>
+              <small>{connected?.configured ? "点击管理接口和密钥" : "点击填写接口和密钥"}</small>
             </span>
           </button>
         )}

@@ -125,6 +125,11 @@ function createWindow(): void {
   );
 
   mainWindow.once("ready-to-show", () => mainWindow?.show());
+  // Fullscreen hides the macOS traffic lights, so the renderer must stop reserving room for them.
+  const reportFullscreen = () => sendAppCommand(mainWindow?.isFullScreen() ? "fullscreen-on" : "fullscreen-off");
+  mainWindow.on("enter-full-screen", reportFullscreen);
+  mainWindow.on("leave-full-screen", reportFullscreen);
+  mainWindow.webContents.on("did-finish-load", reportFullscreen);
   mainWindow.on("closed", () => {
     mainWindow = undefined;
     void agentHost?.stop();
