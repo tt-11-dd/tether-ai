@@ -139,6 +139,8 @@ export interface DesktopApi {
   sessions: {
     list(cwd?: string): Promise<SessionSummary[]>;
     remove(id: string): Promise<void>;
+    pin(id: string, pinned: boolean): Promise<void>;
+    rename(id: string, title: string): Promise<void>;
   };
   auth: {
     status(): Promise<ProviderStatus[]>;

@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 import { PREVIEW_HOST, PREVIEW_SCHEME, type AgentSessionStats, type ExtensionUiRequest, type PermissionMode } from "../shared/types";
 import { DEFAULT_VISION_CONFIG, visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, type ChatKind } from "../shared/chat-profiles";
-import { cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, formatThinking, liveStatus, omitFinalReply, repairMarkdownTables, splitPatch, stripEmptyMarkdown, thoughtSteps, toolCommand, toolSummary, turnWork, undoDialogTitle, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type WorkItem } from "./conversation";
+import { cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, liveStatus, omitFinalReply, repairMarkdownTables, splitPatch, stripEmptyMarkdown, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, undoDialogTitle, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
 import logo from "./logo.svg";
 
@@ -136,8 +136,6 @@ export function SidebarNav({
 
 export function Chat({
   children,
-  stats,
-  model,
   composer,
   home,
   inspect,
@@ -145,8 +143,6 @@ export function Chat({
   title,
 }: {
   children: ReactNode;
-  stats?: AgentSessionStats;
-  model?: string;
   composer?: ReactNode;
   home?: boolean;
   inspect?: ReactNode;
@@ -159,7 +155,6 @@ export function Chat({
       <header className="chat-bar">
         {!home && title && <h1 className="chat-title">{title}</h1>}
         {!home && nav}
-        {!home && <ContextStats stats={stats} model={model} />}
         {inspect && (
           <button
             type="button"
@@ -185,9 +180,11 @@ export function Chat({
 export function ContextStats({
   stats,
   model,
+  up,
 }: {
   stats?: AgentSessionStats;
   model?: string;
+  up?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -209,15 +206,34 @@ export function ContextStats({
   const rate = cacheHitRate(stats?.tokens);
 
   return (
-    <div ref={box} className={`context-stats-wrap${open ? " open" : ""}`}>
+    <div ref={box} className={`context-stats-wrap${open ? " open" : ""}${up ? " up" : ""}`}>
       <button
         type="button"
-        className={`stats-toggle${open ? " on" : ""}`}
+        className={`stats-toggle${open ? " on" : ""}${
+          percent !== undefined && percent >= 90 ? " hot" : percent !== undefined && percent >= 75 ? " warm" : ""
+        }`}
         aria-label="对话上下文与用量监控"
         title="对话上下文与用量监控"
         onClick={() => setOpen((was) => !was)}
       >
-        <Icon path="M4 6h16M7 12h13M10 18h10" size={14} />
+        <svg width="14" height="14" viewBox="0 0 14 14" className="stats-dial" aria-hidden="true">
+          <circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" strokeOpacity="0.22" strokeWidth="2" />
+          {percent !== undefined && (
+            <circle
+              cx="7"
+              cy="7"
+              r="5.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeDasharray={34.56}
+              strokeDashoffset={34.56 - (Math.min(100, Math.max(0, percent)) / 100) * 34.56}
+              strokeLinecap="round"
+              transform="rotate(-90 7 7)"
+            />
+          )}
+        </svg>
+        <span>{percent !== undefined ? `${percent}%` : "上下文"}</span>
       </button>
 
       {open && (
@@ -421,13 +437,13 @@ export function Thinking({
 }) {
   const [open, setOpen] = useState(false);
   const [born] = useState(() => Date.now());
-  const steps = thoughtSteps(work, tools, text);
+  const rows = traceRows(work, tools, text);
   const start = startedAt ?? (live ? born : undefined);
-  const summary = toolSummary(tools);
+  const summary = toolSummary(tools, rows.filter((row) => row.kind === "think").length);
   const current = liveStatus(tools);
   const header = live ? "思考中…" : "思考过程";
   const showLive = live && current !== header;
-  const hasBody = steps.length > 0 || showLive;
+  const hasBody = rows.length > 0 || showLive;
   if (!hasBody && !live) return null;
   return (
     <div className={live ? (open ? "trace live open" : "trace live") : open ? "trace open" : "trace"}>
@@ -441,95 +457,85 @@ export function Thinking({
         {hasBody ? <Icon className="chevron" path="M6 9l6 6 6-6" size={14} /> : null}
       </button>
       {open && hasBody && (
-        <ThoughtList live={live}>
-          {steps.flatMap((step, index) => [
-            ...(step.text ? [(
-              <div key={`t${index}`} className="thought">
-                <Mark kind="think" />
-                <div className="thought-body markdown">
-                  <Markdown>{formatThinking(step.text)}</Markdown>
-                </div>
-              </div>
-            )] : []),
-            ...(step.tools.length > 0 ? [(
-              <div key={`w${index}`} className="thought">
-                <Mark kind="tool" />
-                <div className="thought-tools">
-                  {step.tools.map((tool) => {
-                    const command = formatCommand(toolCommand(tool));
-                    if (command) {
-                      return (
-                        <div key={tool.id} className="thought-tool-item">
-                          <TerminalBlock command={command} tool={tool} />
-                        </div>
-                      );
-                    }
-                    if (tool.name === "vision") {
-                      return (
-                        <div key={tool.id} className="thought-tool-item vision-tool">
-                          <div className="thought-tool-chips">
-                            {visionToolChips(tool.details).map((label) => (
-                              <div key={label} className={`thought-tool-chip ${tool.status}`}>
-                                <Icon
-                                  path={
-                                    tool.status === "error"
-                                      ? "M6 6l12 12M18 6L6 18"
-                                      : tool.status === "running"
-                                        ? "M12 2a10 10 0 1 0 10 10"
-                                        : "M5 12.5l4 4 10-10"
-                                  }
-                                  size={13}
-                                />
-                                <span>{label}</span>
-                              </div>
-                            ))}
-                          </div>
-                          {tool.status !== "running" && visionResultSections(tool.output).map((section) => (
-                            <div key={section.label} className="vision-section">
-                              <strong>{section.label}</strong>
-                              <p>{section.text.length > 280 ? `${section.text.slice(0, 280)}…` : section.text}</p>
-                            </div>
-                          ))}
-                        </div>
-                      );
-                    }
-                    return (
-                      <div key={tool.id} className="thought-tool-item">
-                        <div className={`thought-tool-chip ${tool.status}`}>
-                          <Icon
-                            path={
-                              tool.status === "error"
-                                ? "M6 6l12 12M18 6L6 18"
-                                : tool.status === "running"
-                                  ? "M12 2a10 10 0 1 0 10 10"
-                                  : "M5 12.5l4 4 10-10"
-                            }
-                            size={13}
-                          />
-                          <span>{tool.title}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )] : []),
-          ])}
+        <div className="trace-rows">
+          {rows.map((row) => <TraceRowView key={row.id} row={row} />)}
           {showLive && (
-            <div className="thought">
-              <Mark kind="think" />
-              <span className="thought-done shimmer">{current}</span>
+            <div className="trace-row-live">
+              <Dots />
+              <span className="shimmer">{current}</span>
             </div>
           )}
-          {!live && steps.length > 0 && (
-            <div className="thought">
-              <Mark kind="done" />
-              <span className="thought-done">回答完成</span>
-            </div>
-          )}
-        </ThoughtList>
+        </div>
       )}
     </div>
+  );
+}
+
+const TRACE_GLYPHS: Record<TraceRow["kind"], string> = {
+  think: "M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z",
+  write: "M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z",
+  run: "M4 17l6-5-6-5M12 19h8",
+  read: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6",
+  look: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z",
+  tool: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 8v4l2.5 1.5",
+};
+
+function TraceRowView({ row }: { row: TraceRow }) {
+  const [open, setOpen] = useState(false);
+  const detail = traceDetail(row);
+  const chip = row.tool?.name === "vision" ? visionToolChips(row.tool.details).join(" · ") : row.chip;
+  return (
+    <div className={`trace-row-wrap ${row.status ?? ""}${open ? " open" : ""}`}>
+      <button
+        type="button"
+        className="trace-row"
+        aria-expanded={open}
+        disabled={!detail}
+        onClick={() => setOpen((was) => !was)}
+      >
+        <span className="trace-row-mark">
+          <Icon className="trace-row-glyph" path={TRACE_GLYPHS[row.kind]} size={13} />
+          <Icon className="trace-row-chevron chevron" path="M6 9l6 6 6-6" size={12} />
+        </span>
+        <span className="trace-row-label">{row.label}</span>
+        {chip && <span className={row.mono ? "trace-row-chip mono" : "trace-row-chip"}>{chip}</span>}
+      </button>
+      {open && detail && <div className="trace-row-detail">{detail}</div>}
+    </div>
+  );
+}
+
+function traceDetail(row: TraceRow): ReactNode {
+  if (row.kind === "think") {
+    return row.text ? <div className="trace-detail-text markdown"><Markdown>{row.text}</Markdown></div> : null;
+  }
+  const tool = row.tool;
+  if (!tool) return null;
+  const command = formatCommand(toolCommand(tool));
+  if (command) return <TerminalBlock command={command} tool={tool} />;
+  if (tool.name === "vision") {
+    const sections = tool.status === "running" ? [] : visionResultSections(tool.output);
+    if (sections.length === 0) return null;
+    return (
+      <div className="vision-tool">
+        {sections.map((section) => (
+          <div key={section.label} className="vision-section">
+            <strong>{section.label}</strong>
+            <p>{section.text.length > 280 ? `${section.text.slice(0, 280)}…` : section.text}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  const preview = toolWritePreview(tool, 24);
+  const body = preview || tool.output?.trim() || "";
+  if (!body) return null;
+  return (
+    <pre className="trace-detail-code">
+      {body.split("\n").slice(0, 24).map((line, index) => (
+        <span key={index} className={line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : ""}>{line}</span>
+      ))}
+    </pre>
   );
 }
 
@@ -607,63 +613,6 @@ function TerminalBlock({ command, tool }: { command: string; tool: ToolActivity 
             </button>
           )}
         </div>
-      )}
-    </div>
-  );
-}
-
-function Mark({ kind }: { kind: "think" | "tool" | "done" }) {
-  const path = kind === "tool"
-    ? "M4 17l6-6-6-6M12 19h8"
-    : kind === "done"
-      ? "M5 12.5l4 4 10-10"
-      : "M12 7v5l3 2M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18";
-  return (
-    <span className={`thought-mark ${kind}`} aria-hidden="true">
-      <Icon path={path} size={13} />
-    </span>
-  );
-}
-
-function ThoughtList({ live, children }: { live: boolean; children: ReactNode }) {
-  const [expanded, setExpanded] = useState(live);
-  const [overflow, setOverflow] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setExpanded(live);
-  }, [live]);
-
-  useEffect(() => {
-    const node = box.current;
-    if (!node) return;
-    const measure = () => {
-      if (expanded) {
-        setOverflow(false);
-        return;
-      }
-      setOverflow(node.scrollHeight > node.clientHeight + 8);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [children, expanded, live]);
-
-  return (
-    <div className="thoughts-wrap">
-      <div ref={box} className={expanded || live ? "thoughts" : "thoughts clamped"}>
-        {children}
-      </div>
-      {!live && overflow && !expanded && (
-        <button type="button" className="thought-more" onClick={() => setExpanded(true)}>
-          展开全部
-        </button>
-      )}
-      {!live && expanded && (
-        <button type="button" className="thought-more" onClick={() => setExpanded(false)}>
-          收起
-        </button>
       )}
     </div>
   );
@@ -1143,6 +1092,7 @@ export function PromptBar({
   permission,
   onPermission,
   onCommand,
+  stats,
   placement = "dock",
 }: {
   value: string;
@@ -1159,6 +1109,7 @@ export function PromptBar({
   permission: string;
   onPermission(value: string): void;
   onCommand(command: string): void;
+  stats?: AgentSessionStats;
   placement?: "dock" | "hero";
 }) {
   const [cursor, setCursor] = useState(value.length);
@@ -1531,6 +1482,7 @@ export function PromptBar({
           </button>
           <Combo value={model} options={models} searchable placeholder="筛选模型" down={hero} onChange={onModel} />
           <PermissionPicker value={permission} down={hero} onChange={onPermission} />
+          {!hero && <ContextStats stats={stats} model={model} up />}
           {running ? (
             <button type="button" className="send stop" onClick={onStop} aria-label="中止">
               <i />

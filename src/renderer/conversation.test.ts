@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
+import { applyAgentEvent, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
 
 describe("conversation events", () => {
   it("calculates prompt cache hit rate from reported token usage", () => {
@@ -340,6 +340,9 @@ describe("conversation events", () => {
       { id: "2", name: "read_file", title: "Read b", status: "complete", args: { path: "b.ts" } },
       { id: "3", name: "exec_command", title: "Ran ls", status: "complete" },
     ])).toBe("读了 2 个文件，跑了 1 条命令");
+    expect(toolSummary([
+      { id: "3", name: "exec_command", title: "Ran ls", status: "complete" },
+    ], 6)).toBe("思考了 6 次，跑了 1 条命令");
     expect(thoughtSteps(
       [
         { type: "thinking", id: "t1", text: "先看结构" },
@@ -354,6 +357,30 @@ describe("conversation events", () => {
     )).toEqual([
       { text: "先看结构", tools: [{ id: "1", name: "read_file", title: "Read a", status: "complete", args: { path: "a.ts" } }] },
       { text: "再读源码", tools: [{ id: "3", name: "exec_command", title: "Ran ls", status: "complete" }] },
+    ]);
+  });
+
+  it("folds a turn into label + chip rows, merging neighbouring thoughts", () => {
+    expect(traceRows(
+      [
+        { type: "thinking", id: "t1", text: "先看结构\n\n再读源码" },
+        { type: "tool", id: "w1", toolId: "1" },
+        { type: "tool", id: "w2", toolId: "2" },
+      ],
+      [
+        { id: "1", name: "exec_command", title: "Ran ls", status: "complete", args: { cmd: "npm run freeze" } },
+        {
+          id: "2",
+          name: "apply_patch",
+          title: "Edited App.tsx",
+          status: "complete",
+          args: { input: "*** Update File: src/App.tsx\n+const a = 1\n+const b = 2\n" },
+        },
+      ],
+    ).map((row) => [row.kind, row.label, row.chip])).toEqual([
+      ["think", "思考", "先看结构"],
+      ["run", "执行命令", "npm run freeze"],
+      ["write", "写入 2 行", "App.tsx"],
     ]);
   });
 

@@ -304,6 +304,33 @@ function registerIpc(): void {
       store.close();
     }
   });
+  ipcMain.handle("sessions:pin", async (_event, id: string, pinned: boolean) => {
+    const store = new TetherStateStore();
+    try {
+      await store.refresh();
+      if (!store.setPinned(id, pinned)) throw new Error("Conversation not found");
+    } finally {
+      store.close();
+    }
+  });
+  ipcMain.handle("sessions:rename", async (_event, id: string, title: string) => {
+    const name = title.trim().slice(0, 96);
+    if (!name) throw new Error("Conversation name cannot be empty");
+    const store = new TetherStateStore();
+    try {
+      await store.refresh();
+      const thread = store.get(id);
+      if (!thread) throw new Error("Conversation not found");
+      await fsp.appendFile(thread.storagePath, `${JSON.stringify({
+        type: "session_info",
+        name,
+        timestamp: new Date().toISOString(),
+      })}\n`);
+      await store.indexSession(thread.storagePath);
+    } finally {
+      store.close();
+    }
+  });
 
   ipcMain.handle("auth:status", async (): Promise<ProviderStatus[]> => {
     const credentialStore = await createTetherCredentialStore();

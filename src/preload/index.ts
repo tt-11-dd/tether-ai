@@ -32,6 +32,8 @@ const api: DesktopApi = {
   sessions: {
     list: (cwd) => ipcRenderer.invoke("sessions:list", cwd),
     remove: (id) => ipcRenderer.invoke("sessions:remove", id),
+    pin: (id, pinned) => ipcRenderer.invoke("sessions:pin", id, pinned),
+    rename: (id, title) => ipcRenderer.invoke("sessions:rename", id, title),
   },
   auth: {
     status: () => ipcRenderer.invoke("auth:status"),

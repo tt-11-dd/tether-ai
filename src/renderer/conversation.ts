@@ -792,12 +792,13 @@ export function mentionedFiles(messages: ChatMessage[]): string[] {
   return [...paths];
 }
 
-export function toolSummary(tools: ToolActivity[]): string {
+export function toolSummary(tools: ToolActivity[], thoughts = 0): string {
   const files = collectWorkingFiles(tools);
   const reads = files.filter((file) => file.kind === "read").length;
   const edits = files.filter((file) => file.kind === "edit").length;
   const commands = tools.filter((tool) => /exec|bash|command/i.test(tool.name)).length;
   const parts: string[] = [];
+  if (thoughts) parts.push(`思考了 ${thoughts} 次`);
   if (reads) parts.push(`读了 ${reads} 个文件`);
   if (commands) parts.push(`跑了 ${commands} 条命令`);
   if (edits) parts.push(`改了 ${edits} 个文件`);
@@ -867,6 +868,108 @@ export function thoughtSteps(
     }));
   }
   return steps.map((step) => ({ ...step, text: step.text ? formatThinking(step.text) : step.text }));
+}
+
+export interface TraceRow {
+  id: string;
+  kind: "think" | "run" | "write" | "read" | "look" | "tool";
+  label: string;
+  chip: string;
+  /** Chips carrying code, paths or commands read better in the mono face. */
+  mono: boolean;
+  status?: ToolActivity["status"];
+  /** Thinking markdown, for `think` rows. */
+  text?: string;
+  tool?: ToolActivity;
+}
+
+/**
+ * Flatten a turn into compact `label + chip` rows: consecutive thinking beats collapse into one
+ * row carrying the rest as its detail, and every tool call becomes its own row.
+ */
+export function traceRows(work: WorkItem[], tools: ToolActivity[], fallback = ""): TraceRow[] {
+  const rows: TraceRow[] = [];
+  let pending: string[] = [];
+  const flushThinking = () => {
+    if (pending.length === 0) return;
+    rows.push({
+      id: `think-${rows.length}`,
+      kind: "think",
+      label: "思考",
+      chip: crop(headline(pending[0]!), 72),
+      mono: false,
+      text: pending.join("\n\n"),
+    });
+    pending = [];
+  };
+  for (const step of thoughtSteps(work, tools, fallback)) {
+    if (step.text.trim()) pending.push(step.text.trim());
+    if (step.tools.length === 0) continue;
+    flushThinking();
+    for (const tool of step.tools) rows.push(toolRow(tool, rows.length));
+  }
+  flushThinking();
+  return rows;
+}
+
+function toolRow(tool: ToolActivity, index: number): TraceRow {
+  const base = { id: `row-${index}-${tool.id}`, status: tool.status, tool, mono: true };
+  const command = formatCommand(toolCommand(tool));
+  if (command) {
+    const lines = command.split("\n").filter(Boolean);
+    return {
+      ...base,
+      kind: "run",
+      label: lines.length > 1 ? `执行 ${lines.length} 条命令` : "执行命令",
+      chip: lines[0] ?? "",
+    };
+  }
+  if (tool.name === "vision") return { ...base, kind: "look", label: "识图", chip: "", mono: false };
+  const args = isRecord(tool.args) ? tool.args : {};
+  const file = toolPath(tool) || patchTarget(stringField(args, "input"))?.path || "";
+  const name = tool.name.toLowerCase();
+  if (/write|edit|patch/.test(name)) {
+    const lines = writtenLines(tool);
+    return {
+      ...base,
+      kind: "write",
+      label: lines > 0 ? `写入 ${lines} 行` : "写入文件",
+      chip: baseName(file),
+    };
+  }
+  if (/grep|glob|search|find/.test(name)) {
+    return {
+      ...base,
+      kind: "read",
+      label: "搜索",
+      chip: stringField(args, "pattern") || stringField(args, "query") || baseName(file) || "工作区",
+    };
+  }
+  if (/read|cat|view/.test(name)) return { ...base, kind: "read", label: "读取", chip: baseName(file) || "文件" };
+  return { ...base, kind: "tool", label: tool.title, chip: baseName(file), mono: Boolean(file) };
+}
+
+function writtenLines(tool: ToolActivity): number {
+  const args = isRecord(tool.args) ? tool.args : {};
+  const patch = stringField(args, "input");
+  if (patch.trim()) return splitPatch(patch).filter((row) => row.kind === "add").length;
+  const body = stringField(args, "contents") || stringField(args, "content");
+  return body ? body.split("\n").length : 0;
+}
+
+function baseName(file: string): string {
+  return file.replace(/\/+$/, "").split("/").pop() ?? "";
+}
+
+/** Markdown thinking reads badly inside a one-line chip, so drop its syntax. */
+function headline(text: string): string {
+  return text
+    .replace(/^[#>\s]*/, "")
+    .replace(/^[-*+]\s+/, "")
+    .replace(/[*`_]/g, "")
+    .split("\n")[0]!
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function thinkingSegments(text: string): string[] {

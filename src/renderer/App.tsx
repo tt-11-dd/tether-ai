@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type {
   AgentSessionStats,
   AgentSnapshot,
@@ -81,33 +82,131 @@ function isSameSession(session: SessionSummary, active?: string) {
   return Boolean(active && (session.path === active || session.storagePath === active));
 }
 
+const PIN_ICON =
+  "M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z";
+const PENCIL_ICON = "M21.2 6.8a1 1 0 0 0-4-4L3.8 16.2a2 2 0 0 0-.5.8l-1.3 4.4a.5.5 0 0 0 .6.6l4.4-1.3a2 2 0 0 0 .8-.5zM15 5l4 4";
+const TRASH_ICON = "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6";
+/** Real filled dots: zero-length stroked segments render as thin nubs, not circles. */
+function MoreIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="12" cy="6" r="1.85" />
+      <circle cx="12" cy="12" r="1.85" />
+      <circle cx="12" cy="18" r="1.85" />
+    </svg>
+  );
+}
+
 function SessionRow({
   session,
   active,
   onOpen,
+  onPin,
+  onRename,
   onRemove,
 }: {
   session: SessionSummary;
   active: boolean;
   onOpen(): void;
+  onPin(): void;
+  onRename(title: string): void;
   onRemove(): void;
 }) {
+  const [menu, setMenu] = useState<{ x: number; y: number }>();
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(undefined);
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("blur", close);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [menu]);
+
+  const openMenu = (x: number, y: number) => {
+    setMenu({
+      x: Math.max(8, Math.min(x, window.innerWidth - 190)),
+      y: Math.max(8, Math.min(y, window.innerHeight - 154)),
+    });
+  };
+  const action = (callback: () => void) => {
+    setMenu(undefined);
+    callback();
+  };
+
   return (
-    <div className={active ? "session-item active" : "session-item"}>
-      <button type="button" className="session-row" onClick={onOpen}>
-        <span>{session.title || "未命名"}</span>
-      </button>
+    <div
+      className={["session-item", active && "active", menu && "menu-open"].filter(Boolean).join(" ")}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        openMenu(event.clientX, event.clientY);
+      }}
+    >
+      {editing ? (
+        <input
+          className="session-rename"
+          defaultValue={session.title}
+          autoFocus
+          onFocus={(event) => event.currentTarget.select()}
+          onBlur={(event) => {
+            const next = event.currentTarget.value.trim();
+            setEditing(false);
+            if (next && next !== session.title) onRename(next);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+            if (event.key === "Escape") {
+              event.currentTarget.value = session.title;
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      ) : (
+        <button type="button" className="session-row" onClick={onOpen}>
+          {session.pinned && <Icon path={PIN_ICON} size={12} />}
+          <span>{session.title || "未命名"}</span>
+        </button>
+      )}
       <button
         type="button"
-        className="session-del"
-        aria-label="删除对话"
+        className="session-del session-more"
+        aria-label="对话菜单"
         onClick={(event) => {
           event.stopPropagation();
-          onRemove();
+          const rect = event.currentTarget.getBoundingClientRect();
+          openMenu(rect.right + 4, rect.top);
         }}
       >
-        <Icon path="M6 6l12 12M18 6L6 18" size={12} />
+        <MoreIcon />
       </button>
+      {menu && createPortal(
+        <div
+          className="session-menu"
+          role="menu"
+          style={{ left: menu.x, top: menu.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button type="button" role="menuitem" onClick={() => action(onPin)}>
+            <Icon path={PIN_ICON} size={16} />
+            <span>{session.pinned ? "取消置顶" : "置顶"}</span>
+          </button>
+          <button type="button" role="menuitem" onClick={() => action(() => setEditing(true))}>
+            <Icon path={PENCIL_ICON} size={16} />
+            <span>重命名</span>
+          </button>
+          <div className="session-menu-separator" />
+          <button type="button" role="menuitem" className="danger" onClick={() => action(onRemove)}>
+            <Icon path={TRASH_ICON} size={16} />
+            <span>移除</span>
+          </button>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
@@ -349,6 +448,24 @@ export function App() {
       setToast(error instanceof Error ? error.message : String(error));
     }
   }, [activeSession]);
+
+  const pinSession = useCallback(async (session: SessionSummary) => {
+    try {
+      await window.harness.sessions.pin(session.id, !session.pinned);
+      setSessions(await window.harness.sessions.list());
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const renameSession = useCallback(async (session: SessionSummary, title: string) => {
+    try {
+      await window.harness.sessions.rename(session.id, title);
+      setSessions(await window.harness.sessions.list());
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
 
   const removeProject = useCallback(async (path: string) => {
     try {
@@ -593,6 +710,7 @@ export function App() {
         if (command === "/undo") void undoLastTurn();
         if (command === "/login") setLoginOpen(true);
       }}
+      stats={stats}
       placement={home ? "hero" : "dock"}
     />
   );
@@ -667,6 +785,8 @@ export function App() {
                         if (isSameSession(session, activeSession)) return;
                         void startAgent(session.cwd, session.path, true);
                       }}
+                      onPin={() => void pinSession(session)}
+                      onRename={(title) => void renameSession(session, title)}
                       onRemove={() => void removeSession(session)}
                     />
                   ))}
@@ -679,8 +799,6 @@ export function App() {
 
       <Chat
         home={home}
-        stats={stats}
-        model={model}
         title={sessions.find((session) => isSameSession(session, activeSession))?.title || workspace?.split("/").pop()}
         composer={home ? undefined : composer}
         nav={<TurnNav items={anchors} />}
