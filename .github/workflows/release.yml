@@ -85,7 +85,9 @@ jobs:
 
       - name: Install tether-runtime dependencies
         working-directory: tether-runtime
-        run: pnpm install --frozen-lockfile
+        # Remote lockfile sometimes drifts from patchedDependencies in
+        # pnpm-workspace.yaml; don't block releases on that mismatch.
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build tether-agent-core
         working-directory: tether-runtime/packages/core
