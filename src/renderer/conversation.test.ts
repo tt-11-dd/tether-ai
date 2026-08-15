@@ -486,7 +486,7 @@ describe("conversation events", () => {
     ]);
   });
 
-  it("shows Claude Code-style writing progress from apply_patch input", () => {
+  it("shows writing progress from apply_patch input", () => {
     expect(liveStatus([{
       id: "1",
       name: "apply_patch",

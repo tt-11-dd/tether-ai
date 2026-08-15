@@ -768,7 +768,7 @@ export function writePayloadSize(tool: ToolActivity): number {
   return (stringField(args, "contents") || stringField(args, "content") || tool.output || "").length;
 }
 
-/** Claude Code-style live line: Thinking... / Writing file... · ~N characters */
+/** Live status line while tools run: Thinking... / Writing file... · ~N characters */
 export function liveStatus(tools: ToolActivity[]): string {
   const running = [...tools].reverse().find((tool) => tool.status === "running");
   if (!running) return "思考中…";
