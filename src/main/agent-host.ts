@@ -8,6 +8,19 @@ interface PendingRequest {
   timeout: NodeJS.Timeout;
 }
 
+const DEFAULT_RPC_TIMEOUT_MS = 45_000;
+const LONG_RPC_TIMEOUT_MS = 30 * 60_000;
+const LONG_RUNNING_REQUESTS = new Set([
+  "prompt",
+  "steer",
+  "abort",
+  "get_entries",
+  "get_fork_messages",
+  "get_messages",
+  "get_session_stats",
+  "fork",
+]);
+
 export class AgentHost {
   private child?: ChildProcessWithoutNullStreams;
   private buffer = "";
@@ -132,7 +145,7 @@ export class AgentHost {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`Tether did not respond to ${type}. ${this.stderr}`.trim()));
-      }, 45_000);
+      }, timeoutForRequest(type));
       this.pending.set(id, {
         resolve: (value) => resolve(value as T),
         reject,
@@ -188,4 +201,8 @@ export class AgentHost {
     this.pending.clear();
     this.emitError(message);
   }
+}
+
+function timeoutForRequest(type: string): number {
+  return LONG_RUNNING_REQUESTS.has(type) ? LONG_RPC_TIMEOUT_MS : DEFAULT_RPC_TIMEOUT_MS;
 }

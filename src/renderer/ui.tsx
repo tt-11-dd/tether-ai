@@ -1954,10 +1954,38 @@ export function Login({
                       <img src={logo} alt="" width={32} height={18} />
                     </div>
                     <div>
-                      <h3>Tether 工作台</h3>
-                      <p>面向代码仓库的本地 Agent 编程工作流环境</p>
+                      <h3>Tether 工作台 (Tether AI)</h3>
+                      <p>面向开发者的开放式、本地优先 AI 编程工作台</p>
                     </div>
                   </div>
+
+                  <div className="about-features">
+                    <div className="about-feature-item">
+                      <Icon path="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-6h2zm0-8h-2V7h2z" size={15} />
+                      <div>
+                        <strong>DeepSeek 深度优化</strong>：支持推理思考强度调节（High / Medium / Low）、思维链流式展示与长上下文大仓库解析。
+                      </div>
+                    </div>
+                    <div className="about-feature-item">
+                      <Icon path="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" size={15} />
+                      <div>
+                        <strong>100% 开放自定义接口</strong>：自由接入 OneAPI、Ollama、vLLM、企业内部私有网关，无任何厂商闭源锁定。
+                      </div>
+                    </div>
+                    <div className="about-feature-item">
+                      <Icon path="M4 6h16v12H4zM8 14l3-3 2 2 3-4 4 5" size={15} />
+                      <div>
+                        <strong>内置 MinerU OCR 引擎</strong>：无需 API Key 即可本地免费提取设计稿与报错截图中的高精度代码与 Markdown。
+                      </div>
+                    </div>
+                    <div className="about-feature-item">
+                      <Icon path="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" size={15} />
+                      <div>
+                        <strong>纯粹本地优先与原子级撤销</strong>：所有会话和密钥存储于本机 <code>~/.tether</code>，支持 <code>/undo</code> 事务级检查点一键还原。
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="about-grid">
                     <div className="about-cell">
                       <span className="about-key">应用版本</span>
@@ -1965,15 +1993,23 @@ export function Login({
                     </div>
                     <div className="about-cell">
                       <span className="about-key">Agent 内核</span>
-                      <span className="about-val">Tether Agent Core (0.1.0 · 本地)</span>
+                      <span className="about-val">Tether Agent Core (本地隔离)</span>
                     </div>
                     <div className="about-cell">
                       <span className="about-key">运行架构</span>
-                      <span className="about-val">Electron · React 19 · Node 22</span>
+                      <span className="about-val">Electron 37 · React 19 · Node 22</span>
                     </div>
                     <div className="about-cell">
                       <span className="about-key">沙箱状态</span>
-                      <span className="about-val">已就绪 (本地隔离防护)</span>
+                      <span className="about-val">已就绪 (macOS / Windows 隔离防护)</span>
+                    </div>
+                    <div className="about-cell">
+                      <span className="about-key">本地数据目录</span>
+                      <span className="about-val">~/.tether (0600 私有权限)</span>
+                    </div>
+                    <div className="about-cell">
+                      <span className="about-key">开源协议</span>
+                      <span className="about-val">MIT License</span>
                     </div>
                   </div>
                 </div>
@@ -1993,20 +2029,36 @@ export function Login({
                 清除配置
               </button>
             )}
-            <button
-              type="submit"
-              className="primary"
-              disabled={
-                busy ||
-                !visionEndpoint.trim() ||
-                !visionModel.trim() ||
-                (kind === "deepseek"
-                  ? !deepseekModel.trim() || !deepseekKey.trim()
-                  : !customUrl.trim() || !customModel.trim() || !customKey.trim())
-              }
-            >
-              保存配置
-            </button>
+            {pane === "about" && (
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => void window.harness.app.openExternal("https://github.com/tt-11-dd/tether-ai")}
+              >
+                <Icon path="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" size={14} />
+                <span>GitHub 仓库</span>
+              </button>
+            )}
+            {pane !== "chat" && pane !== "vision" ? (
+              <button type="button" className="primary" onClick={onClose}>
+                关闭
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="primary"
+                disabled={
+                  busy ||
+                  !visionEndpoint.trim() ||
+                  !visionModel.trim() ||
+                  (kind === "deepseek"
+                    ? !deepseekModel.trim() || !deepseekKey.trim()
+                    : !customUrl.trim() || !customModel.trim() || !customKey.trim())
+                }
+              >
+                保存配置
+              </button>
+            )}
           </footer>
         </div>
       </form>

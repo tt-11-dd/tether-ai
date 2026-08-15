@@ -17,7 +17,7 @@
 
 </div>
 
-Tether 是一款专为代码仓库级开发打造的原生桌面 AI 编程工作台。基于 Electron、React 19 和独立的本地 Agent 核心（[`tether-agent-core`](https://github.com/tt-11-dd/tether-ai)）构建，Tether 赋予你自主阅读工程代码库、在受限环境中执行终端命令、通过事务级检查点精确修改复杂文件以及查看精美 Diff 预览的能力——**所有数据均在你的本地电脑运行，完全保护隐私，绝无任何厂商锁定**。
+Tether 是一款专为代码仓库级开发打造的原生桌面 AI 编程工作台。桌面端基于 Electron、React 19 和独立的本地 Agent 核心（[`tether-agent-core`](https://github.com/tt-11-dd/tether-ai)）构建；Agent 内核当前基于 **Pi 生态包**（`@earendil-works/pi-agent-core`、`@earendil-works/pi-coding-agent`、`@earendil-works/pi-ai`、`@earendil-works/pi-tui`）封装，并在此基础上加入 Tether 自己的 DeepSeek 适配、自定义接口、权限模型、Checkpoint 撤回、桌面 RPC 与本地数据管理。Tether 赋予你自主阅读工程代码库、在受限环境中执行终端命令、通过事务级检查点精确修改复杂文件以及查看精美 Diff 预览的能力——**所有数据均在你的本地电脑运行，完全保护隐私，绝无任何厂商锁定**。
 
 ---
 
@@ -180,7 +180,7 @@ Tether 提供 4 种可在输入栏随时切换的权限模式：
                 │ JSON-RPC over stdio（调度 tether-agent-core）
 ┌───────────────▼───────────────────────────────────────────────────────────────┐
 │  Agent 工作进程 (tether-agent-core)                                            │
-│  Agent 执行循环、工具链（文件补丁、终端调用）、会话序列化、OS 级沙箱环境       │
+│  基于 Pi Agent/Coding Agent 内核封装，扩展 Tether 权限、Checkpoint 与 DeepSeek │
 └───────────────────────────────────────────────────────────────────────────────┘
         ▲                                ▲
         │ contextBridge (window.harness) │ IPC 事件与双向调用
@@ -192,6 +192,7 @@ Tether 提供 4 种可在输入栏随时切换的权限模式：
 
 - **严格的进程隔离**：渲染进程不直接引入 Node.js 原生模块，全部通过 `src/shared/types.ts` 中定义的强类型安全 IPC 接口进行通信。
 - **状态流式恢复**：界面状态完全基于会话 `.jsonl` 流还原，崩溃即恢复。
+- **Pi 依赖说明**：`tether-agent-core` 并不是从零重写 Agent 运行循环，而是复用 Pi 的 Agent、模型、TUI 与 Coding Agent 基础能力；Tether 负责桌面产品化、本地优先数据层、DeepSeek/国产模型适配、权限沙箱、Checkpoint 撤回与自定义接口体验。
 
 ---
 

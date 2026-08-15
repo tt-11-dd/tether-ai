@@ -1548,11 +1548,12 @@ button:disabled { cursor: default; opacity: .4; }
 .settings {
   width: min(780px, 94vw);
   height: min(580px, 88vh);
+  min-height: 0;
   background: var(--surface);
   border-radius: 16px;
   box-shadow: var(--shadow-overlay);
   display: flex;
-  overflow: visible;
+  overflow: hidden;
 }
 .settings-nav {
   width: 200px;
@@ -1589,7 +1590,7 @@ button:disabled { cursor: default; opacity: .4; }
 .settings-nav-item.active { background: var(--hover-2); color: var(--ink); font-weight: 500; }
 .settings-nav-item svg { color: var(--ink-3); flex: none; }
 .settings-nav-item.active svg { color: var(--ink); }
-.settings-main { flex: 1; min-width: 0; display: flex; flex-direction: column; border-radius: 0 16px 16px 0; overflow: visible; }
+.settings-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-radius: 0 16px 16px 0; overflow: hidden; }
 .settings-head {
   height: 52px;
   padding: 0 16px 0 24px;
@@ -1611,6 +1612,7 @@ button:disabled { cursor: default; opacity: .4; }
 .settings-close:hover { background: var(--hover); color: var(--ink); }
 .settings-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 16px 24px 20px;
   display: flex;
@@ -1745,7 +1747,7 @@ kbd {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding-bottom: 12px;
+  padding-bottom: 14px;
   border-bottom: 1px solid var(--line);
 }
 .about-logo {
@@ -1759,20 +1761,54 @@ kbd {
   flex: none;
 }
 .about-hero h3 {
-  margin: 0 0 2px;
+  margin: 0 0 3px;
   font-size: 15px;
   font-weight: 600;
   color: var(--ink);
 }
 .about-hero p {
   margin: 0;
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--ink-3);
+}
+.about-features {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+.about-feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--field);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.about-feature-item svg {
+  flex: none;
+  color: var(--ink);
+  margin-top: 2px;
+}
+.about-feature-item strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.about-feature-item code {
+  font: 11px/1.2 var(--mono);
+  background: var(--hover);
+  padding: 2px 4px;
+  border-radius: 4px;
 }
 .about-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 8px;
+  padding-top: 14px;
 }
 .about-cell {
   padding: 8px 10px;

@@ -155,7 +155,7 @@ export function App() {
   const sending = useRef(false);
   const stick = useRef(true);
   const live = useRef(false);
-  const pendingUndo = useRef<{ files: RestoreFile[]; target?: { entryId: string } } | undefined>(
+  const pendingUndo = useRef<{ files: RestoreFile[] } | undefined>(
     undefined,
   );
   const modelRef = useRef(model);
@@ -267,7 +267,12 @@ export function App() {
     }
   }, [hydrate, permission]);
 
-  const bindProject = useCallback(async (cwd: string) => {
+  const bindProject = useCallback(async (cwd: string): Promise<boolean> => {
+    if (running && agentCwd.current && agentCwd.current !== cwd) {
+      setToast("当前 agent 仍在运行，停止后再切换项目");
+      return false;
+    }
+    if (running && agentCwd.current === cwd) return true;
     live.current = false;
     setWorkspace(cwd);
     setOpenProjects((current) => ({ ...current, [cwd]: true }));
@@ -279,16 +284,16 @@ export function App() {
     setUiRequest(undefined);
     setPreview(undefined);
     setFeatureTodos([]);
-    if (!agentCwd.current) return;
+    if (!agentCwd.current) return true;
     agentCwd.current = undefined;
-    await window.harness.agent.command("abort").catch(() => undefined);
-    await window.harness.agent.stop().catch(() => undefined);
-  }, []);
+    if (!running) await window.harness.agent.stop().catch(() => undefined);
+    return true;
+  }, [running]);
 
   const openFolder = useCallback(async () => {
     const selected = await window.harness.workspace.choose();
     if (!selected) return;
-    await bindProject(selected);
+    if (!(await bindProject(selected))) return null;
     setWorkspaces(await window.harness.workspace.recent());
     return selected;
   }, [bindProject]);
@@ -356,15 +361,9 @@ export function App() {
     await window.harness.agent.stop().catch(() => undefined);
   }, [workspace]);
 
-  const applyUndo = useCallback(async (files: RestoreFile[], target?: { entryId: string }) => {
+  const applyUndo = useCallback(async (files: RestoreFile[]) => {
     await window.harness.workspace.restore(files, workspace);
-    try {
-      if (target) await window.harness.agent.command("fork", { entryId: target.entryId });
-      const next = await window.harness.agent.command<{ messages: unknown[] }>("get_messages");
-      setMessages(normalizeMessages(next.messages ?? []));
-    } catch {
-      setMessages((current) => dropLastTurn(current));
-    }
+    setMessages((current) => dropLastTurn(current));
     const stats = await window.harness.agent.command<{ sessionFile?: string }>("get_session_stats").catch(() => undefined);
     if (typeof stats?.sessionFile === "string") {
       sessionRef.current = stats.sessionFile;
@@ -383,15 +382,13 @@ export function App() {
       }
     }
     try {
-      const forks = await window.harness.agent.command<{ messages: Array<{ entryId: string; text: string }> }>("get_fork_messages");
       const log = await window.harness.agent.command<{ entries: Parameters<typeof lastTurnRestoreFiles>[0] }>("get_entries");
       const files = lastTurnRestoreFiles(log.entries ?? []);
       if (files.length === 0) {
         setToast("这一轮没有可撤回的文件改动");
         return;
       }
-      const target = [...(forks.messages ?? [])].reverse().find((item) => item.text.trim() !== "/undo");
-      pendingUndo.current = { files, target };
+      pendingUndo.current = { files };
       setUiRequest({
         type: "extension_ui_request",
         id: "harness:undo",
@@ -773,7 +770,7 @@ export function App() {
                     }
                     const pending = pendingUndo.current;
                     if (!pending) return;
-                    await applyUndo(pending.files, pending.target);
+                    await applyUndo(pending.files);
                     pendingUndo.current = undefined;
                   } : undefined}
                   onDone={() => setUiRequest(undefined)}
