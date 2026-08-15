@@ -36,7 +36,9 @@ linux:
       arch: [x64]
 
 win:
-  icon: build/icon.png
+  # macOS icons are drawn with ~10% padding, Windows ones fill the canvas; reusing the padded
+  # art here made the taskbar icon look a size smaller than its neighbours.
+  icon: build/icon-win.png
   target:
     - target: nsis
       arch: [x64]
