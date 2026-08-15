@@ -172,9 +172,9 @@ function createWindow(): void {
       ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 16, y: 14 } }
       : {
           frame: false,
-          // ponytail: transparent frameless windows lose the Windows resize border, so corners are
-          // left to Win11 DWM (Win10 stays square) instead of a CSS radius over a transparent shell.
-          roundedCorners: true,
+          // Transparent frameless windows lose the Windows resize border, and DWM rounding punches
+          // the desktop through the corners, so the shell stays square with a CSS hairline instead.
+          roundedCorners: false,
           hasShadow: true,
         }),
     webPreferences: {
