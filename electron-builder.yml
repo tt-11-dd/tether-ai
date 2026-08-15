@@ -1,0 +1,49 @@
+appId: local.tether
+productName: Tether
+directories:
+  output: release
+
+files:
+  - dist/index.html
+  - dist/assets/**/*
+  - dist-electron/**/*
+  - package.json
+  - "!**/*.map"
+
+# RPC worker and native keyring need real filesystem paths.
+asar: false
+
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+
+mac:
+  icon: logo.icns
+  category: public.app-category.developer-tools
+  # Ad-hoc sign so Gatekeeper doesn't report the app as "damaged".
+  identity: "-"
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  target:
+    - target: dmg
+      arch: [arm64]
+
+linux:
+  icon: build/icon.png
+  category: Development
+  target:
+    - target: dir
+      arch: [x64]
+
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: true
+  shortcutName: Tether
+  artifactName: ${productName}-Setup-${version}.exe
+
+publish: null

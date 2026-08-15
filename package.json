@@ -1,0 +1,50 @@
+{
+  "name": "tether",
+  "productName": "Tether",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tether — a local AI coding agent workbench",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist-electron/main/index.mjs",
+  "scripts": {
+    "postinstall": "node scripts/ensure-electron.mjs",
+    "core:build": "pnpm --dir ../tether-runtime/packages/core build && pnpm core:link",
+    "core:link": "rm -rf node_modules/tether-agent-core && ln -sfn ../../tether-runtime/packages/core node_modules/tether-agent-core",
+    "predev": "pnpm core:build && node scripts/ensure-electron.mjs && rm -rf dist-electron && tsup",
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && env -u ELECTRON_RUN_AS_NODE cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "build:electron": "pnpm core:build && rm -rf dist-electron && tsup",
+    "build:renderer": "vite build",
+    "build": "pnpm build:electron && pnpm build:renderer",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "pack": "pnpm build && electron-builder --mac --win",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "tether-agent-core": "link:../tether-runtime/packages/core"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.10",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^5.1.0",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^37.3.1",
+    "electron-builder": "^26.0.12",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5",
+    "vitest": "^3.2.4",
+    "wait-on": "^8.0.4"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}
