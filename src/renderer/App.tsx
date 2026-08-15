@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  AgentSessionStats,
   AgentSnapshot,
   ExtensionUiRequest,
   PermissionMode,
@@ -20,6 +21,8 @@ import {
   optimisticUserMessage,
   parseFeaturesJson,
   sessionTools,
+  turnAnchorId,
+  turnAnchors,
   type ChatMessage,
   type FileChange,
   type RestoreFile,
@@ -36,6 +39,7 @@ import {
   PromptBar,
   SidebarNav,
   Thinking,
+  TurnNav,
   UserTurn,
 } from "./ui";
 import logo from "./logo.svg";
@@ -139,6 +143,7 @@ export function App() {
   const [chatModels, setChatModels] = useState<string[]>([]);
   const [permission, setPermission] = useState<PermissionMode>("auto");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [stats, setStats] = useState<AgentSessionStats>();
   const [draft, setDraft] = useState("");
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -162,6 +167,7 @@ export function App() {
   modelRef.current = model;
 
   const groups = useMemo(() => groupConversation(messages), [messages]);
+  const anchors = useMemo(() => turnAnchors(groups), [groups]);
   const tools = useMemo(() => sessionTools(messages), [messages]);
   const workingFiles = useMemo(() => collectWorkingFiles(tools, mentionedFiles(messages)), [messages, tools]);
   const chatTodos = useMemo(() => collectTodos(messages), [messages]);
@@ -182,6 +188,7 @@ export function App() {
 
   const hydrate = useCallback((snapshot: AgentSnapshot) => {
     setMessages(normalizeMessages(snapshot.messages));
+    setStats(snapshot.stats);
     setRunning(Boolean(snapshot.state.isStreaming));
   }, []);
 
@@ -277,6 +284,7 @@ export function App() {
     setWorkspace(cwd);
     setOpenProjects((current) => ({ ...current, [cwd]: true }));
     setMessages([]);
+    setStats(undefined);
     setDraft("");
     setActiveSession(undefined);
     sessionRef.current = undefined;
@@ -305,6 +313,7 @@ export function App() {
     }
     live.current = false;
     setMessages([]);
+    setStats(undefined);
     setDraft("");
     setRunning(false);
     setUiRequest(undefined);
@@ -328,6 +337,7 @@ export function App() {
         }
       }
       setMessages([]);
+      setStats(undefined);
       setActiveSession(undefined);
       setRunning(false);
       setUiRequest(undefined);
@@ -352,6 +362,7 @@ export function App() {
     live.current = false;
     setWorkspace(undefined);
     setMessages([]);
+    setStats(undefined);
     setActiveSession(undefined);
     setRunning(false);
     setUiRequest(undefined);
@@ -474,11 +485,12 @@ export function App() {
       if (event.type === "agent_settled") {
         setRunning(false);
         setUiRequest(undefined);
-        void window.harness.agent.command<{ sessionFile?: string }>("get_session_stats").then((stats) => {
+        void window.harness.agent.command<AgentSessionStats>("get_session_stats").then((nextStats) => {
           if (!live.current) return;
-          if (typeof stats?.sessionFile !== "string") return;
-          sessionRef.current = stats.sessionFile;
-          setActiveSession(stats.sessionFile);
+          setStats(nextStats);
+          if (typeof nextStats?.sessionFile !== "string") return;
+          sessionRef.current = nextStats.sessionFile;
+          setActiveSession(nextStats.sessionFile);
         }).catch(() => undefined);
         void window.harness.sessions.list().then(setSessions);
       }
@@ -667,8 +679,10 @@ export function App() {
 
       <Chat
         home={home}
+        stats={stats}
         title={sessions.find((session) => isSameSession(session, activeSession))?.title || workspace?.split("/").pop()}
         composer={home ? undefined : composer}
+        nav={<TurnNav items={anchors} />}
         inspect={workspace ? (
           <InspectPanel
             files={workingFiles}
@@ -744,7 +758,12 @@ export function App() {
           {groups.length > 0 && (
             <div className="messages">
               {groups.map((group) => group.type === "user" ? (
-                <UserTurn key={group.id} text={group.message.text} images={group.message.images} />
+                <UserTurn
+                  key={group.id}
+                  anchor={turnAnchorId(group.id)}
+                  text={group.message.text}
+                  images={group.message.images}
+                />
               ) : (
                 <AssistantTurn
                   key={group.id}

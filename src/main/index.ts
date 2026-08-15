@@ -23,9 +23,10 @@ import {
 import { AgentHost } from "./agent-host";
 import { listOpenAiModels } from "../shared/openai-models";
 import { activeChat, mergeChatProfiles, migrateChatProfiles, parseChatProfiles, type ChatProfiles } from "../shared/chat-profiles";
-import { DEFAULT_VISION_CONFIG, resolveVisionSettings, type VisionConfig } from "../shared/vision-api";
+import { DEFAULT_VISION_CONFIG, resolveVisionSettings, visionTitle, type VisionConfig } from "../shared/vision-api";
 import {
   PREVIEW_SCHEME,
+  UPLOADS_HOST,
   type AgentSnapshot,
   type AgentStartOptions,
   type ProviderStatus,
@@ -283,7 +284,7 @@ function registerIpc(): void {
       storagePath: thread.storagePath,
       id: thread.id,
       cwd: thread.cwd,
-      title: thread.title,
+      title: visionTitle(thread.title),
       createdAt: thread.createdAt,
       updatedAt: thread.updatedAt,
       ...(thread.provider ? { provider: thread.provider } : {}),
@@ -449,11 +450,18 @@ const recentWorkspaces = {
 };
 
 async function servePreview(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const name = decodeURIComponent(url.pathname).replace(/^\/+/, "");
   let target: string;
-  try {
-    target = await resolveInWorkspace(decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, ""));
-  } catch (error) {
-    return new Response(error instanceof Error ? error.message : "Forbidden", { status: 403 });
+  if (url.host === UPLOADS_HOST) {
+    // basename only: this host serves staged uploads, never an arbitrary path on disk.
+    target = path.join(visionUploadsDir(), path.basename(name));
+  } else {
+    try {
+      target = await resolveInWorkspace(name);
+    } catch (error) {
+      return new Response(error instanceof Error ? error.message : "Forbidden", { status: 403 });
+    }
   }
   try {
     return await net.fetch(pathToFileURL(target).toString());

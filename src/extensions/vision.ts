@@ -11,10 +11,12 @@ import {
   MINERU_PARSE_FILE,
   MINERU_PARSE_TASK,
   resolveVisionSettings,
+  visionEngineDetails,
   visionError,
   visionRequest,
   visionText,
   isVisionHandoff,
+  mentionsImageFile,
   visibleUserText,
   type VisionConfig,
 } from "../shared/vision-api";
@@ -51,10 +53,18 @@ function langLine(prompt: string) {
 export default function visionExtension(pi: ExtensionAPI) {
   let wanted = false;
   let lastPrompt = "";
-  pi.on("session_start", () => setVisionTool(pi, false));
+  pi.on("session_start", () => {
+    wanted = false;
+    setVisionTool(pi, false);
+  });
   pi.on("before_agent_start", (event: { prompt?: string; images?: unknown[]; systemPrompt?: string }) => {
     lastPrompt = event.prompt ?? "";
-    wanted = Boolean(event.images?.length) || isVisionHandoff(lastPrompt);
+    // Sticky for the session: images pasted in an earlier turn are still on disk, and taking the
+    // tool away mid-session only makes the model fall back to shell OCR hacks (PIL, Swift Vision).
+    wanted = wanted
+      || Boolean(event.images?.length)
+      || isVisionHandoff(lastPrompt)
+      || mentionsImageFile(lastPrompt);
     setVisionTool(pi, wanted);
     const base = event.systemPrompt ?? "";
     const next = `${base.replaceAll(NO_CAPTURE, "").replaceAll(LANG_ZH, "").replaceAll(LANG_EN, "").trimEnd()}\n\n${NO_CAPTURE}\n${langLine(lastPrompt)}`;
@@ -62,7 +72,7 @@ export default function visionExtension(pi: ExtensionAPI) {
   });
   pi.on("tool_call", (event: { toolName?: string; input?: { cmd?: string } }) => {
     if (event.toolName === "vision" && !wanted) {
-      return { block: true, reason: "这一轮没有贴图，不调用图片识别。" };
+      return { block: true, reason: "本会话没有图片，不调用图片识别。" };
     }
     const command = event.input?.cmd ?? "";
     if (event.toolName === "exec_command" && isVisualCapture(command) && !/截图|screenshot/i.test(lastPrompt)) {
@@ -94,7 +104,7 @@ export default function visionExtension(pi: ExtensionAPI) {
       _id: string,
       params: { paths?: string[]; prompt?: string },
       signal: unknown,
-      _onUpdate: unknown,
+      onUpdate: unknown,
       ctx: { cwd: string },
     ) {
       const roots = [process.env.HARNESS_VISION_UPLOADS, ctx.cwd].filter((item): item is string => Boolean(item));
@@ -105,6 +115,17 @@ export default function visionExtension(pi: ExtensionAPI) {
       const images = buffers.map(({ file, bytes }) => `data:${mimeFromImagePath(file)};base64,${bytes.toString("base64")}`);
       const config = await loadVisionConfig();
       const hasGlmKey = Boolean(config.apiKey?.trim());
+      const report = typeof onUpdate === "function"
+        ? (onUpdate as (partial: { details?: unknown }) => void)
+        : undefined;
+      report?.({
+        details: visionEngineDetails({
+          model: config.model,
+          hasGlmKey,
+          images: images.length,
+          pending: true,
+        }),
+      });
       const timeout = AbortSignal.timeout(180_000);
       const abort = signal instanceof AbortSignal ? AbortSignal.any([signal, timeout]) : timeout;
       try {
@@ -126,13 +147,16 @@ export default function visionExtension(pi: ExtensionAPI) {
               : "内置 MinerU OCR 未能提取出文字，且未配置视觉模型 API Key。可在设置中填写智谱 GLM API Key 获取完整视觉分析能力。"
           );
         }
+        const details = visionEngineDetails({
+          model: config.model,
+          hasGlmKey,
+          images: images.length,
+          glmText,
+          ocrText,
+        });
         return {
           content: [{ type: "text", text: merged }],
-          details: {
-            model: hasGlmKey ? config.model : "mineru-ocr",
-            images: images.length,
-            ocr: Boolean(ocrText),
-          },
+          details,
         };
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") throw new Error("已终止");

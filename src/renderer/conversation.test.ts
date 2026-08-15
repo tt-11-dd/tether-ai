@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitPatch, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
+import { applyAgentEvent, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitPatch, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
 
 describe("conversation events", () => {
+  it("calculates prompt cache hit rate from reported token usage", () => {
+    expect(cacheHitRate({ input: 500, cacheRead: 9_500, cacheWrite: 0 })).toBe(95);
+    expect(cacheHitRate({ input: 0, cacheRead: 0, cacheWrite: 0 })).toBeUndefined();
+  });
+
   it("streams one assistant message after an optimistic user prompt", () => {
     let messages = [optimisticUserMessage("Build the desktop app")];
     messages = applyAgentEvent(messages, {
@@ -155,6 +160,46 @@ describe("conversation events", () => {
     });
     expect(messages[0]?.tools[0]).toMatchObject({ status: "error", title: "图片识别", output: "invalid image" });
     expect(toolErrorText(messages[0]!.tools)).toBe("invalid image");
+  });
+
+  it("renames the vision chip once engine details arrive", () => {
+    let messages = applyAgentEvent([], {
+      type: "tool_execution_start",
+      toolCallId: "v2",
+      toolName: "vision",
+    });
+    expect(messages[0]?.tools[0]?.title).toBe("图片识别");
+    messages = applyAgentEvent(messages, {
+      type: "tool_execution_update",
+      toolCallId: "v2",
+      toolName: "vision",
+      partialResult: {
+        details: {
+          model: "mineru-ocr",
+          engines: ["mineru-ocr"],
+          images: 1,
+          ocr: true,
+          glm: false,
+        },
+      },
+    });
+    expect(messages[0]?.tools[0]?.title).toBe("MinerU OCR");
+    messages = applyAgentEvent(messages, {
+      type: "tool_execution_end",
+      toolCallId: "v2",
+      toolName: "vision",
+      result: {
+        content: [{ type: "text", text: "OCR 提取文字（MinerU）：\nhello" }],
+        details: {
+          model: "glm-4v-flash",
+          engines: ["glm-4v-flash", "mineru-ocr"],
+          images: 1,
+          ocr: true,
+          glm: true,
+        },
+      },
+    });
+    expect(messages[0]?.tools[0]?.title).toBe("GLM-4V 识图 · glm-4v-flash · MinerU OCR");
   });
 
   it("normalizes stored assistant tool calls", () => {
@@ -659,5 +704,17 @@ describe("conversation events", () => {
     });
     expect(messages[0]?.text).toBe("");
     expect(messages[0]?.thinking).toBe("Inspecting related pages for consistent navigation");
+  });
+
+  it("builds one jump anchor per real user question", () => {
+    const messages = normalizeMessages([
+      { role: "user", content: [{ type: "text", text: "新增友链页面\n顺便加个入口" }] },
+      { role: "assistant", content: [{ type: "text", text: "好" }] },
+      { role: "user", content: [{ type: "text", text: "/undo" }] },
+      { role: "user", content: [{ type: "text", text: "修复样式问题" }] },
+    ]);
+    const anchors = turnAnchors(groupConversation(messages));
+    expect(anchors.map((item) => item.label)).toEqual(["新增友链页面 顺便加个入口", "修复样式问题"]);
+    expect(anchors[0]?.id).toBe(turnAnchorId(messages[0]!.id));
   });
 });

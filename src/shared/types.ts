@@ -1,6 +1,8 @@
 /** Previews load through their own origin so page storage works without reaching the app. */
 export const PREVIEW_SCHEME = "harness-preview";
 export const PREVIEW_HOST = "workspace";
+/** Staged image uploads live outside the workspace, so they get their own preview host. */
+export const UPLOADS_HOST = "uploads";
 
 export const PROVIDER_IDS = [
   "deepseek",

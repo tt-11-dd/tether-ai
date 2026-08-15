@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isVisionHandoff, isVisionReadable, mergeVisionResult, mimeFromImagePath, mineruResult, mineruUpload, resolveVisionSettings, visibleUserText, visionAgentPrompt, visionError, visionRequest, visionText } from "./vision-api";
+import { isVisionHandoff, isVisionReadable, mergeVisionResult, mimeFromImagePath, mineruResult, mineruUpload, resolveVisionSettings, visibleUserText, visionAgentPrompt, visionEngineDetails, visionError, visionHandoffPaths, visionRequest, visionResultSections, visionText, visionTitle, visionToolChips, visionToolTitle, visionUploadUrl } from "./vision-api";
 
 describe("visionRequest", () => {
   it("puts images and prompt into chat.completions content parts", () => {
@@ -81,6 +81,64 @@ describe("visionAgentPrompt", () => {
     expect(/[\u4e00-\u9fff]/.test(visibleUserText(text))).toBe(true);
     expect(/[\u4e00-\u9fff]/.test(visibleUserText("fix the button"))).toBe(false);
     expect(/[\u4e00-\u9fff]/.test(visibleUserText(visionAgentPrompt("what's this", ["/tmp/1.png"])))).toBe(false);
+  });
+});
+
+describe("restoring a stored handoff", () => {
+  const stored = visionAgentPrompt("这是什么", ["/Users/me/Library/Application Support/Tether/uploads/1786-1.png"]);
+
+  it("recovers the staged upload paths and their preview urls", () => {
+    expect(visionHandoffPaths(stored)).toEqual([
+      "/Users/me/Library/Application Support/Tether/uploads/1786-1.png",
+    ]);
+    expect(visionUploadUrl(stored.split("\n").at(-2)!.slice(2))).toBe("harness-preview://uploads/1786-1.png");
+    expect(visionHandoffPaths("看看 @a.png")).toEqual([]);
+  });
+
+  it("keeps the handoff instruction out of the session title", () => {
+    expect(visionTitle(stored.replace(/\n+/g, " "))).toBe("这是什么");
+    expect(visionTitle("修复登录页样式")).toBe("修复登录页样式");
+  });
+});
+
+describe("visionToolTitle", () => {
+  it("names the engine chip from pending and final details", () => {
+    expect(visionToolChips(visionEngineDetails({
+      model: "glm-4v-flash",
+      hasGlmKey: false,
+      images: 1,
+      pending: true,
+    }))).toEqual(["MinerU OCR"]);
+    expect(visionToolChips(visionEngineDetails({
+      model: "glm-4v-flash",
+      hasGlmKey: true,
+      images: 1,
+      pending: true,
+    }))).toEqual(["GLM-4V 识图 · glm-4v-flash", "MinerU OCR"]);
+    expect(visionToolTitle(visionEngineDetails({
+      model: "glm-4v-flash",
+      hasGlmKey: true,
+      images: 1,
+      glmText: "a browser",
+      ocrText: "WeTab",
+    }))).toBe("GLM-4V 识图 · glm-4v-flash · MinerU OCR");
+    expect(visionToolChips(visionEngineDetails({
+      model: "glm-4v-flash",
+      hasGlmKey: true,
+      images: 1,
+      glmText: "a browser",
+    }))).toEqual(["GLM-4V 识图 · glm-4v-flash"]);
+    expect(visionToolChips()).toEqual(["图片识别"]);
+  });
+
+  it("splits merged vision output into labeled engine sections", () => {
+    expect(visionResultSections(mergeVisionResult("a browser tab", "WeTab\n搜索"))).toEqual([
+      { label: "GLM-4V 识图", text: "a browser tab" },
+      { label: "MinerU OCR", text: "WeTab\n搜索" },
+    ]);
+    expect(visionResultSections(mergeVisionResult("", "only ocr"))).toEqual([
+      { label: "MinerU OCR", text: "only ocr" },
+    ]);
   });
 });
 

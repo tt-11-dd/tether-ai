@@ -1,3 +1,5 @@
+import { PREVIEW_SCHEME, UPLOADS_HOST } from "./types";
+
 export const VISION_ENDPOINT = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
 export const VISION_MODEL = "glm-4v-flash";
 export const MAX_VISION_IMAGES = 4;
@@ -69,6 +71,82 @@ export function mergeVisionResult(glm: string, ocr?: string) {
   return `图片识别（GLM-4V-Flash）：\n${vision}\n\nOCR（MinerU）：\n${text}`;
 }
 
+/** Chip labels so GLM 识图 and MinerU OCR never share one ambiguous badge. */
+export function visionToolChips(details?: unknown): string[] {
+  if (!details || typeof details !== "object") return ["图片识别"];
+  const record = details as {
+    model?: unknown;
+    engines?: unknown;
+    ocr?: unknown;
+    glm?: unknown;
+  };
+  const engines = Array.isArray(record.engines)
+    ? record.engines.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+    : [];
+  const model = typeof record.model === "string" ? record.model.trim() : "";
+  const usedGlm = record.glm === true
+    || engines.some((item) => item !== "mineru-ocr")
+    || (Boolean(model) && model !== "mineru-ocr");
+  const usedOcr = record.ocr === true || engines.includes("mineru-ocr") || model === "mineru-ocr";
+  const chips: string[] = [];
+  if (usedGlm) chips.push(`GLM-4V 识图 · ${model && model !== "mineru-ocr" ? model : "glm-4v-flash"}`);
+  if (usedOcr) chips.push("MinerU OCR");
+  return chips.length > 0 ? chips : ["图片识别"];
+}
+
+export function visionToolTitle(details?: unknown): string {
+  return visionToolChips(details).join(" · ");
+}
+
+/** Split the merged vision tool output back into labeled engine sections for the UI. */
+export function visionResultSections(output?: string): Array<{ label: string; text: string }> {
+  const text = output?.trim() ?? "";
+  if (!text) return [];
+  const glm = text.match(/图片识别（GLM-4V-Flash）：\n([\s\S]*?)(?:\n\nOCR（MinerU）：\n|$)/)?.[1]?.trim();
+  const ocr = text.match(/OCR 提取文字（MinerU）：\n([\s\S]+)$/)?.[1]?.trim()
+    ?? text.match(/OCR（MinerU）：\n([\s\S]+)$/)?.[1]?.trim();
+  if (glm || ocr) {
+    return [
+      ...(glm ? [{ label: "GLM-4V 识图", text: glm }] : []),
+      ...(ocr ? [{ label: "MinerU OCR", text: ocr }] : []),
+    ];
+  }
+  return [{ label: "图片识别", text }];
+}
+
+export function visionEngineDetails(options: {
+  model: string;
+  hasGlmKey: boolean;
+  images: number;
+  glmText?: string;
+  ocrText?: string;
+  /** Before results arrive: show what will be tried. */
+  pending?: boolean;
+}) {
+  const glmText = options.glmText?.trim() ?? "";
+  const ocrText = options.ocrText?.trim() ?? "";
+  if (options.pending) {
+    return {
+      model: options.hasGlmKey ? options.model : "mineru-ocr",
+      engines: options.hasGlmKey ? [options.model, "mineru-ocr"] : ["mineru-ocr"],
+      images: options.images,
+      ocr: true,
+      glm: options.hasGlmKey,
+    };
+  }
+  const engines = [
+    ...(options.hasGlmKey && glmText ? [options.model] : []),
+    ...(ocrText ? ["mineru-ocr"] : []),
+  ];
+  return {
+    model: options.hasGlmKey && glmText ? options.model : "mineru-ocr",
+    engines,
+    images: options.images,
+    ocr: Boolean(ocrText),
+    glm: Boolean(options.hasGlmKey && glmText),
+  };
+}
+
 export function mineruCreateBody(fileName: string) {
   return { file_name: fileName, language: "ch" };
 }
@@ -109,9 +187,41 @@ export function isVisionHandoff(text: string) {
   return text.includes("[vision]") && text.includes("先调用 vision 工具查看");
 }
 
+/** Staged upload paths listed in a stored handoff, so old turns can show their thumbnails again. */
+export function visionHandoffPaths(text: string): string[] {
+  if (!isVisionHandoff(text)) return [];
+  return text
+    .split("\n")
+    .flatMap((line) => {
+      const file = line.match(/^-\s+(\S.*)$/)?.[1]?.trim();
+      return file && mentionsImageFile(file) ? [file] : [];
+    });
+}
+
+/**
+ * Session titles collapse the stored handoff onto one line, so the newline split used by
+ * `visibleUserText` cannot recover them; cut at the agent instruction instead.
+ */
+export function visionTitle(title: string) {
+  const stripped = title.replace(/\u200b?\[vision\]/, "");
+  if (stripped === title) return title;
+  const cut = stripped.indexOf("用户上传了图片");
+  return (cut < 0 ? stripped : stripped.slice(0, cut)).trim() || title;
+}
+
+export function visionUploadUrl(file: string) {
+  const name = file.replace(/\\/g, "/").split("/").pop() ?? "";
+  return `${PREVIEW_SCHEME}://${UPLOADS_HOST}/${encodeURIComponent(name)}`;
+}
+
 export function visibleUserText(text: string) {
   if (!isVisionHandoff(text)) return text;
   return (text.split("\n")[0] ?? "").replace(/^\u200b?\[vision\]/, "").trim();
+}
+
+/** The turn points at an image on disk (@mention or plain path), not just a pasted attachment. */
+export function mentionsImageFile(text: string) {
+  return /\.(?:png|jpe?g|webp|gif|bmp)(?![a-z0-9])/i.test(text);
 }
 
 export function isVisionReadable(file: string, roots: string[]) {

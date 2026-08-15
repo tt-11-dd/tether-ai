@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { PREVIEW_HOST, PREVIEW_SCHEME, type ExtensionUiRequest, type PermissionMode } from "../shared/types";
-import { DEFAULT_VISION_CONFIG, visibleUserText } from "../shared/vision-api";
+import { PREVIEW_HOST, PREVIEW_SCHEME, type AgentSessionStats, type ExtensionUiRequest, type PermissionMode } from "../shared/types";
+import { DEFAULT_VISION_CONFIG, visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, type ChatKind } from "../shared/chat-profiles";
-import { collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, formatThinking, liveStatus, omitFinalReply, repairMarkdownTables, splitPatch, thoughtSteps, toolCommand, toolSummary, turnWork, undoDialogTitle, workspaceRelative, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type WorkItem } from "./conversation";
+import { cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, formatThinking, liveStatus, omitFinalReply, repairMarkdownTables, splitPatch, thoughtSteps, toolCommand, toolSummary, turnWork, undoDialogTitle, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
 import logo from "./logo.svg";
 
@@ -18,16 +19,16 @@ export function Icon({ path, size = 16, className }: { path: string; size?: numb
   );
 }
 
-export function UserTurn({ text, images = [] }: { text: string; images?: Array<{ data: string; mimeType: string }> }) {
+export function UserTurn({ text, images = [], anchor }: { text: string; images?: ChatImage[]; anchor?: string }) {
   const shown = visibleUserText(text);
   const [view, setView] = useState<string>();
   return (
-    <div className="user-turn">
+    <div className="user-turn" id={anchor}>
       <article className="user">
         {images.length > 0 && (
           <div className="user-images">
             {images.map((image, index) => {
-              const src = `data:${image.mimeType};base64,${image.data}`;
+              const src = image.src ?? `data:${image.mimeType};base64,${image.data}`;
               return (
                 <button key={`${image.mimeType}-${index}`} type="button" className="user-image" onClick={() => setView(src)}>
                   <img src={src} alt="" />
@@ -41,10 +42,11 @@ export function UserTurn({ text, images = [] }: { text: string; images?: Array<{
       <div className="bubble-actions">
         <CopyAction text={shown} />
       </div>
-      {view && (
+      {view && createPortal(
         <div className="modal" onClick={() => setView(undefined)} onKeyDown={(event) => { if (event.key === "Escape") setView(undefined); }}>
           <img className="lightbox" src={view} alt="" />
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -134,15 +136,19 @@ export function SidebarNav({
 
 export function Chat({
   children,
+  stats,
   composer,
   home,
   inspect,
+  nav,
   title,
 }: {
   children: ReactNode;
+  stats?: AgentSessionStats;
   composer?: ReactNode;
   home?: boolean;
   inspect?: ReactNode;
+  nav?: ReactNode;
   title?: string;
 }) {
   const [drawer, setDrawer] = useState(true);
@@ -150,6 +156,8 @@ export function Chat({
     <section className={home ? "chat home" : "chat"}>
       <header className="chat-bar">
         {!home && title && <h1 className="chat-title">{title}</h1>}
+        {!home && stats && <CacheStatus stats={stats} />}
+        {!home && nav}
         {inspect && (
           <button
             type="button"
@@ -169,6 +177,86 @@ export function Chat({
         {drawer && inspect}
       </div>
     </section>
+  );
+}
+
+function CacheStatus({ stats }: { stats: AgentSessionStats }) {
+  const rate = cacheHitRate(stats.tokens);
+  if (rate === undefined) return null;
+  const title = [
+    `缓存命中率 ${rate.toFixed(1)}%`,
+    `命中 ${formatCompactNumber(stats.tokens.cacheRead)} tokens`,
+    stats.tokens.cacheWrite ? `写入 ${formatCompactNumber(stats.tokens.cacheWrite)} tokens` : "",
+  ].filter(Boolean).join(" · ");
+  return (
+    <span className="cache-status" title={title}>
+      <i />
+      缓存 {rate.toFixed(0)}%
+    </span>
+  );
+}
+
+function formatCompactNumber(value: number) {
+  if (value < 1_000) return String(value);
+  if (value < 1_000_000) return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}k`;
+  return `${(value / 1_000_000).toFixed(1)}M`;
+}
+
+export function TurnNav({ items }: { items: Array<{ id: string; label: string }> }) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState<string>();
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (!box.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  if (items.length < 2) return null;
+
+  /** Last question whose card already scrolled past the top of the reading area. */
+  const visibleTurn = () => items
+    .filter((item) => (document.getElementById(item.id)?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY) < 160)
+    .at(-1)?.id;
+
+  return (
+    <div ref={box} className={`combo down turn-nav${open ? " open" : ""}`}>
+      <button
+        type="button"
+        className="combo-trigger turn-nav-trigger"
+        aria-label="跳转到某一轮对话"
+        onClick={() => {
+          setActive(visibleTurn());
+          setOpen((was) => !was);
+        }}
+      >
+        <Icon path="M4 6h16M4 12h10M4 18h6" size={14} />
+        <span>{items.length} 轮</span>
+      </button>
+      {open && (
+        <div className="combo-menu turn-nav-menu" role="listbox">
+          {items.map((item, index) => (
+            <button
+              key={item.id}
+              type="button"
+              className={item.id === active ? "combo-item selected" : "combo-item"}
+              onClick={() => {
+                document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                setActive(item.id);
+                setOpen(false);
+              }}
+            >
+              <small>{index + 1}</small>
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -225,25 +313,57 @@ export function Thinking({
                 <div className="thought-tools">
                   {step.tools.map((tool) => {
                     const command = formatCommand(toolCommand(tool));
+                    if (command) {
+                      return (
+                        <div key={tool.id} className="thought-tool-item">
+                          <TerminalBlock command={command} tool={tool} />
+                        </div>
+                      );
+                    }
+                    if (tool.name === "vision") {
+                      return (
+                        <div key={tool.id} className="thought-tool-item vision-tool">
+                          <div className="thought-tool-chips">
+                            {visionToolChips(tool.details).map((label) => (
+                              <div key={label} className={`thought-tool-chip ${tool.status}`}>
+                                <Icon
+                                  path={
+                                    tool.status === "error"
+                                      ? "M6 6l12 12M18 6L6 18"
+                                      : tool.status === "running"
+                                        ? "M12 2a10 10 0 1 0 10 10"
+                                        : "M5 12.5l4 4 10-10"
+                                  }
+                                  size={13}
+                                />
+                                <span>{label}</span>
+                              </div>
+                            ))}
+                          </div>
+                          {tool.status !== "running" && visionResultSections(tool.output).map((section) => (
+                            <div key={section.label} className="vision-section">
+                              <strong>{section.label}</strong>
+                              <p>{section.text.length > 280 ? `${section.text.slice(0, 280)}…` : section.text}</p>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    }
                     return (
                       <div key={tool.id} className="thought-tool-item">
-                        {command ? (
-                          <TerminalBlock command={command} tool={tool} />
-                        ) : (
-                          <div className={`thought-tool-chip ${tool.status}`}>
-                            <Icon
-                              path={
-                                tool.status === "error"
-                                  ? "M6 6l12 12M18 6L6 18"
-                                  : tool.status === "running"
-                                    ? "M12 2a10 10 0 1 0 10 10"
-                                    : "M5 12.5l4 4 10-10"
-                              }
-                              size={13}
-                            />
-                            <span>{tool.title}</span>
-                          </div>
-                        )}
+                        <div className={`thought-tool-chip ${tool.status}`}>
+                          <Icon
+                            path={
+                              tool.status === "error"
+                                ? "M6 6l12 12M18 6L6 18"
+                                : tool.status === "running"
+                                  ? "M12 2a10 10 0 1 0 10 10"
+                                  : "M5 12.5l4 4 10-10"
+                            }
+                            size={13}
+                          />
+                          <span>{tool.title}</span>
+                        </div>
                       </div>
                     );
                   })}
@@ -1386,23 +1506,49 @@ export function Combo({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [anchor, setAnchor] = useState<DOMRect>();
   const box = useRef<HTMLDivElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const selected = options.find((item) => item.value === value);
   const filtered = searchable && query
     ? options.filter((item) => item.label.toLowerCase().includes(query.toLowerCase()))
     : options;
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setAnchor(undefined);
+      return;
+    }
     const close = (event: MouseEvent) => {
-      if (!box.current?.contains(event.target as Node)) {
-        setOpen(false);
-        setQuery("");
-      }
+      const target = event.target as Node;
+      if (box.current?.contains(target) || menu.current?.contains(target)) return;
+      setOpen(false);
+      setQuery("");
     };
+    // The menu lives in a body portal so panels can scroll without clipping it, which means its
+    // position has to follow the trigger instead of being laid out next to it.
+    const place = () => setAnchor(box.current?.getBoundingClientRect());
+    place();
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
   }, [open]);
+
+  const dropDown = Boolean(down) || (anchor ? anchor.top < 260 : false);
+  const placement = anchor
+    ? {
+      left: anchor.left,
+      minWidth: Math.max(anchor.width, 220),
+      ...(dropDown
+        ? { top: anchor.bottom + 6 }
+        : { bottom: window.innerHeight - anchor.top + 6 }),
+    }
+    : undefined;
 
   return (
     <div ref={box} className={`combo${open ? " open" : ""}${down ? " down" : ""}`}>
@@ -1434,8 +1580,8 @@ export function Combo({
           <Icon path="M6 9l6 6 6-6" size={12} />
         </button>
       )}
-      {open && (
-        <div className="combo-menu" role="listbox">
+      {open && placement && createPortal(
+        <div ref={menu} className="combo-menu floating" role="listbox" style={placement}>
           {filtered.length === 0 && (query.trim() ? (
             <button
               type="button"
@@ -1471,7 +1617,8 @@ export function Combo({
               {item.label}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -1793,7 +1940,7 @@ export function Login({
               <Icon path="M6 6l12 12M18 6L6 18" />
             </button>
           </header>
-          <div className={pane === "about" ? "settings-body scroll" : "settings-body menu-layer"}>
+          <div className="settings-body">
             {pane === "chat" && (
               <>
                 <div className="settings-seg">

@@ -287,6 +287,22 @@ button:disabled { cursor: default; opacity: .4; }
   font-size: 13px;
   font-weight: 500;
 }
+.cache-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-3);
+  font: 11px/1 var(--mono);
+  -webkit-app-region: no-drag;
+}
+.cache-status i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 2px rgba(46, 160, 67, .1);
+}
 .chat-body {
   min-width: 0;
   min-height: 0;
@@ -304,6 +320,9 @@ button:disabled { cursor: default; opacity: .4; }
   overflow: hidden;
 }
 .conversation { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; background: var(--page); }
+/* Content dissolves at the title bar instead of being cut off mid-line. The mask makes
+   this scroller a containing block for fixed children, so the image lightbox is portaled. */
+.conversation:not(.home) { mask-image: linear-gradient(to bottom, transparent 0, #000 30px); }
 .conversation.home { display: flex; align-items: center; }
 .messages { width: var(--col); padding: 28px 28px 180px; margin: 0 auto; }
 .empty {
@@ -820,6 +839,38 @@ button:disabled { cursor: default; opacity: .4; }
   border: 1px solid var(--line);
   color: var(--ink-2);
   font-size: 12px;
+}
+.thought-tool-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.vision-tool {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.vision-section {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--inset);
+  border: 1px solid var(--line);
+}
+.vision-section strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 500;
+}
+.vision-section p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .thought-tool-chip.running {
   color: var(--ink);
@@ -1395,9 +1446,15 @@ button:disabled { cursor: default; opacity: .4; }
   bottom: auto;
   top: calc(100% + 6px);
 }
-.settings .combo-menu {
-  z-index: 90;
-  max-height: 190px;
+/* Portaled to the body, so it sits above every panel and modal and is placed inline by JS. */
+.combo-menu.floating {
+  position: fixed;
+  left: auto;
+  right: auto;
+  top: auto;
+  bottom: auto;
+  z-index: 100;
+  max-height: min(320px, 60vh);
 }
 .combo-item, .combo-empty {
   width: 100%;
@@ -1413,6 +1470,36 @@ button:disabled { cursor: default; opacity: .4; }
 .combo-empty { color: var(--ink-3); }
 .combo-item:hover { background: var(--hover); }
 .combo-item.selected { background: var(--hover); color: var(--ink); font-weight: 500; }
+
+.turn-nav { flex: none; min-width: 0; }
+.turn-nav .combo-trigger {
+  min-width: 0;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: 12px;
+  -webkit-app-region: no-drag;
+}
+.turn-nav .combo-trigger:hover, .turn-nav.open .combo-trigger { color: var(--ink); }
+.turn-nav .combo-menu {
+  left: auto;
+  right: 0;
+  min-width: 300px;
+  max-height: 340px;
+}
+.turn-nav .combo-item { gap: 8px; }
+.turn-nav .combo-item small {
+  flex: none;
+  width: 18px;
+  color: var(--ink-3);
+  font: 11px/1 var(--mono);
+  text-align: right;
+}
+.turn-nav .combo-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .permission-trigger {
   gap: 6px;
@@ -1610,7 +1697,7 @@ button:disabled { cursor: default; opacity: .4; }
 .settings-nav-item.active { background: var(--hover-2); color: var(--ink); font-weight: 500; }
 .settings-nav-item svg { color: var(--ink-3); flex: none; }
 .settings-nav-item.active svg { color: var(--ink); }
-.settings-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-radius: 0 16px 16px 0; overflow: visible; }
+.settings-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-radius: 0 16px 16px 0; overflow: hidden; }
 .settings-head {
   height: 52px;
   padding: 0 16px 0 24px;
@@ -1633,19 +1720,13 @@ button:disabled { cursor: default; opacity: .4; }
 .settings-body {
   flex: 1;
   min-height: 0;
-  padding: 16px 24px 20px;
+  padding: 16px 24px 28px;
   display: flex;
   flex-direction: column;
   gap: 14px;
   position: relative;
   z-index: 1;
-}
-.settings-body.scroll {
   overflow-y: auto;
-  padding-bottom: 28px;
-}
-.settings-body.menu-layer {
-  overflow: visible;
 }
 .settings-hint { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.5; }
 .settings-hint code { font: 11.5px/1.2 var(--mono); background: var(--hover); padding: 2px 4px; border-radius: 4px; }
@@ -1679,7 +1760,7 @@ button:disabled { cursor: default; opacity: .4; }
   background: var(--surface);
   display: flex;
   flex-direction: column;
-  overflow: visible;
+  flex: none;
 }
 .settings-card.muted {
   background: var(--page);
