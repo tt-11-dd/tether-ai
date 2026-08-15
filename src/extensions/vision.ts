@@ -104,17 +104,36 @@ export default function visionExtension(pi: ExtensionAPI) {
       const buffers = await Promise.all(files.map(async (file) => ({ file, bytes: await readFile(file) })));
       const images = buffers.map(({ file, bytes }) => `data:${mimeFromImagePath(file)};base64,${bytes.toString("base64")}`);
       const config = await loadVisionConfig();
-      if (!config.apiKey) throw new Error("先在自定义配置里填写图片识别 API key");
+      const hasGlmKey = Boolean(config.apiKey?.trim());
       const timeout = AbortSignal.timeout(180_000);
       const abort = signal instanceof AbortSignal ? AbortSignal.any([signal, timeout]) : timeout;
       try {
         const prompt = params.prompt ?? "";
-        const [glmParts, ocr] = await Promise.all([
-          Promise.all(images.map((image, index) =>
-            analyzeGlm(config, images.length > 1 ? `第 ${index + 1} 张。${prompt}` : prompt, [image], abort))),
-          mineruOcr(buffers[0]!, abort).catch(() => ""),
+        const [glmParts, ocrParts] = await Promise.all([
+          hasGlmKey
+            ? Promise.all(images.map((image, index) =>
+                analyzeGlm(config, images.length > 1 ? `第 ${index + 1} 张。${prompt}` : prompt, [image], abort)))
+            : Promise.resolve([]),
+          Promise.all(buffers.map((buf) => mineruOcr(buf, abort).catch(() => ""))),
         ]);
-        return { content: [{ type: "text", text: mergeVisionResult(glmParts.join("\n\n"), ocr) }], details: { model: config.model, images: images.length, ocr: Boolean(ocr) } };
+        const glmText = glmParts.filter(Boolean).join("\n\n");
+        const ocrText = ocrParts.filter(Boolean).join("\n\n---\n\n");
+        const merged = mergeVisionResult(glmText, ocrText);
+        if (!merged) {
+          throw new Error(
+            hasGlmKey
+              ? "图片识别未能提取出有效内容"
+              : "内置 MinerU OCR 未能提取出文字，且未配置视觉模型 API Key。可在设置中填写智谱 GLM API Key 获取完整视觉分析能力。"
+          );
+        }
+        return {
+          content: [{ type: "text", text: merged }],
+          details: {
+            model: hasGlmKey ? config.model : "mineru-ocr",
+            images: images.length,
+            ocr: Boolean(ocrText),
+          },
+        };
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") throw new Error("已终止");
         throw error;

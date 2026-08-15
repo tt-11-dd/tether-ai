@@ -4,220 +4,223 @@
 
 # Tether
 
-**面向仓库的 AI 编程桌面工作台** —— 基于本地 [`tether-agent-core`](../tether-runtime/packages/core) 的 Electron 宿主。
+**The Local-First AI Coding Workbench for Developers & Repositories**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19-blue)](https://nodejs.org)
 [![Electron](https://img.shields.io/badge/Electron-37-blueviolet)](https://www.electronjs.org)
-[![Tether Agent Core](https://img.shields.io/badge/tether--agent--core-0.1.0-brown)](../tether-runtime/packages/core)
-![Platform: macOS / Linux / Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
+[![Platform: macOS / Linux / Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](https://github.com/tt-11-dd/tether-ai)
 
 </div>
 
-Agent 循环、权限、沙箱、会话存储等核心逻辑全部在 `tether-agent-core` 中实现，本仓库只负责把它们装进一个原生桌面应用，并提供一套面向中文用户、围绕「打开仓库 → 对话 → 改代码」的工作流界面。
+Tether is a native desktop AI coding workbench engineered for repository-scale development. Built on Electron, React, and a dedicated local agent core ([`tether-agent-core`](https://github.com/tt-11-dd/tether-ai)), Tether gives you full autonomy to inspect codebases, execute scoped terminal operations, edit complex files with transactional checkpoints, and interact through rich diff previews—all with complete privacy on your machine.
 
-> **快速上手**：`pnpm install && pnpm dev` → ⌘/Ctrl + O 打开一个仓库 → 点击左下角账户区域配置 API Key → 在输入框发送「解释这个仓库」。
+---
 
-## 目录
+## ⚡ Why Tether? (Key Advantages)
 
-- [特性](#特性)
-- [快速开始](#快速开始)
-- [脚本](#脚本)
-- [使用说明](#使用说明)
-- [架构](#架构)
-- [目录结构](#目录结构)
-- [数据与互操作](#数据与互操作)
-- [打包与发布](#打包与发布)
-- [安全模型](#安全模型)
-- [开发](#开发)
-- [已知限制](#已知限制)
-- [常见问题](#常见问题)
-- [License](#license)
+- 🔒 **True Local-First Privacy**: All chats, checkpoints, credentials, and settings are stored locally in `~/.tether` with owner-only (`0600`) permissions. Zero telemetry, no cloud relays, no tracking.
+- 🧠 **Universal Multi-Model Matrix**: Native support for **DeepSeek** (with customized reasoning effort), **OpenAI**, **Anthropic**, **OpenRouter**, **Kimi**, **MiniMax**, **xAI**, **ZAI**, and custom OpenAI-compatible endpoints.
+- 👁️ **Hybrid Vision & Free Built-in OCR**: Out-of-the-box text extraction from screenshots and documents powered by zero-config **MinerU OCR** (no API key needed), paired with optional **GLM-4V** multimodal visual understanding.
+- 🛡️ **Granular Permission & OS Sandbox**: 4-tier security levels (`Plan`, `Ask on Edit`, `Workspace Safe`, `Full Access`) backed by local OS sandboxing (macOS Seatbelt, Windows workspace guard) and atomic checkpoint undo.
+- 🎨 **Adaptive High-DPI Desktop UX**: Responsive conversation layout optimized for wide/ultrawide displays (1080p to 4K), adaptive macOS traffic light placement, Windows TitleBarOverlay integration, and fullscreen awareness.
+- ⚡ **Streamlined Workflow**: `@` file auto-completion, slash commands (`/new`, `/open`, `/undo`, `/login`), interactive file change previews, and approval dialogs for agent operations.
 
-## 特性
+---
 
-### 多模型供应商
+## 📑 Table of Contents
 
-支持 9 家供应商：**DeepSeek、OpenAI Codex、OpenAI、Anthropic、OpenRouter、ZAI、Kimi Coding、MiniMax、xAI**。
+- [Features](#-features)
+- [Quick Start](#-quick-start)
+- [Permission & Safety Model](#-permission--safety-model)
+- [Hybrid Vision & OCR Engine](#-hybrid-vision--ocr-engine)
+- [Architecture](#-architecture)
+- [Repository Structure](#-repository-structure)
+- [Development & Scripts](#-development--scripts)
+- [Packaging & Distribution](#-packaging--distribution)
+- [FAQ & Troubleshooting](#-faq--troubleshooting)
+- [License](#-license)
 
-- DeepSeek 使用 API Key（可自定义 Base URL）；
-- 其余供应商走设备码 / OAuth 登录；
-- 也支持通过环境变量注入密钥（`auth:status` 会识别已配置的 Key）。
+---
 
-### 项目工作台
+## ✨ Features
 
-- 打开任意仓库文件夹，会话按项目组织在侧边栏；
-- 展示最近项目与每个项目下的历史对话，可搜索过滤；
-- 首页提供快捷建议（「解释这个仓库」「找出最可疑的 bug」「补一组测试」）与最近会话入口。
+### 1. Multi-Provider Intelligence
+- **DeepSeek First-Class Support**: Custom Base URL, API key authentication, and reasoning level control.
+- **Top-Tier LLM Ecosystem**: Connect to Claude (Anthropic), GPT-4o / Codex (OpenAI), OpenRouter, Kimi Coding, MiniMax, xAI, and custom proxy gateways.
+- **Real-Time Token & Cost Telemetry**: Live tracking of token consumption, context window usage, and duration per turn.
 
-### Agent 会话
+### 2. Multi-Project Workspace
+- Seamlessly open any local git repository or project folder (**⌘/Ctrl + O**).
+- Project-isolated thread trees organized cleanly in the sidebar.
+- Zero-project quick sandbox for scratchpad tasks and general coding queries.
 
-- 流式输出、思考过程（reasoning 面板）、工具调用活动（进行中 / 成功 / 失败）；
-- 文件变更摘要与 diff 预览（新增 / 删除行数、补丁详情）；
-- 会话统计：token 用量、成本、上下文占用；
-- agent 发起的交互请求（确认 / 选择 / 输入 / 编辑器）以审批卡片呈现，可打断或批准。
+### 3. Agent Execution & Atomic Undo
+- **Live Activity Streaming**: View real-time thought chains, tool executions, and step-by-step reasoning.
+- **Interactive Patch Previews**: Inspect syntax-highlighted git diffs with exact insertion and deletion metrics.
+- **Rollback Checkpoints**: Easily revert accidental changes using the built-in undo mechanism (`/undo` or UI button).
 
-### 输入体验
+### 4. Interactive Input & Developer Shortcuts
+- **Fuzzy File Mentions**: Type `@` anywhere in the input prompt to search and attach repository files.
+- **Slash Commands**: Rapid action execution via `/new`, `/open`, `/login`, and `/undo`.
+- **Keyboard-First Navigation**: Global shortcuts for switching tabs, new threads, and sending prompts.
 
-- 斜杠命令：`/new` 新对话、`/open` 打开仓库、`/login` 连接模型；
-- 输入 `@` 即可引用工作区文件（自动补全）；
-- 快捷键：**⌘/Ctrl + N** 新建会话、**⌘/Ctrl + O** 打开文件夹。
+---
 
-### 权限与沙箱
+## 🚀 Quick Start
 
-- 四档权限：`plan`（只读规划）/ `ask`（每步询问）/ `auto`（可自动改）/ `full`（全开）；
-- 三档沙箱：`read-only` / `workspace-write` / `danger-full-access`；
-- 非项目会话（未打开文件夹时）固定为只读，项目会话默认为工作区可写；
-- agent 越权时给出明确提示（如只读会话中尝试改文件）。
+### Prerequisites
+- **Node.js**: `>= 22.19.0`
+- **pnpm**: `>= 10.x` or `11.x`
+- Supported OS: **macOS** (Apple Silicon / Intel), **Windows 10/11** (x64), **Linux** (x64)
 
-### 自有运行时
-
-会话、密钥和运行时设置统一存放在 `~/.tether`，由自有的
-`tether-agent-core` 管理。
-
-### 安全基线
-
-- `contextIsolation` + `sandbox` 开启、无 `nodeIntegration`；
-- 文件读取带路径穿越校验，超过 200 KB 自动截断，二进制文件不注入文本；
-- 外部链接只允许 http(s)，并统一交给系统浏览器打开。
-
-## 快速开始
-
-### 环境要求
-
-- Node.js `>=22.19`，使用 pnpm。
-
-### 启动
+### Installation & Run
 
 ```bash
-pnpm install   # postinstall 会自动补齐 Electron 二进制（离线缓存兜底）
-pnpm dev       # Vite HMR + Electron 开发窗口
+# Clone the repository
+git clone https://github.com/tt-11-dd/tether-ai.git
+cd tether-ai
+
+# Install dependencies
+pnpm install
+
+# Start the desktop application in development mode
+pnpm dev
 ```
 
-启动后：
+1. Press **⌘/Ctrl + O** (or click the folder button) to open your project directory.
+2. Click the gear / account icon in the bottom-left corner to configure your DeepSeek API Key or custom model endpoint.
+3. Type your prompt (e.g. `"Explain the architecture of this project"`) or pick one of the quick suggestions!
 
-1. 用 **⌘/Ctrl + O**（或侧边栏）打开一个仓库文件夹；
-2. 点击左下角账户区域，配置 DeepSeek API Key（或其它供应商登录）；
-3. 在输入框发送「解释这个仓库」，或点击首页的快捷建议。
+---
 
-> 没有打开文件夹时也可以直接对话（非项目会话，只读）。
+## 🛡️ Permission & Safety Model
 
-## 脚本
+Tether provides 4 distinct permission modes selectable directly from the bottom prompt bar:
 
-| 命令 | 说明 |
-| --- | --- |
-| `pnpm dev` | 开发模式：Vite 热更新 + Electron |
-| `pnpm typecheck` | TypeScript 类型检查 |
-| `pnpm test` | 运行 Vitest 单元测试 |
-| `pnpm build` | 构建主进程（tsup）+ 渲染进程（vite build） |
-| `pnpm check` | 完整校验：typecheck + test + build |
-| `pnpm run pack` | 构建并产出 macOS `.dmg` 与 Windows `.zip`（`release/`，未签名） |
-| `pnpm start` | 直接运行已构建产物 |
+| Mode | Label | Icon | Behavior & Sandbox Scope |
+| :--- | :--- | :---: | :--- |
+| `plan` | **Plan Only** | 💬 | Read-only analysis & planning. File edits and commands are strictly disabled. |
+| `ask` | **Ask on Edit** | ⚠️ | Prompts for user approval before modifying external files or making network requests. |
+| `auto` | **Workspace Safe** | 🛡️ | Automatically applies safe changes within the workspace; requests confirmation only for high-risk operations. |
+| `full` | **Full Access** | 🌐 | Unrestricted execution without sandbox boundaries (prompts for host confirmation on startup). |
 
-> `pnpm install` 的 postinstall 钩子（`scripts/ensure-electron.mjs`）会在 Electron 二进制缺失时自动补齐：先走官方 install.js，失败则回退到 `~/Library/Caches/electron` 里的离线缓存 zip。
+---
 
-## 使用说明
+## 👁️ Hybrid Vision & OCR Engine
 
-### 权限档位
+Tether features a two-tiered multimodal system designed specifically for developer workflows:
 
-| 档位 | 输入框显示 | 行为 |
-| --- | --- | --- |
-| `plan` | plan 只读 | 只规划，不执行修改 |
-| `ask` | ask 询问 | 每次写操作前征求确认 |
-| `auto` | auto 可改 | 自动执行，无需逐次确认 |
-| `full` | full 全开 | 放开全部权限 |
+1. **MinerU OCR (Built-in, Zero-Config)**:
+   - Extracts clean markdown text from uploaded screenshots, documentation images, and code snippets.
+   - Fully enabled by default—**no API key required**.
+2. **GLM-4V Multimodal Analysis (Optional)**:
+   - Deep visual understanding for UI design replication, wireframes, and layout diagnostics.
+   - Configurable in **Settings → Vision** with your Zhipu / GLM API Key.
 
-### 模型与供应商
+---
 
-输入框左侧可切换模型（模型列表来自当前供应商的 `get_available_models`）。默认模型为 `deepseek-v4-flash`；DeepSeek 使用 `max` 推理档位，其余供应商使用 `medium`。
-
-## 架构
+## 🏗️ Architecture
 
 ```
-┌──────────────────────────── Electron 主进程 ────────────────────────────┐
-│  src/main/index.ts        窗口、菜单、IPC、权限/沙箱策略、密钥管理        │
-│  src/main/agent-host.ts   通过 stdin/stdout 管理 RPC worker 子进程        │
-└───────────────┬──────────────────────────────────────────────────────────┘
-                │ JSON-RPC over stdio（spawn tether 的 rpc-entry）
-┌───────────────▼──────────────────────────────────────────────────────────┐
-│  Agent 子进程（tether-agent-core）  agent 循环 / sandbox / 会话存储       │
-│  以 ELECTRON_RUN_AS_NODE=1 运行，禁用遥测                                  │
-└──────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────── Electron Main Process ────────────────────────────┐
+│  src/main/index.ts         Window management, IPC, menus, workspace security │
+│  src/main/agent-host.ts    RPC process manager for the agent worker           │
+└───────────────┬───────────────────────────────────────────────────────────────┘
+                │ JSON-RPC over stdio (spawns tether-agent-core worker)
+┌───────────────▼───────────────────────────────────────────────────────────────┐
+│  Agent Worker Process (tether-agent-core)                                      │
+│  Agent loop, tools (exec, patch), session storage, sandboxed runtime          │
+└───────────────────────────────────────────────────────────────────────────────┘
         ▲                                ▲
-        │ contextBridge (window.harness) │ IPC (invoke / event)
-┌───────┴────────────────────────────────┴───────────┐
-│  React 渲染进程（src/renderer）                      │
-└──────────────────────────────────────────────────────┘
+        │ contextBridge (window.harness) │ IPC events / invokes
+┌───────┴────────────────────────────────┴────────────────┐
+│  React Renderer Process (src/renderer)                  │
+│  Tailored UI, responsive conversation area, Monaco-free │
+└─────────────────────────────────────────────────────────┘
 ```
 
-- 主进程把 `tether-agent-core` 的 RPC 入口以子进程方式拉起，消息通过结构化 JSON 行协议收发，请求超时 45 秒；
-- 渲染进程通过 preload 暴露的 `window.harness` 调用 **app / workspace / sessions / auth / agent** 五组能力，不直接接触 Node。
+- **Clean Process Isolation**: The renderer never touches Node.js APIs directly; all interactions go through strongly-typed IPC contracts in `src/shared/types.ts`.
+- **Stateless UI, Persistent State**: The renderer is completely reactive; state recovery is driven by local session `.jsonl` streams.
 
-## 目录结构
+---
 
+## 📂 Repository Structure
+
+```text
+tether-ai/
+├── src/
+│   ├── main/                 # Electron main process
+│   │   ├── index.ts          # Window lifecycle, menus, IPC handlers, permission policies
+│   │   └── agent-host.ts     # RPC agent worker process host
+│   ├── preload/              # Secure contextBridge API definition
+│   │   └── index.ts          # Exposes window.harness API to React
+│   ├── renderer/             # React 19 front-end workbench
+│   │   ├── App.tsx           # Application state orchestration
+│   │   ├── ui.tsx            # Desktop UI components, menus, permission pickers
+│   │   ├── conversation.ts   # Stream normalization, patch parsing & diff computation
+│   │   ├── highlight.ts      # Zero-dependency syntax tokenizer
+│   │   └── styles.css        # Responsive adaptive styles
+│   ├── extensions/           # Agent runtime extensions
+│   │   └── vision.ts         # Multimodal GLM + MinerU OCR plugin
+│   └── shared/               # Shared types & contract interfaces
+│       ├── types.ts          # DesktopApi & agent protocol types
+│       └── vision-api.ts     # Vision and OCR data formatting
+└── package.json
 ```
-src/
-  main/               Electron 主进程
-    index.ts          窗口 / 菜单 / IPC / 工作区 / 认证 / 会话 / 权限策略
-    agent-host.ts     RPC worker 子进程宿主（spawn + JSON 行协议）
-  preload/
-    index.ts          contextBridge，暴露 window.harness API
-  renderer/           React 界面
-    App.tsx           应用状态与流程编排
-    conversation.ts   会话消息归一化 / 事件应用 / 工具与文件变更解析
-    conversation.test.ts
-    ui.tsx            组件（聊天、侧边栏、登录、审批卡片、文件预览、输入框）
-    styles.css
-  shared/
-    types.ts          跨进程共享类型与 DesktopApi 契约
-scripts/
-  ensure-electron.mjs 安装时补齐 Electron 二进制（离线缓存兜底）
+
+---
+
+## 🛠️ Development & Scripts
+
+| Command | Description |
+| :--- | :--- |
+| `pnpm dev` | Start development server with Vite HMR + Electron |
+| `pnpm typecheck` | Run TypeScript type checking across the project |
+| `pnpm test` | Execute unit test suite with Vitest |
+| `pnpm build` | Compile main process (`tsup`) and bundle renderer (`vite`) |
+| `pnpm check` | Full CI verification (`typecheck` + `test` + `build`) |
+| `pnpm pack` | Build production binaries for macOS (`.dmg`) & Windows (`.zip`) |
+| `pnpm start` | Launch the compiled production package |
+
+---
+
+## 📦 Packaging & Distribution
+
+Packaging is powered by `electron-builder`:
+
+```bash
+# Package for the current OS platform
+pnpm run pack
 ```
 
-## 数据与互操作
+- **Output Directory**: `release/`
+- **Targets**:
+  - macOS: `.dmg` / `.zip` (Apple Silicon & Intel)
+  - Windows: `.exe` / `.zip` (x64)
+  - Linux: `.AppImage` / `.tar.gz` (x64)
 
-- **会话与密钥**：写入 Tether 自有目录 `~/.tether`，由 `tether-agent-core` 管理；
-- **最近项目**：记录在 Electron `userData`（macOS 下为 `~/Library/Application Support/Tether`）的 `recent-workspaces.json`，权限 `0600`，最多保留 12 条；
-- **非项目会话**：工作目录为 `<userData>/tasks`，沙箱固定为只读。
+---
 
-## 打包与发布
+## ❓ FAQ & Troubleshooting
 
-`electron-builder` 配置在 `electron-builder.yml`：
+#### Q: Where are my conversations and API keys stored?
+All persistent data is saved strictly inside `~/.tether` (`config.json`, `settings.json`, `auth.json`, and `sessions/`). Nothing is stored on external servers.
 
-- `asar: false` —— RPC worker 与原生 keyring 需要真实文件系统路径；
-- 目标为未签名的目录包（`dir` target）：macOS (arm64)、Linux (x64)、Windows (x64)；
-- `publish: null`，不自动发布（无自动更新）。
+#### Q: Can I use Tether without opening a folder?
+Yes! When no folder is opened, Tether operates in a safe, read-only scratchpad session (working directory inside `<userData>/tasks`).
 
-## 安全模型
+#### Q: macOS Gatekeeper reports "Tether is damaged and cannot be opened"?
+Because development builds are ad-hoc signed, macOS Gatekeeper may quarantine downloaded binaries. Run the following in your terminal:
+```bash
+xattr -cr /Applications/Tether.app
+```
 
-- 渲染进程与主进程通过 `contextBridge` 白名单 API 通信，无 `nodeIntegration`；
-- `workspace:read` 对相对路径做解析校验，杜绝路径穿越；读取超过 200 KB 截断、检测二进制；
-- `workspace:list` 只返回当前项目根目录内的文件，跳过 `.git`、`node_modules`、构建产物等目录；
-- `setWindowOpenHandler` 拒绝所有新窗口，仅放行 http(s) 链接并交给系统浏览器；
-- 子进程以 `ELECTRON_RUN_AS_NODE=1` 运行（使用 Electron 内置 Node），并显式禁用遥测与版本检查。
+#### Q: How do I customize custom OpenAI-compatible endpoints?
+In **Settings → Chat Provider**, select **Custom OpenAI-Compatible**, and enter your Base URL (e.g. `https://api.together.xyz/v1`), Model Name, and API Key.
 
-## 开发
+---
 
-- **IPC 契约**：`src/shared/types.ts` 中的 `DesktopApi` 是渲染进程可见的唯一能力面，preload 逐项实现并透出；
-- **新增供应商**：供应商列表与认证流程由 `tether-agent-core` 提供（`SUPPORTED_PROVIDER_IDS` 等），应用层只需消费 `auth:status` / `auth:login` / `auth:save-api-key`；
-- **测试**：`pnpm test` 使用 Vitest（`src/**/*.test.ts`）。
+## 📄 License
 
-## 已知限制
-
-- 同一时间只运行一个活动 agent 会话（单 RPC 子进程），切换项目会终止当前会话；
-- 未打开项目时是只读会话，无法直接修改本地文件；
-- 删除会话在底层是 `tether-agent-core` 的 archive 语义；
-- `danger-full-access` 沙箱底层已支持，但界面暂未直接暴露；
-- 打包产物为 ad-hoc 签名、未公证（无 Apple Developer ID），且无自动更新。
-
-## 常见问题
-
-- **会话 / 密钥存在哪里？** `~/.tether`。
-- **没有打开仓库能对话吗？** 可以，但属于非项目会话：工作目录为 `<userData>/tasks`，固定只读。
-- **为什么切换项目后会话结束了？** 当前实现是单 RPC 子进程，同一时间只支持一个活动 agent 会话。
-- **无法连接模型？** 在左下角账户区域检查是否已配置 API Key / 完成登录，或通过环境变量注入密钥。
-- **macOS 打开报「已损坏」？** 未公证的包会被 Gatekeeper 拦截。本机打开：右键 → 打开。从网盘/浏览器下载后先执行 `xattr -cr /path/to/Tether.app`。
-
-## License
-
-MIT
+Distributed under the **MIT License**. See [LICENSE](LICENSE) for more details.

@@ -24,7 +24,6 @@
   --shadow-raised: 0 0 0 1px var(--line), 0 2px 10px #1c19170e;
   --shadow-overlay: 0 0 0 1px var(--line), 0 12px 40px #1c19171a;
   --sans: ui-sans-serif, system-ui, "SF Pro Text", sans-serif;
-  --serif: "Instrument Serif", "New York", Georgia, serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
   color-scheme: light;
   accent-color: var(--ink);
@@ -62,7 +61,6 @@ button:disabled { cursor: default; opacity: .4; }
   min-height: 38px;
   display: flex;
   align-items: center;
-  gap: 8px;
   padding: 0 20px;
   -webkit-app-region: drag;
 }
@@ -71,7 +69,7 @@ button:disabled { cursor: default; opacity: .4; }
   height: 72px;
   min-height: 72px;
   align-items: flex-end;
-  padding-bottom: 10px;
+  padding-bottom: 11px;
 }
 /* Fullscreen hides the traffic lights, so the brand moves back up into a single strip. */
 .darwin.fullscreen .sidebar-titlebar {
@@ -81,10 +79,19 @@ button:disabled { cursor: default; opacity: .4; }
   padding-bottom: 0;
 }
 .darwin.fullscreen .chat-bar { height: 38px; min-height: 38px; }
-.sidebar-titlebar strong {
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1;
+}
+.sidebar-brand strong {
   font-size: 13.5px;
   font-weight: 600;
   letter-spacing: -.01em;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
 }
 .brand-mark { display: block; flex: none; }
 
@@ -259,13 +266,13 @@ button:disabled { cursor: default; opacity: .4; }
   padding: 8px 24px 48px;
 }
 .empty h1 {
-  margin: 0 0 28px;
+  margin: 0 0 24px;
   color: var(--ink);
-  font-family: var(--serif);
-  font-size: 36px;
-  font-weight: 400;
-  letter-spacing: -.02em;
-  line-height: 1.15;
+  font-family: var(--sans);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -.025em;
+  line-height: 1.25;
   text-align: center;
 }
 .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }

@@ -63,8 +63,10 @@ export function visionText(payload: unknown): string {
 
 export function mergeVisionResult(glm: string, ocr?: string) {
   const text = ocr?.trim();
-  if (!text) return glm;
-  return `图片识别（GLM-4V-Flash）：\n${glm}\n\nOCR（MinerU）：\n${text}`;
+  const vision = glm?.trim();
+  if (!text) return vision || "";
+  if (!vision) return `OCR 提取文字（MinerU）：\n${text}`;
+  return `图片识别（GLM-4V-Flash）：\n${vision}\n\nOCR（MinerU）：\n${text}`;
 }
 
 export function mineruCreateBody(fileName: string) {

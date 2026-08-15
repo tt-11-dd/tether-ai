@@ -111,8 +111,10 @@ export function SidebarNav({
   return (
     <aside className="sidebar">
       <header className="sidebar-titlebar">
-        <img className="brand-mark" src={logo} alt="" width={24} height={14} />
-        <strong>Tether</strong>
+        <div className="sidebar-brand">
+          <img className="brand-mark" src={logo} alt="" width={24} height={14} />
+          <strong>Tether</strong>
+        </div>
       </header>
       <div className="sidebar-primary">
         <button type="button" className="nav-btn new" onClick={onNew}>

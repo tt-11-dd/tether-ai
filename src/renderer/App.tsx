@@ -694,7 +694,7 @@ export function App() {
         >
           {home && (
             <div className="empty">
-              <h1>{workspace ? workspace.split("/").pop() : "Open a project to begin."}</h1>
+              <h1>{workspace ? workspace.split("/").pop() : "打开项目以开始"}</h1>
               {composer}
               {workspace && (
               <div className="suggestions">

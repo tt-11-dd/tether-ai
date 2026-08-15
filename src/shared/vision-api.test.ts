@@ -44,6 +44,10 @@ describe("mergeVisionResult", () => {
     expect(mergeVisionResult("导航栏", "")).toBe("导航栏");
   });
 
+  it("returns only OCR text when GLM is empty", () => {
+    expect(mergeVisionResult("", "模型 产品")).toBe("OCR 提取文字（MinerU）：\n模型 产品");
+  });
+
   it("appends MinerU OCR", () => {
     expect(mergeVisionResult("导航栏", "模型 产品")).toContain("OCR（MinerU）");
   });
