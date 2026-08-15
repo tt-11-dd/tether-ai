@@ -42,13 +42,23 @@ jobs:
         with:
           path: tether-ai
 
+      - name: Require TETHER_RUNTIME_TOKEN
+        env:
+          TETHER_RUNTIME_TOKEN: ${{ secrets.TETHER_RUNTIME_TOKEN }}
+        run: |
+          if [ -z "$TETHER_RUNTIME_TOKEN" ]; then
+            echo "::error::Missing secret TETHER_RUNTIME_TOKEN. Add a PAT that can read private repo tt-11-dd/tether-runtime (Contents: Read), then re-run."
+            exit 1
+          fi
+
       # Agent core lives in a sibling private repo. GITHUB_TOKEN cannot read
       # other private repos — set secret TETHER_RUNTIME_TOKEN (PAT with
-      # Contents: Read on tt-11-dd/tether-runtime).
+      # Contents: Read on tt-11-dd/tether-runtime). Default branch is `dev`.
       - name: Check out tether-runtime
         uses: actions/checkout@v4
         with:
           repository: tt-11-dd/tether-runtime
+          ref: dev
           path: tether-runtime
           token: ${{ secrets.TETHER_RUNTIME_TOKEN }}
 
