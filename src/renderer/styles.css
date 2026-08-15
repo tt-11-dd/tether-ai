@@ -191,22 +191,68 @@ button:disabled { cursor: default; opacity: .4; }
 .session-item:hover .session-del, .project-head:hover .session-del, .session-del:focus-visible { opacity: 1; }
 .session-del:hover { color: var(--red); background: var(--red-tint); }
 
-.sidebar-footer { padding: 8px 10px 12px; }
+.sidebar-footer {
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--page);
+  flex: none;
+}
 .account {
   width: 100%;
-  min-height: 44px;
+  min-height: 42px;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   padding: 6px 8px;
-  border-radius: 10px;
+  border-radius: 9px;
   text-align: left;
+  transition: background 0.12s ease;
+  cursor: pointer;
 }
-.account:hover { background: var(--hover); }
-.account span { min-width: 0; }
-.account strong, .account small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account strong { font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
-.account small { color: var(--ink-3); font-size: 11.5px; }
+.account:hover {
+  background: var(--hover);
+}
+.account-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--inset);
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--ink-2);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.account:hover .account-icon {
+  background: var(--hover-2);
+  color: var(--ink);
+}
+.account-meta {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.account-meta strong,
+.account-meta small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-meta strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -.01em;
+  line-height: 1.25;
+}
+.account-meta small {
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 1.2;
+}
 
 .chat {
   /* Reading column grows with the viewport so 1080p+ screens don't leave both sides empty. */
@@ -264,45 +310,113 @@ button:disabled { cursor: default; opacity: .4; }
   width: min(100%, 640px);
   margin: 0 auto;
   padding: 8px 24px 48px;
+  display: flex;
+  flex-direction: column;
 }
-.empty h1 {
-  margin: 0 0 24px;
+.empty-hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 0 0 28px;
+}
+.empty-hero .empty-logo {
+  display: block;
+  flex: none;
+}
+.empty-hero h1 {
+  margin: 0;
   color: var(--ink);
   font-family: var(--sans);
   font-size: 26px;
   font-weight: 600;
-  letter-spacing: -.025em;
+  letter-spacing: -.02em;
   line-height: 1.25;
-  text-align: center;
 }
-.suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 18px;
+}
 .suggestions button {
   height: 32px;
-  padding: 0 12px;
+  padding: 0 14px;
   border-radius: 999px;
   background: var(--surface);
   box-shadow: var(--shadow-btn);
   color: var(--ink-2);
   font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.12s ease, color 0.12s ease;
 }
-.suggestions button:hover { color: var(--ink); background: var(--hover); }
-.home-recents { margin-top: 36px; display: flex; flex-direction: column; gap: 4px; }
-.home-recents-head { color: var(--ink-3); font-size: 12px; margin-bottom: 4px; }
+.suggestions button:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+.suggestions button svg {
+  color: var(--ink-3);
+  flex: none;
+}
+.suggestions button:hover svg {
+  color: var(--ink);
+}
+.home-recents {
+  margin-top: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.home-recents-head {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 0 6px;
+  margin-bottom: 4px;
+}
 .home-recent {
   width: 100%;
-  min-height: 40px;
-  padding: 8px 6px;
+  min-height: 38px;
+  padding: 8px 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   border-radius: 8px;
   text-align: left;
-  font-size: 14px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  transition: background 0.12s ease;
 }
-.home-recent:hover { background: var(--hover); }
-.home-recent span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.home-recent small { flex: none; color: var(--ink-3); font-size: 12px; }
+.home-recent:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.home-recent-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+.home-recent-main svg {
+  flex: none;
+  color: var(--ink-3);
+}
+.home-recent span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-recent small {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 12px;
+}
 
 .loading-state {
   display: flex;
@@ -1022,24 +1136,78 @@ button:disabled { cursor: default; opacity: .4; }
   background: none;
   pointer-events: auto;
 }
-.prompt {
+.prompt-shell {
   width: var(--col);
   margin: 0 auto;
+  position: relative;
+  pointer-events: auto;
+}
+.prompt-wrap.hero .prompt-shell {
+  width: 100%;
+}
+.prompt-topbar {
+  background: var(--inset);
+  border-radius: 16px 16px 0 0;
+  padding: 6px 14px 14px;
+  margin-bottom: -10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.prompt-folder {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  padding: 0 2px;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.prompt-folder.on {
+  color: var(--ink);
+  font-weight: 600;
+}
+.prompt-folder:hover {
+  color: var(--ink);
+}
+.prompt-folder svg {
+  flex: none;
+  color: var(--ink-3);
+}
+.prompt-folder:hover svg,
+.prompt-folder.on svg {
+  color: var(--ink-2);
+}
+.prompt-folder span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prompt {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  margin: 0;
   padding: 12px 14px 8px;
   background: var(--surface);
-  border-radius: 18px;
+  border-radius: 16px;
   box-shadow: var(--shadow-card);
   pointer-events: auto;
   overflow: visible;
 }
-.prompt-wrap.hero .prompt { width: 100%; }
 .prompt:focus-within { box-shadow: var(--shadow-overlay); }
 .prompt.drop { box-shadow: 0 0 0 1.5px var(--ink), var(--shadow-card); }
 .prompt-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 0 6px 8px;
+  padding: 0 4px 8px;
 }
 .prompt-tag {
   max-width: 100%;
@@ -1107,24 +1275,6 @@ button:disabled { cursor: default; opacity: .4; }
 .prompt-wrap.hero textarea { min-height: 72px; }
 .prompt textarea::placeholder { color: var(--ink-3); }
 .prompt-bar { display: flex; align-items: center; gap: 4px; min-height: 32px; flex-wrap: wrap; }
-.folder-pick {
-  max-width: 100%;
-  height: 28px;
-  margin-top: 6px;
-  padding: 0 8px 0 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 8px;
-  background: var(--inset);
-  color: var(--ink-3);
-  font-size: 12.5px;
-  text-align: left;
-}
-.folder-pick.on { color: var(--ink); }
-.folder-pick:hover { background: var(--hover); }
-.folder-pick span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.folder-pick svg:last-child { flex: none; color: var(--ink-3); }
 .send {
   width: 30px;
   height: 30px;
@@ -1243,6 +1393,112 @@ button:disabled { cursor: default; opacity: .4; }
 .combo-empty { color: var(--ink-3); }
 .combo-item:hover { background: var(--hover); }
 .combo-item.selected { background: var(--hover); color: var(--ink); font-weight: 500; }
+
+.permission-trigger {
+  gap: 6px;
+}
+.permission-trigger-icon {
+  flex: none;
+  color: var(--ink-2);
+}
+.permission-trigger.danger {
+  color: var(--red);
+}
+.permission-trigger.danger .permission-trigger-icon {
+  color: var(--red);
+}
+.permission-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 45;
+  width: 300px;
+  max-width: 90vw;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.combo.down .permission-menu {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+.permission-item {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  background: transparent;
+  color: var(--ink);
+  transition: background 0.12s ease;
+  cursor: pointer;
+}
+.permission-item:hover {
+  background: var(--hover);
+}
+.permission-item.selected {
+  background: var(--hover);
+}
+.permission-icon {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--ink-2);
+  margin-top: 1px;
+}
+.permission-content {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.permission-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.3;
+}
+.permission-desc {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  line-height: 1.4;
+}
+.permission-check {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  align-self: center;
+  color: var(--ink);
+  margin-left: 2px;
+}
+.permission-item.danger .permission-icon {
+  color: var(--red);
+}
+.permission-item.danger .permission-title {
+  color: var(--red);
+}
+.permission-item.danger .permission-desc {
+  color: var(--red);
+  opacity: 0.85;
+}
+.permission-item.danger:hover,
+.permission-item.danger.selected {
+  background: var(--red-tint);
+}
+.permission-item.danger .permission-check {
+  color: var(--red);
+}
 
 .modal {
   position: fixed;

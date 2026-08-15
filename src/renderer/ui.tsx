@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { PREVIEW_HOST, PREVIEW_SCHEME, type ExtensionUiRequest } from "../shared/types";
+import { PREVIEW_HOST, PREVIEW_SCHEME, type ExtensionUiRequest, type PermissionMode } from "../shared/types";
 import { DEFAULT_VISION_CONFIG, visibleUserText } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, type ChatKind } from "../shared/chat-profiles";
 import { collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, formatThinking, liveStatus, omitFinalReply, repairMarkdownTables, splitPatch, thoughtSteps, toolCommand, toolSummary, turnWork, undoDialogTitle, workspaceRelative, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type WorkItem } from "./conversation";
@@ -842,7 +842,6 @@ export function PromptBar({
   models,
   onModel,
   permission,
-  permissions,
   onPermission,
   onCommand,
   placement = "dock",
@@ -859,7 +858,6 @@ export function PromptBar({
   models: { value: string; label: string }[];
   onModel(value: string): void;
   permission: string;
-  permissions: { value: string; label: string }[];
   onPermission(value: string): void;
   onCommand(command: string): void;
   placement?: "dock" | "hero";
@@ -1059,62 +1057,74 @@ export function PromptBar({
   const folder = workspace?.split("/").pop();
   return (
     <div className={hero ? "prompt-wrap hero" : "prompt-wrap"}>
-      <form
-        className={dropOver ? "prompt drop" : "prompt"}
-        onDragOver={(event) => {
-          const types = [...event.dataTransfer.types];
-          if (!types.includes("text/harness-path") && !types.includes("Files")) return;
-          event.preventDefault();
-          event.dataTransfer.dropEffect = "copy";
-          setDropOver(true);
-        }}
-        onDragLeave={(event) => {
-          if (event.currentTarget.contains(event.relatedTarget as Node)) return;
-          setDropOver(false);
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          setDropOver(false);
-          const internal = event.dataTransfer.getData("text/harness-path").trim();
-          if (internal) {
-            setAttachments((current) => current.includes(internal) ? current : [...current, internal]);
+      <div className="prompt-shell">
+        <div className="prompt-topbar">
+          <button
+            type="button"
+            className={folder ? "prompt-folder on" : "prompt-folder"}
+            onClick={onPickWorkspace}
+            title={workspace ?? "选择或打开本地项目"}
+          >
+            <Icon path="M3 7h6l2 2h10v10H3z" size={13} />
+            <span>{folder ?? "选择项目"}</span>
+          </button>
+        </div>
+        <form
+          className={dropOver ? "prompt drop" : "prompt"}
+          onDragOver={(event) => {
+            const types = [...event.dataTransfer.types];
+            if (!types.includes("text/harness-path") && !types.includes("Files")) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+            setDropOver(true);
+          }}
+          onDragLeave={(event) => {
+            if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+            setDropOver(false);
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDropOver(false);
+            const internal = event.dataTransfer.getData("text/harness-path").trim();
+            if (internal) {
+              setAttachments((current) => current.includes(internal) ? current : [...current, internal]);
+              area.current?.focus();
+              return;
+            }
+            const dropped = [...event.dataTransfer.files];
+            if (dropped.length === 0) return;
+            const images = dropped.filter((file) => file.type.startsWith("image/"));
+            if (images.length) void addUploads(images);
+            if (!workspace) return;
+            const extras: string[] = [];
+            for (const file of dropped) {
+              if (file.type.startsWith("image/")) continue;
+              const abs = "path" in file && typeof file.path === "string" ? file.path : "";
+              const rel = abs ? workspaceRelative(abs, workspace) : undefined;
+              if (!rel) continue;
+              extras.push(files.includes(`${rel}/`) ? `${rel}/` : rel);
+            }
+            if (extras.length === 0) return;
+            setAttachments((current) => [...current, ...extras.filter((file) => !current.includes(file))]);
             area.current?.focus();
-            return;
-          }
-          const dropped = [...event.dataTransfer.files];
-          if (dropped.length === 0) return;
-          const images = dropped.filter((file) => file.type.startsWith("image/"));
-          if (images.length) void addUploads(images);
-          if (!workspace) return;
-          const extras: string[] = [];
-          for (const file of dropped) {
-            if (file.type.startsWith("image/")) continue;
-            const abs = "path" in file && typeof file.path === "string" ? file.path : "";
-            const rel = abs ? workspaceRelative(abs, workspace) : undefined;
-            if (!rel) continue;
-            extras.push(files.includes(`${rel}/`) ? `${rel}/` : rel);
-          }
-          if (extras.length === 0) return;
-          setAttachments((current) => [...current, ...extras.filter((file) => !current.includes(file))]);
-          area.current?.focus();
-        }}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (slash && commands[0]) {
+          }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (slash && commands[0]) {
+              onChange("");
+              onCommand(commands[0].id);
+              return;
+            }
+            const text = compose();
+            if (!text && uploads.length === 0) return;
+            const refs = uploads.map((item) => item.dataUri);
+            setAttachments([]);
+            setUploads([]);
             onChange("");
-            onCommand(commands[0].id);
-            return;
-          }
-          const text = compose();
-          if (!text && uploads.length === 0) return;
-          const refs = uploads.map((item) => item.dataUri);
-          setAttachments([]);
-          setUploads([]);
-          onChange("");
-          onSubmit(text, refs.length ? refs : undefined);
-        }}
-      >
-        {(attachments.length > 0 || uploads.length > 0) && (
+            onSubmit(text, refs.length ? refs : undefined);
+          }}
+        >
+          {(attachments.length > 0 || uploads.length > 0) && (
           <div className="prompt-tags">
             {attachments.map((file) => (
               <button
@@ -1157,7 +1167,7 @@ export function PromptBar({
             event.preventDefault();
             void addUploads(images);
           }}
-          placeholder={workspace ? "让 agent 改这个仓库，输入 @ 可选文件…" : "先打开一个项目"}
+          placeholder={workspace ? "输入你的需求或问题，输入 @ 可选择文件…" : "输入你的想法或指令，或从上方选择项目开始…"}
           rows={hero ? 3 : 1}
         />
         {slash && (
@@ -1221,7 +1231,7 @@ export function PromptBar({
             <Icon path="M12 5v14M5 12h14" size={15} />
           </button>
           <Combo value={model} options={models} searchable placeholder="筛选模型" down={hero} onChange={onModel} />
-          <Combo value={permission} options={permissions} down={hero} onChange={onPermission} />
+          <PermissionPicker value={permission} down={hero} onChange={onPermission} />
           {running ? (
             <button type="button" className="send stop" onClick={onStop} aria-label="中止">
               <i />
@@ -1232,12 +1242,8 @@ export function PromptBar({
             </button>
           )}
         </div>
-        <button type="button" className={folder ? "folder-pick on" : "folder-pick"} onClick={onPickWorkspace}>
-          <Icon path="M3 7h6l2 2h10v10H3z" size={15} />
-          <span>{folder ?? "打开项目"}</span>
-          <Icon path="M6 9l6 6 6-6" size={12} />
-        </button>
       </form>
+      </div>
     </div>
   );
 }
@@ -1249,6 +1255,114 @@ function readDataUri(file: File): Promise<string> {
     reader.onerror = () => reject(new Error(`无法读取 ${file.name}`));
     reader.readAsDataURL(file);
   });
+}
+
+export interface PermissionOptionConfig {
+  value: PermissionMode;
+  label: string;
+  desc: string;
+  icon: string;
+  danger?: boolean;
+}
+
+export const PERMISSION_OPTIONS: PermissionOptionConfig[] = [
+  {
+    value: "plan",
+    label: "仅规划",
+    desc: "只分析和规划，不修改文件或运行命令。",
+    icon: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
+  },
+  {
+    value: "ask",
+    label: "编辑时询问",
+    desc: "编辑外部文件或使用互联网时始终询问。",
+    icon: "M12 22a10 10 0 1 0-10-10 10 10 0 0 0 10 10zm0-14v5m0 3h.01",
+  },
+  {
+    value: "auto",
+    label: "工作区权限",
+    desc: "仅对检测到的风险操作请求批准。",
+    icon: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
+  },
+  {
+    value: "full",
+    label: "完全访问",
+    desc: "可不受限制地访问互联网和这台电脑上的任何文件。",
+    icon: "M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 0c2.5 0 4.5 4.5 4.5 10s-2 10-4.5 10-4.5-4.5-4.5-10 2-10 4.5-10z M2 12h20",
+    danger: true,
+  },
+];
+
+export function PermissionPicker({
+  value,
+  onChange,
+  down,
+}: {
+  value: PermissionMode | string;
+  onChange(value: string): void;
+  down?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const selected = PERMISSION_OPTIONS.find((item) => item.value === value) ?? PERMISSION_OPTIONS[2];
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (!box.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  return (
+    <div ref={box} className={`combo permission-combo${open ? " open" : ""}${down ? " down" : ""}`}>
+      <button
+        type="button"
+        className={`combo-trigger permission-trigger${selected.danger ? " danger" : ""}`}
+        onClick={() => setOpen((was) => !was)}
+        title={selected.desc}
+      >
+        <Icon path={selected.icon} size={14} className="permission-trigger-icon" />
+        <span>{selected.label}</span>
+        <Icon path="M6 9l6 6 6-6" size={12} />
+      </button>
+
+      {open && (
+        <div className="permission-menu" role="listbox">
+          {PERMISSION_OPTIONS.map((item) => {
+            const isSelected = item.value === value;
+            return (
+              <button
+                key={item.value}
+                type="button"
+                className={`permission-item${isSelected ? " selected" : ""}${item.danger ? " danger" : ""}`}
+                onClick={() => {
+                  onChange(item.value);
+                  setOpen(false);
+                }}
+              >
+                <div className="permission-icon">
+                  <Icon path={item.icon} size={17} />
+                </div>
+                <div className="permission-content">
+                  <div className="permission-title">{item.label}</div>
+                  <div className="permission-desc">{item.desc}</div>
+                </div>
+                {isSelected && (
+                  <div className="permission-check">
+                    <Icon path="M20 6L9 17l-5-5" size={16} />
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function Combo({

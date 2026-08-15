@@ -41,6 +41,12 @@ import {
 import logo from "./logo.svg";
 
 const PERMISSIONS: PermissionMode[] = ["plan", "ask", "auto", "full"];
+const DEFAULT_SUGGESTIONS = [
+  { label: "打开本地项目", icon: "M3 7h6l2 2h10v10H3z", action: "open" },
+  { label: "解释代码架构", hint: "结构和入口" },
+  { label: "找出可疑的 bug", hint: "排查风险" },
+  { label: "编写一组测试", hint: "覆盖核心路径" },
+];
 const REPO_SUGGESTIONS = [
   { label: "解释这个仓库", hint: "结构和入口" },
   { label: "找出最可疑的 bug", hint: "先看风险" },
@@ -163,7 +169,7 @@ export function App() {
   const darwin = window.harness.platform === "darwin";
   const connected = providers.find((item) => item.id === "deepseek");
   const waiting = running && (groups.length === 0 || groups.at(-1)?.type === "user");
-  const suggestions = REPO_SUGGESTIONS;
+  const suggestions = workspace ? REPO_SUGGESTIONS : DEFAULT_SUGGESTIONS;
 
   const projects = useMemo(() => {
     const byPath = new Map<string, { item: WorkspaceItem; sessions: SessionSummary[] }>();
@@ -408,15 +414,8 @@ export function App() {
     sending.current = true;
     try {
       if (!workspace && !agentCwd.current) {
-        if (workspaces.length > 0) {
-          setToast("先选择一个项目");
-          return;
-        }
         const opened = await openFolder();
-        if (!opened) {
-          setToast("先打开一个项目");
-          return;
-        }
+        if (!opened) return;
         const started = await startAgent(opened, undefined, true);
         if (!started) return;
       } else if (!agentCwd.current) {
@@ -544,7 +543,11 @@ export function App() {
   }, [messages, uiRequest]);
 
   const home = groups.length === 0;
-  const homeRecents = (projects.find((item) => item.item.path === workspace)?.sessions ?? []).slice(0, 5);
+  const homeRecents = (
+    workspace
+      ? projects.find((item) => item.item.path === workspace)?.sessions ?? []
+      : projects.flatMap((item) => item.sessions).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+  ).slice(0, 5);
   const composer = (
     <PromptBar
       value={draft}
@@ -565,10 +568,6 @@ export function App() {
         void window.harness.agent.command("set_model", { provider: "deepseek", modelId: next }).catch(() => undefined);
       }}
       permission={permission}
-      permissions={PERMISSIONS.map((mode) => ({
-        value: mode,
-        label: { plan: "plan 只读", ask: "ask 询问", auto: "auto 可改", full: "full 无沙箱" }[mode],
-      }))}
       onPermission={(next) => {
         const mode = next as PermissionMode;
         setPermission(mode);
@@ -595,12 +594,14 @@ export function App() {
         onNew={() => void newThread()}
         onOpen={() => void openFolder()}
         account={(
-          <button type="button" className="account" title="设置" onClick={() => setLoginOpen(true)}>
-            <Icon path="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H2.8a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.2 8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4V3.8a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1z" />
-            <span>
-              <strong>{connected?.configured ? model : "未连接"}</strong>
-              <small>{connected?.configured ? "点击管理接口和密钥" : "点击填写接口和密钥"}</small>
-            </span>
+          <button type="button" className="account" title="设置与模型管理" onClick={() => setLoginOpen(true)}>
+            <div className="account-icon">
+              <Icon path="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H2.8a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.2 8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4V3.8a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1z" size={15} />
+            </div>
+            <div className="account-meta">
+              <strong>{connected?.configured ? model : "未配置模型"}</strong>
+              <small>{connected?.configured ? "管理接口与密钥" : "配置接口与密钥"}</small>
+            </div>
           </button>
         )}
       >
@@ -694,20 +695,34 @@ export function App() {
         >
           {home && (
             <div className="empty">
-              <h1>{workspace ? workspace.split("/").pop() : "打开项目以开始"}</h1>
+              <div className="empty-hero">
+                <img className="empty-logo" src={logo} alt="" width={30} height={17} />
+                <h1>{workspace ? workspace.split("/").pop() : "今天想做点什么？"}</h1>
+              </div>
               {composer}
-              {workspace && (
               <div className="suggestions">
                 {suggestions.map((item) => (
-                  <button key={item.label} type="button" onClick={() => void sendMessage(item.label)}>
-                    {item.label}
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => {
+                      if ("action" in item && item.action === "open") {
+                        void openFolder();
+                      } else {
+                        void sendMessage(item.label);
+                      }
+                    }}
+                  >
+                    {"icon" in item && item.icon && <Icon path={item.icon} size={13} />}
+                    <span>{item.label}</span>
                   </button>
                 ))}
               </div>
-              )}
-              {workspace && homeRecents.length > 0 && (
+              {homeRecents.length > 0 && (
                 <div className="home-recents">
-                  <div className="home-recents-head">最近</div>
+                  <div className="home-recents-head">
+                    <span>最近活跃</span>
+                  </div>
                   {homeRecents.map((session) => (
                     <button
                       key={session.id}
@@ -718,7 +733,10 @@ export function App() {
                         void startAgent(session.cwd, session.path, true);
                       }}
                     >
-                      <span>{session.title || "未命名"}</span>
+                      <div className="home-recent-main">
+                        <Icon path="M19 3H5a2 2 0 0 0-2 2v14l4-4h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z" size={14} />
+                        <span>{session.title || "未命名会话"}</span>
+                      </div>
                       <small>{relativeTime(session.updatedAt)}</small>
                     </button>
                   ))}

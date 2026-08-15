@@ -4,7 +4,11 @@
 
 # Tether
 
-**The Local-First AI Coding Workbench for Developers & Repositories**
+**The Open, Local-First AI Coding Workbench for Developers & Repositories**
+
+*Empowering developers with native DeepSeek & domestic LLM deep integration, arbitrary custom endpoints, and complete privacy.*
+
+[English](README.md) · [简体中文](README.zh-CN.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19-blue)](https://nodejs.org)
@@ -13,18 +17,48 @@
 
 </div>
 
-Tether is a native desktop AI coding workbench engineered for repository-scale development. Built on Electron, React, and a dedicated local agent core ([`tether-agent-core`](https://github.com/tt-11-dd/tether-ai)), Tether gives you full autonomy to inspect codebases, execute scoped terminal operations, edit complex files with transactional checkpoints, and interact through rich diff previews—all with complete privacy on your machine.
+Tether is a native desktop AI coding workbench engineered for repository-scale development. Built on Electron, React 19, and a dedicated local agent core ([`tether-agent-core`](https://github.com/tt-11-dd/tether-ai)), Tether gives you full autonomy to inspect codebases, execute scoped terminal operations, edit complex files with transactional checkpoints, and interact through rich diff previews—**all with complete privacy and zero cloud lock-in on your machine**.
 
 ---
 
-## ⚡ Why Tether? (Key Advantages)
+## ⚡ Tether vs. Codex / Claude Code (Key Advantages)
 
-- 🔒 **True Local-First Privacy**: All chats, checkpoints, credentials, and settings are stored locally in `~/.tether` with owner-only (`0600`) permissions. Zero telemetry, no cloud relays, no tracking.
-- 🧠 **Universal Multi-Model Matrix**: Native support for **DeepSeek** (with customized reasoning effort), **OpenAI**, **Anthropic**, **OpenRouter**, **Kimi**, **MiniMax**, **xAI**, **ZAI**, and custom OpenAI-compatible endpoints.
-- 👁️ **Hybrid Vision & Free Built-in OCR**: Out-of-the-box text extraction from screenshots and documents powered by zero-config **MinerU OCR** (no API key needed), paired with optional **GLM-4V** multimodal visual understanding.
-- 🛡️ **Granular Permission & OS Sandbox**: 4-tier security levels (`Plan`, `Ask on Edit`, `Workspace Safe`, `Full Access`) backed by local OS sandboxing (macOS Seatbelt, Windows workspace guard) and atomic checkpoint undo.
-- 🎨 **Adaptive High-DPI Desktop UX**: Responsive conversation layout optimized for wide/ultrawide displays (1080p to 4K), adaptive macOS traffic light placement, Windows TitleBarOverlay integration, and fullscreen awareness.
-- ⚡ **Streamlined Workflow**: `@` file auto-completion, slash commands (`/new`, `/open`, `/undo`, `/login`), interactive file change previews, and approval dialogs for agent operations.
+While products like **OpenAI Codex** and **Anthropic Claude Code / Claude Desktop** provide strong agent capabilities, they frequently lock developers into proprietary closed ecosystems, strict cloud relays, rigid subscription tiers, and fixed API schemas. 
+
+**Tether is engineered from the ground up to solve these constraints:**
+
+| Capability | Tether | Codex / OpenAI | Claude Desktop / Claude Code |
+| :--- | :---: | :---: | :---: |
+| **DeepSeek & Domestic LLMs** | 🌟 **Native Deep Optimization** (Reasoning effort, Kimi, MiniMax, GLM) | ❌ Restricted to OpenAI | ❌ Restricted to Anthropic |
+| **Custom Endpoints & Proxies** | ✅ **100% Custom Base URL / OneAPI / Ollama / vLLM** | ❌ Fixed official endpoints | ❌ Fixed official endpoints |
+| **Zero-Config OCR Engine** | ✅ **Built-in Free MinerU OCR** (No API key required) | ❌ Needs vision tokens | ❌ Needs vision tokens |
+| **Data Privacy & Telemetry** | 🔒 **100% Local-First** (`~/.tether`), Zero telemetry | ⚠️ Cloud relay / Logging | ⚠️ Cloud relay / Logging |
+| **OS-Level Sandboxing** | 🛡️ **macOS Seatbelt & Windows Guard** | ⚠️ Limited container / Remote | ⚠️ Cloud container |
+| **Transactional Undo** | ⏪ **Atomic Checkpoint Rollback (`/undo`)** | ❌ Manual git reverts | ❌ Session-level resets |
+| **Desktop UI Adaptability** | 🎨 **Codex-style Top Tab + Claude Warm Layout** (1080p–4K responsive) | ⚠️ Web / Fixed layout | ⚠️ Fixed layout |
+
+---
+
+### 1. 🇨🇳 Deep Optimization for DeepSeek & Domestic LLMs
+- **DeepSeek First-Class Architecture**: Native control over DeepSeek reasoning intensity (`high` / `medium` / `low`), deep thinking chain streaming, and long-context repository parsing.
+- **Domestic Model Ecosystem**: Out-of-the-box first-class compatibility with **Kimi**, **MiniMax**, **Zhipu (GLM-4V)**, and **MinerU OCR**.
+
+### 2. 🔌 Complete Interface Freedom (Any Base URL / Proxy / Local Model)
+- **Zero Vendor Lock-In**: Connect to any OpenAI-compatible API gateway, OneAPI, NewAPI, enterprise private proxy, or local inference engines (**Ollama**, **vLLM**, **LM Studio**, **LocalAI**).
+- **Dynamic Model Discovery**: Automatically inspects and lists available remote models from your custom Base URL.
+
+### 3. 👁️ Hybrid Multimodal Vision & Built-in Zero-Config OCR
+- **Free Built-in MinerU OCR**: Extracts code, structure, and text from design screenshots and error images locally without consuming model tokens or requiring API keys.
+- **Optional GLM-4V Reasoning**: Parallel visual layout and UI analysis for design-to-code workflows.
+
+### 4. 🔒 True Local-First Privacy & Safety
+- **Local Isolation**: All sessions, settings, auth keys, and checkpoints are stored in `~/.tether` with `0600` user-only permissions.
+- **4-Tier Permission Guard**: Granular permission modes (`Plan`, `Ask on Edit`, `Workspace Safe`, `Full Access`) backed by native OS sandboxing.
+- **Atomic Rollback (`/undo`)**: Instantly restore modified files and undo agent actions with zero data loss.
+
+### 5. 🎨 Modern Desktop Engineering
+- Combines **Codex's structured attached project header** with **Claude's clean, warm conversational breathing room**.
+- Full high-DPI scaling across 1080p, 2K, and 4K displays, with dynamic macOS traffic light / fullscreen management and Windows TitleBarOverlay integration.
 
 ---
 
@@ -33,6 +67,7 @@ Tether is a native desktop AI coding workbench engineered for repository-scale d
 - [Features](#-features)
 - [Quick Start](#-quick-start)
 - [Permission & Safety Model](#-permission--safety-model)
+- [Custom API & Provider Configuration](#-custom-api--provider-configuration)
 - [Hybrid Vision & OCR Engine](#-hybrid-vision--ocr-engine)
 - [Architecture](#-architecture)
 - [Repository Structure](#-repository-structure)
@@ -46,14 +81,14 @@ Tether is a native desktop AI coding workbench engineered for repository-scale d
 ## ✨ Features
 
 ### 1. Multi-Provider Intelligence
-- **DeepSeek First-Class Support**: Custom Base URL, API key authentication, and reasoning level control.
-- **Top-Tier LLM Ecosystem**: Connect to Claude (Anthropic), GPT-4o / Codex (OpenAI), OpenRouter, Kimi Coding, MiniMax, xAI, and custom proxy gateways.
+- **DeepSeek Native Control**: Configure custom Base URL, API key, and reasoning effort.
+- **Global & Domestic LLM Matrix**: Connect to DeepSeek, OpenAI, Anthropic, OpenRouter, Kimi, MiniMax, xAI, ZAI, or private LLM endpoints.
 - **Real-Time Token & Cost Telemetry**: Live tracking of token consumption, context window usage, and duration per turn.
 
 ### 2. Multi-Project Workspace
 - Seamlessly open any local git repository or project folder (**⌘/Ctrl + O**).
 - Project-isolated thread trees organized cleanly in the sidebar.
-- Zero-project quick sandbox for scratchpad tasks and general coding queries.
+- Zero-project quick scratchpad session for general queries and standalone scripts.
 
 ### 3. Agent Execution & Atomic Undo
 - **Live Activity Streaming**: View real-time thought chains, tool executions, and step-by-step reasoning.
@@ -88,9 +123,9 @@ pnpm install
 pnpm dev
 ```
 
-1. Press **⌘/Ctrl + O** (or click the folder button) to open your project directory.
-2. Click the gear / account icon in the bottom-left corner to configure your DeepSeek API Key or custom model endpoint.
-3. Type your prompt (e.g. `"Explain the architecture of this project"`) or pick one of the quick suggestions!
+1. Click **📁 选择项目** (or press **⌘/Ctrl + O**) to bind a project directory.
+2. Click the gear / account icon in the bottom-left corner to configure your API Key or custom endpoint.
+3. Type your prompt (e.g. `"Explain the entry points of this repository"`) and start building!
 
 ---
 
@@ -100,20 +135,34 @@ Tether provides 4 distinct permission modes selectable directly from the bottom 
 
 | Mode | Label | Icon | Behavior & Sandbox Scope |
 | :--- | :--- | :---: | :--- |
-| `plan` | **Plan Only** | 💬 | Read-only analysis & planning. File edits and commands are strictly disabled. |
-| `ask` | **Ask on Edit** | ⚠️ | Prompts for user approval before modifying external files or making network requests. |
-| `auto` | **Workspace Safe** | 🛡️ | Automatically applies safe changes within the workspace; requests confirmation only for high-risk operations. |
-| `full` | **Full Access** | 🌐 | Unrestricted execution without sandbox boundaries (prompts for host confirmation on startup). |
+| `plan` | **仅规划 (Plan Only)** | 💬 | Read-only analysis & planning. File edits and commands are strictly disabled. |
+| `ask` | **编辑时询问 (Ask on Edit)** | ⓘ | Prompts for user approval before modifying external files or making network requests. |
+| `auto` | **工作区权限 (Workspace Safe)** | 🛡️ | Automatically applies safe changes within the workspace; requests confirmation only for high-risk operations. |
+| `full` | **完全访问 (Full Access)** | 🌐 | Unrestricted execution without sandbox boundaries (prompts for host confirmation on startup). |
+
+---
+
+## 🔌 Custom API & Provider Configuration
+
+Tether is 100% unconstrained by vendor lock-in. Configure your models via **Settings (⚙️) → Chat Provider**:
+
+### 1. DeepSeek (Default)
+- **Base URL**: `https://api.deepseek.com/v1` (or your proxy endpoint)
+- **Model**: `deepseek-reasoner` (DeepSeek-R1 / V3)
+- **API Key**: `sk-...`
+
+### 2. Custom OpenAI-Compatible Gateway (OneAPI / Ollama / vLLM / NewAPI)
+- **Base URL**: e.g., `http://localhost:11434/v1` or `https://my-proxy.internal/v1`
+- **Model**: Any model name served by your gateway (e.g. `qwen-2.5-72b`, `deepseek-r1-distill`, `claude-3-5-sonnet`)
+- **API Key**: Bearer token or placeholder string
 
 ---
 
 ## 👁️ Hybrid Vision & OCR Engine
 
-Tether features a two-tiered multimodal system designed specifically for developer workflows:
-
 1. **MinerU OCR (Built-in, Zero-Config)**:
    - Extracts clean markdown text from uploaded screenshots, documentation images, and code snippets.
-   - Fully enabled by default—**no API key required**.
+   - Fully enabled by default—**no API key or setup required**.
 2. **GLM-4V Multimodal Analysis (Optional)**:
    - Deep visual understanding for UI design replication, wireframes, and layout diagnostics.
    - Configurable in **Settings → Vision** with your Zhipu / GLM API Key.
@@ -136,7 +185,7 @@ Tether features a two-tiered multimodal system designed specifically for develop
         │ contextBridge (window.harness) │ IPC events / invokes
 ┌───────┴────────────────────────────────┴────────────────┐
 │  React Renderer Process (src/renderer)                  │
-│  Tailored UI, responsive conversation area, Monaco-free │
+│  Attached Top Tab UI, responsive conversation layout    │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -207,6 +256,9 @@ pnpm run pack
 #### Q: Where are my conversations and API keys stored?
 All persistent data is saved strictly inside `~/.tether` (`config.json`, `settings.json`, `auth.json`, and `sessions/`). Nothing is stored on external servers.
 
+#### Q: Can I use Tether with my own Ollama or local vLLM server?
+Yes! In **Settings → Chat Provider**, select **Custom OpenAI-Compatible**, and set your Base URL to `http://localhost:11434/v1` (for Ollama) or `http://localhost:8000/v1` (for vLLM).
+
 #### Q: Can I use Tether without opening a folder?
 Yes! When no folder is opened, Tether operates in a safe, read-only scratchpad session (working directory inside `<userData>/tasks`).
 
@@ -215,9 +267,6 @@ Because development builds are ad-hoc signed, macOS Gatekeeper may quarantine do
 ```bash
 xattr -cr /Applications/Tether.app
 ```
-
-#### Q: How do I customize custom OpenAI-compatible endpoints?
-In **Settings → Chat Provider**, select **Custom OpenAI-Compatible**, and enter your Base URL (e.g. `https://api.together.xyz/v1`), Model Name, and API Key.
 
 ---
 
