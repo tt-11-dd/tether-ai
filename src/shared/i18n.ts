@@ -161,6 +161,11 @@ const zh = {
 
   "approval.needConfirm": "需要批准",
   "approval.needSelect": "需要选择",
+  "approval.destructiveTitle": "这条命令有风险",
+  "approval.destructiveBody": "可能删除文件或改动系统状态。不确定就拒绝。",
+  "approval.showCommand": "查看命令",
+  "approval.allowOnce": "仅本次",
+  "approval.allowConversation": "本次对话都允许",
 
   "context.monitor": "对话上下文与用量监控",
   "context.label": "上下文",
@@ -468,6 +473,11 @@ const en: Record<MessageKey, string> = {
 
   "approval.needConfirm": "Approval needed",
   "approval.needSelect": "Selection needed",
+  "approval.destructiveTitle": "This command is risky",
+  "approval.destructiveBody": "It may delete files or change system state. Reject it if you are unsure.",
+  "approval.showCommand": "Show command",
+  "approval.allowOnce": "Allow once",
+  "approval.allowConversation": "Allow for this conversation",
 
   "context.monitor": "Context & usage",
   "context.label": "Context",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
+import { applyAgentEvent, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
 
 describe("conversation events", () => {
   it("calculates prompt cache hit rate from reported token usage", () => {
@@ -677,6 +677,20 @@ describe("conversation events", () => {
     expect(workspaceRelative("/proj/docs/a.md", "/proj")).toBe("docs/a.md");
     expect(workspaceRelative("/proj", "/proj")).toBe("");
     expect(workspaceRelative("/other/a.md", "/proj")).toBeUndefined();
+  });
+
+  it("turns a finished http(s) URL into a chip label", () => {
+    expect(isHttpUrl("https://github.com/tt-11-dd/tether-ai")).toBe(true);
+    expect(urlChipLabel("https://github.com/tt-11-dd/tether-ai")).toBe("github.com/tt-11-dd/tether-ai");
+    const typed = "see https://example.com/a.";
+    expect(takeTrailingUrl(typed, typed.length)).toEqual({
+      url: "https://example.com/a",
+      next: "see ",
+    });
+    expect(splitHttpUrls("https://github.com/tt-11-dd/tether-ai 这是什么")).toEqual([
+      { type: "url", value: "https://github.com/tt-11-dd/tether-ai" },
+      { type: "text", value: " 这是什么" },
+    ]);
   });
 
   it("keeps all direct children when browsing a wide folder", () => {

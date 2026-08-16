@@ -1074,6 +1074,55 @@ export function stripEmptyMarkdown(text: string): string {
     .trim();
 }
 
+export function trimHttpUrl(raw: string): string {
+  return raw.trim().replace(/[),.;:!?]+$/g, "");
+}
+
+export function isHttpUrl(text: string): boolean {
+  return /^https?:\/\/[^\s]+$/i.test(trimHttpUrl(text));
+}
+
+export function urlChipLabel(url: string): string {
+  try {
+    const parsed = new URL(trimHttpUrl(url));
+    const path = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/$/, "");
+    return `${parsed.host}${path}${parsed.search}`;
+  } catch {
+    return trimHttpUrl(url).replace(/^https?:\/\//i, "");
+  }
+}
+
+export function takeTrailingUrl(text: string, cursor: number): { next: string; url: string } | undefined {
+  const before = text.slice(0, cursor);
+  const match = before.match(/https?:\/\/[^\s]+$/i);
+  if (!match?.[0]) return;
+  const url = trimHttpUrl(match[0]);
+  if (!isHttpUrl(url)) return;
+  const start = before.length - match[0].length;
+  return { url, next: `${text.slice(0, start)}${text.slice(cursor)}` };
+}
+
+export function splitHttpUrls(text: string): Array<{ type: "text" | "url"; value: string }> {
+  const parts: Array<{ type: "text" | "url"; value: string }> = [];
+  const pattern = /https?:\/\/[^\s]+/gi;
+  let last = 0;
+  for (const match of text.matchAll(pattern)) {
+    const raw = match[0];
+    const index = match.index ?? 0;
+    if (index > last) parts.push({ type: "text", value: text.slice(last, index) });
+    const url = trimHttpUrl(raw);
+    if (isHttpUrl(url)) {
+      parts.push({ type: "url", value: url });
+      if (raw.length > url.length) parts.push({ type: "text", value: raw.slice(url.length) });
+    } else {
+      parts.push({ type: "text", value: raw });
+    }
+    last = index + raw.length;
+  }
+  if (last < text.length) parts.push({ type: "text", value: text.slice(last) });
+  return parts.length > 0 ? parts : [{ type: "text", value: text }];
+}
+
 export function parseFeaturesJson(input: string): SessionTodo[] {
   try {
     const data = JSON.parse(input) as unknown;

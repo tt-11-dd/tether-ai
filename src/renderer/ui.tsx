@@ -1,4 +1,4 @@
-import { forwardRef, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -6,7 +6,7 @@ import { PREVIEW_HOST, PREVIEW_SCHEME, type AgentSessionStats, type ExtensionUiR
 import { skillUserDisplay } from "../shared/skills";
 import { DEFAULT_VISION_CONFIG, visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, type ChatKind } from "../shared/chat-profiles";
-import { baseName, cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, liveStatus, omitFinalReply, repairMarkdownTables, splitPatch, stripEmptyMarkdown, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, undoDialogTitle, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
+import { baseName, cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, isHttpUrl, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, takeTrailingUrl, toolCommand, toolSummary, toolWritePreview, traceRows, trimHttpUrl, turnWork, undoDialogTitle, urlChipLabel, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
 import type { AgentSkillCommand } from "../shared/skills";
 import { PROJECT_SKILL_ROOTS, USER_SKILL_ROOTS, skillSlashCommand } from "../shared/skills";
@@ -14,12 +14,38 @@ import { useI18n } from "./i18n";
 import logo from "./logo.svg";
 
 const MAX_UPLOAD_IMAGES = 4;
+const LINK_ICON = "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71";
 
 export function Icon({ path, size = 16, className }: { path: string; size?: number; className?: string }) {
   return (
     <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d={path} />
     </svg>
+  );
+}
+
+function UserText({ text }: { text: string }) {
+  return (
+    <>
+      {splitHttpUrls(text).map((part, index) =>
+        part.type === "url" ? (
+          <a
+            key={`${part.value}-${index}`}
+            className="user-link"
+            href={part.value}
+            onClick={(event) => {
+              event.preventDefault();
+              void window.harness.app.openExternal(part.value);
+            }}
+          >
+            <Icon path={LINK_ICON} size={12} />
+            <span>{urlChipLabel(part.value)}</span>
+          </a>
+        ) : (
+          <span key={index}>{part.value}</span>
+        ),
+      )}
+    </>
   );
 }
 
@@ -42,7 +68,7 @@ export function UserTurn({ text, images = [], anchor }: { text: string; images?:
             })}
           </div>
         )}
-        {skill ? <code className="user-skill-tag">{shown}</code> : shown}
+        {skill ? <code className="user-skill-tag">{shown}</code> : <UserText text={shown} />}
       </article>
       <div className="bubble-actions">
         <CopyAction text={shown} />
@@ -680,15 +706,14 @@ function Fold({
   );
 }
 
-function Markdown({ children }: { children: string }) {
-  const source = stripEmptyMarkdown(repairMarkdownTables(children));
+function Markdown({ children, streaming }: { children: string; streaming?: boolean }) {
+  const source = stripEmptyMarkdown(repairMarkdownTables(streaming ? closeOpenFences(children) : children));
   if (!source) return null;
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
         pre({ children }) {
-          // react-markdown wraps <code> inside <pre>; skip when both are blank.
           const plain = extractNodeText(children).trim();
           if (!plain) return null;
           return <pre>{children}</pre>;
@@ -705,6 +730,11 @@ function Markdown({ children }: { children: string }) {
   );
 }
 
+function closeOpenFences(text: string): string {
+  const fences = text.match(/^```/gm)?.length ?? 0;
+  return fences % 2 ? `${text}\n\`\`\`` : text;
+}
+
 function extractNodeText(node: ReactNode): string {
   if (node == null || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -715,18 +745,6 @@ function extractNodeText(node: ReactNode): string {
   return "";
 }
 
-/** Plain stream body — memo'd so React won't reconcile text on every IPC chunk. */
-const StreamPlainBody = memo(
-  forwardRef<HTMLSpanElement>(function StreamPlainBody(_props, ref) {
-    return (
-      <p className="stream-plain">
-        <span ref={ref} />
-        <span className="caret" aria-hidden="true" />
-      </p>
-    );
-  }),
-);
-
 export function StreamingText({
   text,
   streaming,
@@ -734,28 +752,15 @@ export function StreamingText({
   text: string;
   streaming?: boolean;
 }) {
-  const line = useRef<HTMLSpanElement>(null);
-
-  useLayoutEffect(() => {
-    if (!streaming || !line.current) return;
-    line.current.textContent = text;
-  }, [text, streaming]);
-
   if (!text && !streaming) return null;
-
-  if (!streaming) {
-    return (
-      <div className="stream">
-        <div className="markdown">
-          <Markdown>{text}</Markdown>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="stream live">
-      <StreamPlainBody ref={line} />
+    <div className={streaming ? "stream live" : "stream"}>
+      {text ? (
+        <div className="markdown">
+          <Markdown streaming={streaming}>{text}</Markdown>
+        </div>
+      ) : null}
+      {streaming ? <span className="caret" aria-hidden="true" /> : null}
     </div>
   );
 }
@@ -1197,6 +1202,7 @@ export function PromptBar({
   const [listing, setListing] = useState(false);
   const [picked, setPicked] = useState(0);
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [links, setLinks] = useState<string[]>([]);
   const [uploads, setUploads] = useState<Array<{ id: string; name: string; dataUri: string }>>([]);
   const [dropOver, setDropOver] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
@@ -1207,6 +1213,7 @@ export function PromptBar({
 
   useEffect(() => {
     setAttachments([]);
+    setLinks([]);
     setUploads([]);
   }, [workspace]);
 
@@ -1241,9 +1248,13 @@ export function PromptBar({
     menu.current?.querySelector(".on")?.scrollIntoView({ block: "nearest" });
   }, [picked]);
 
-  const compose = (text = value) => {
-    const prefix = attachments.map((file) => `@${file}`).join(" ");
+  const compose = (text = value, extraLinks = links) => {
+    const prefix = [...attachments.map((file) => `@${file}`), ...extraLinks].join(" ");
     return [prefix, text.trim()].filter(Boolean).join(" ");
+  };
+
+  const addLink = (url: string) => {
+    setLinks((current) => current.includes(url) ? current : [...current, url]);
   };
 
   const addUploads = async (list: FileList | File[]) => {
@@ -1370,6 +1381,26 @@ export function PromptBar({
         setAttachments((current) => current.slice(0, -1));
         return;
       }
+      if (links.length > 0) {
+        event.preventDefault();
+        setLinks((current) => current.slice(0, -1));
+        return;
+      }
+    }
+    if (event.key === " " && !event.nativeEvent.isComposing) {
+      const pos = event.currentTarget.selectionStart;
+      const taken = takeTrailingUrl(value, pos);
+      if (taken) {
+        event.preventDefault();
+        addLink(taken.url);
+        onChange(taken.next);
+        setCursor(taken.next.length);
+        requestAnimationFrame(() => {
+          area.current?.focus();
+          area.current?.setSelectionRange(taken.next.length, taken.next.length);
+        });
+        return;
+      }
     }
     if (slash && event.key === "Enter" && commands[0] && !event.shiftKey) {
       event.preventDefault();
@@ -1379,10 +1410,13 @@ export function PromptBar({
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       if (disabled) return;
-      const text = compose();
+      const trailing = takeTrailingUrl(value, value.length);
+      const nextLinks = trailing && !links.includes(trailing.url) ? [...links, trailing.url] : links;
+      const text = compose(trailing?.next ?? value, nextLinks);
       if (!text && uploads.length === 0) return;
       const refs = uploads.map((item) => item.dataUri);
       setAttachments([]);
+      setLinks([]);
       setUploads([]);
       onChange("");
       onSubmit(text, refs.length ? refs : undefined);
@@ -1489,16 +1523,19 @@ export function PromptBar({
               insertSkillCommand((commands[picked] ?? commands[0]).id);
               return;
             }
-            const text = compose();
+            const trailing = takeTrailingUrl(value, value.length);
+            const nextLinks = trailing && !links.includes(trailing.url) ? [...links, trailing.url] : links;
+            const text = compose(trailing?.next ?? value, nextLinks);
             if (!text && uploads.length === 0) return;
             const refs = uploads.map((item) => item.dataUri);
             setAttachments([]);
+            setLinks([]);
             setUploads([]);
             onChange("");
             onSubmit(text, refs.length ? refs : undefined);
           }}
         >
-          {(attachments.length > 0 || uploads.length > 0) && (
+          {(attachments.length > 0 || links.length > 0 || uploads.length > 0) && (
           <div className="prompt-tags">
             {attachments.map((file) => (
               <button
@@ -1509,6 +1546,19 @@ export function PromptBar({
                 aria-label={t("composer.removeFile", { name: file })}
               >
                 <span>@{file}</span>
+                <Icon path="M18 6L6 18M6 6l12 12" size={12} />
+              </button>
+            ))}
+            {links.map((url) => (
+              <button
+                key={url}
+                type="button"
+                className="prompt-tag link"
+                onClick={() => setLinks((current) => current.filter((item) => item !== url))}
+                aria-label={url}
+              >
+                <Icon path={LINK_ICON} size={12} />
+                <span>{urlChipLabel(url)}</span>
                 <Icon path="M18 6L6 18M6 6l12 12" size={12} />
               </button>
             ))}
@@ -1537,9 +1587,15 @@ export function PromptBar({
           onKeyDown={onKey}
           onPaste={(event) => {
             const images = [...event.clipboardData.files].filter((file) => file.type.startsWith("image/"));
-            if (images.length === 0) return;
+            if (images.length > 0) {
+              event.preventDefault();
+              void addUploads(images);
+              return;
+            }
+            const pasted = event.clipboardData.getData("text").trim();
+            if (!isHttpUrl(pasted)) return;
             event.preventDefault();
-            void addUploads(images);
+            addLink(trimHttpUrl(pasted));
           }}
           placeholder={running ? t("composer.placeholderFollowup") : workspace ? t("composer.placeholderWorkspace") : t("composer.placeholderEmpty")}
           rows={hero && !value ? 2 : 1}
@@ -1876,6 +1932,22 @@ export function Combo({
   );
 }
 
+function splitApprovalCopy(title: string, message?: string) {
+  const lines = title.split("\n").map((line) => line.trim()).filter(Boolean);
+  const heading = lines[0] ?? "";
+  const detail = lines.slice(1).join("\n");
+  const rest = [detail, message?.trim()].filter(Boolean).join("\n\n");
+  const destructive = /run destructive command/i.test(heading);
+  if (!destructive) return { heading, detail, message: message?.trim() ?? "", command: "", destructive: false };
+  return {
+    heading,
+    detail: "",
+    message: "",
+    command: rest.replace(/this may delete data or alter system\/process state\.?/gi, "").trim(),
+    destructive: true,
+  };
+}
+
 export function ApprovalCard({
   request,
   lastTurn,
@@ -1900,21 +1972,36 @@ export function ApprovalCard({
       onError(error instanceof Error ? error.message : String(error));
     }
   };
-  // The agent packs question, command and sandbox state into one newline-separated title.
-  const [heading, ...detail] = (request.title ?? (request.method === "confirm" ? t("approval.needConfirm") : t("approval.needSelect")))
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const title = undoDialogTitle(heading, lastTurn);
+  const copy = splitApprovalCopy(
+    request.title ?? (request.method === "confirm" ? t("approval.needConfirm") : t("approval.needSelect")),
+    request.message,
+  );
+  const title = undoDialogTitle(copy.heading, lastTurn);
   return (
     <div className="approval">
-      <strong>{title}</strong>
-      {detail.length > 0 && <pre className="approval-detail">{detail.join("\n")}</pre>}
-      {request.message && <p>{request.message}</p>}
+      <strong>{copy.destructive ? t("approval.destructiveTitle") : title}</strong>
+      {copy.destructive ? (
+        <>
+          <p>{t("approval.destructiveBody")}</p>
+          {copy.command && (
+            <details className="approval-cmd">
+              <summary>{t("approval.showCommand")}</summary>
+              <pre className="approval-detail">{copy.command}</pre>
+            </details>
+          )}
+        </>
+      ) : (
+        <>
+          {copy.detail && <pre className="approval-detail">{copy.detail}</pre>}
+          {copy.message && <p>{copy.message}</p>}
+        </>
+      )}
       {request.method === "select" && (
         <div className="choices">
           {request.options?.map((option) => (
-            <button key={option} type="button" onClick={() => void respond({ value: option })}>{option}</button>
+            <button key={option} type="button" onClick={() => void respond({ value: option })}>
+              {accessChoiceLabel(option, t)}
+            </button>
           ))}
         </div>
       )}
@@ -1935,6 +2022,15 @@ export function ApprovalCard({
       </div>
     </div>
   );
+}
+
+function accessChoiceLabel(option: string, t: (key: string) => string): string {
+  if (option === "Allow once") return t("approval.allowOnce");
+  if (option === "Allow for this conversation" || option === "Allow this command for this session") {
+    return t("approval.allowConversation");
+  }
+  if (option === "Deny") return t("common.reject");
+  return option;
 }
 
 function ModelField({
