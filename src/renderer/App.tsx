@@ -19,6 +19,7 @@ import {
   collectWorkingFiles,
   dropLastTurn,
   friendlyAgentError,
+  isTransientStreamError,
   groupConversation,
   lastTurnRestoreFiles,
   mentionedFiles,
@@ -26,6 +27,7 @@ import {
   optimisticUserMessage,
   parseFeaturesJson,
   sessionTools,
+  sessionTerminals,
   turnAnchorId,
   turnAnchors,
   type ChatMessage,
@@ -356,12 +358,18 @@ export function App() {
   const [sandboxAsk, setSandboxAsk] = useState<{ cwd: string; message: string }>();
   const sandboxWaiter = useRef<((ok: boolean) => void) | undefined>(undefined);
   const [toast, setToast] = useState<string>();
+  useEffect(() => {
+    if (!toast) return;
+    const id = window.setTimeout(() => setToast(undefined), 5000);
+    return () => window.clearTimeout(id);
+  }, [toast]);
   const [uiRequest, setUiRequest] = useState<ExtensionUiRequest>();
   const [fullscreen, setFullscreen] = useState(false);
   const [openProjects, setOpenProjects] = useState<Record<string, boolean>>({});
   const [preview, setPreview] = useState<FileChange>();
   const [featureTodos, setFeatureTodos] = useState<SessionTodo[]>([]);
   const [agentSkills, setAgentSkills] = useState<AgentSkillCommand[]>([]);
+  const [stoppedJobs, setStoppedJobs] = useState<string[]>([]);
   const scroller = useRef<HTMLDivElement>(null);
   const agentCwd = useRef<string | undefined>(undefined);
   const sessionRef = useRef<string | undefined>(undefined);
@@ -381,6 +389,10 @@ export function App() {
   const groups = useMemo(() => groupConversation(messages), [messages]);
   const anchors = useMemo(() => turnAnchors(groups), [groups]);
   const tools = useMemo(() => sessionTools(messages), [messages]);
+  const terminals = useMemo(
+    () => sessionTerminals(messages).filter((job) => !stoppedJobs.includes(job.id)),
+    [messages, stoppedJobs],
+  );
   const workingFiles = useMemo(() => collectWorkingFiles(tools, mentionedFiles(messages)), [messages, tools]);
   const chatTodos = useMemo(() => collectTodos(messages), [messages]);
   const todos = featureTodos.length ? featureTodos : chatTodos;
@@ -681,6 +693,13 @@ export function App() {
     void window.harness.sessions.list().then(setSessions);
   }, [workspace]);
 
+  const stopJobs = useCallback(async (message: string) => {
+    const data = await window.harness.agent.command<{ commands: Array<{ name: string }> }>("get_commands");
+    const names = new Set((data.commands ?? []).map((item) => item.name.replace(/^\//, "")));
+    if (!names.has("stop-job") && !names.has("stop-jobs")) throw new Error(t("toast.needJobCommands"));
+    await window.harness.agent.command("prompt", { message });
+  }, [t]);
+
   const undoLastTurn = useCallback(async () => {
     if (running) return;
     if (!agentCwd.current) {
@@ -876,7 +895,10 @@ export function App() {
         }).catch(() => undefined);
         void window.harness.sessions.list().then(setSessions);
       }
-      if (event.type === "extension_error" && typeof event.error === "string") setToast(friendlyAgentError(event.error));
+      if (event.type === "extension_error" && typeof event.error === "string" && !isTransientStreamError(event.error)) {
+        const text = friendlyAgentError(event.error);
+        if (text) setToast(text);
+      }
       if (event.type === "tool_execution_end" && event.isError === true) {
         const detail = typeof event.result === "string" ? event.result : JSON.stringify(event.result ?? "");
         if (/read-only|permission denied|not permitted|sandbox/i.test(detail)) {
@@ -892,9 +914,10 @@ export function App() {
     });
     const offError = window.harness.agent.onError((message) => {
       if (!live.current) return;
-      if (/Agent session closed/.test(message)) return;
+      if (/Agent session closed/.test(message) || isTransientStreamError(message)) return;
       setRunning(false);
-      setToast(friendlyAgentError(message));
+      const text = friendlyAgentError(message);
+      if (text) setToast(text);
     });
     const offCommand = window.harness.onAppCommand((command) => {
       if (command === "new-thread") void newThread();
@@ -1103,12 +1126,28 @@ export function App() {
           <InspectPanel
             files={workingFiles}
             todos={todos}
+            terminals={terminals}
             folder={baseName(workspace)}
             workspace={workspace}
             refresh={running}
             running={running}
             onOpen={setPreview}
             onUndo={() => void undoLastTurn()}
+            onStopTerminal={(id) => {
+              setStoppedJobs((current) => current.includes(id) ? current : [...current, id]);
+              void stopJobs(`/stop-job ${id}`).catch((error) => {
+                setStoppedJobs((current) => current.filter((item) => item !== id));
+                setToast(error instanceof Error ? error.message : String(error));
+              });
+            }}
+            onStopAllTerminals={() => {
+              const ids = terminals.map((job) => job.id);
+              setStoppedJobs((current) => [...new Set([...current, ...ids])]);
+              void stopJobs("/stop-jobs").catch((error) => {
+                setStoppedJobs((current) => current.filter((item) => !ids.includes(item)));
+                setToast(error instanceof Error ? error.message : String(error));
+              });
+            }}
           />
         ) : undefined}
       >
@@ -1216,7 +1255,6 @@ export function App() {
                   } : undefined}
                   onDone={() => {
                     setUiRequest(undefined);
-                    void refreshAgentSkills();
                   }}
                   onError={setToast}
                 />

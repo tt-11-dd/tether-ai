@@ -283,15 +283,22 @@ function registerIpc(): void {
     return recentWorkspaces.forget(workspacePath);
   });
   ipcMain.handle("workspace:read", async (_event, relativePath: string, workspacePath?: string) => {
-    const resolved = await resolveInWorkspace(relativePath, workspacePath);
-    const buffer = await fsp.readFile(resolved);
-    if (buffer.includes(0)) return { path: relativePath, binary: true, content: "" };
-    const text = buffer.toString("utf8");
-    return {
-      path: relativePath,
-      binary: false,
-      content: text.length > 200_000 ? `${text.slice(0, 200_000)}\n…` : text,
-    };
+    try {
+      const resolved = await resolveInWorkspace(relativePath, workspacePath);
+      const buffer = await fsp.readFile(resolved);
+      if (buffer.includes(0)) return { path: relativePath, binary: true, content: "" };
+      const text = buffer.toString("utf8");
+      return {
+        path: relativePath,
+        binary: false,
+        content: text.length > 200_000 ? `${text.slice(0, 200_000)}\n…` : text,
+      };
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+        return { path: relativePath, binary: false, content: "" };
+      }
+      throw error;
+    }
   });
   ipcMain.handle("workspace:open", async (_event, relativePath: string, workspacePath?: string) => {
     const error = await shell.openPath(await resolveInWorkspace(relativePath, workspacePath));

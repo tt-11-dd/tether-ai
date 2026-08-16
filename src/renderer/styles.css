@@ -1452,6 +1452,44 @@ button:disabled {
 .inspect-changes .inspect-file {
   padding-left: 4px;
 }
+.inspect-live {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--green);
+}
+.inspect-term {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+}
+.inspect-term .inspect-file {
+  flex: 1;
+  min-width: 0;
+}
+.inspect-stop {
+  flex: none;
+  padding: 4px 6px;
+  border-radius: 6px;
+  color: var(--red);
+  font-size: 12px;
+}
+.inspect-stop:hover {
+  background: var(--red-tint);
+}
+.inspect-cmd {
+  flex: 1 1 100%;
+  margin: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--inset);
+  color: var(--ink-2);
+  font: 11px/1.45 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .inspect-undo {
   margin-top: 6px;
   padding: 0 4px;
@@ -3226,8 +3264,7 @@ kbd {
   align-items: center;
   text-align: center;
   gap: 6px;
-  padding: 8px 0 18px;
-  border-bottom: 1px solid var(--line);
+  padding: 16px 0 8px;
 }
 .about-logo {
   display: block;
@@ -3257,49 +3294,30 @@ kbd {
   font: 11px/1.2 var(--mono);
   color: var(--ink-3);
 }
-.about-desc {
-  margin: 16px 0 0;
-  font-size: 12.5px;
-  line-height: 1.55;
+.about-site {
+  margin-top: 4px;
   color: var(--ink-2);
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
-.about-credit {
-  margin: 10px 0 0;
-  font-size: 11.5px;
-  line-height: 1.45;
-  color: var(--ink-3);
-}
-.about-meta {
-  margin: 16px 0 0;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
-  display: flex;
-  flex-direction: column;
-}
-.about-meta-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 9px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: 12.5px;
-}
-.about-meta-row:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-.about-meta-row dt {
-  margin: 0;
-  flex: none;
-  color: var(--ink-3);
-  font-weight: 400;
-}
-.about-meta-row dd {
-  margin: 0;
-  text-align: right;
+.about-site:hover {
   color: var(--ink);
-  line-height: 1.4;
+}
+.about-intro,
+.about-origin {
+  margin: 14px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  text-align: left;
+}
+.about-origin-name {
+  margin: 16px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: left;
 }
 .skills-section {
   margin-top: 14px;

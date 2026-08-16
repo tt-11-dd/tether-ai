@@ -10,7 +10,7 @@
   "scripts": {
     "postinstall": "node scripts/ensure-electron.mjs",
     "predev": "node scripts/ensure-electron.mjs && rm -rf dist-electron && tsup",
-    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && env -u ELECTRON_RUN_AS_NODE cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "dev": "concurrently \"vite --host 127.0.0.1 --port 5177 --strictPort\" \"wait-on tcp:5177 && env -u ELECTRON_RUN_AS_NODE cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5177 electron .\"",
     "build:electron": "rm -rf dist-electron && tsup",
     "build:renderer": "vite build",
     "build": "pnpm build:electron && pnpm build:renderer",
@@ -28,7 +28,7 @@
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "tether-agent-core": "^0.1.4"
+    "tether-agent-core": "^0.1.6"
   },
   "devDependencies": {
     "@types/node": "^24.0.10",

@@ -118,6 +118,8 @@ const zh = {
   "toast.sandboxOff": "已关闭沙箱，命令不再询问主机权限",
   "toast.sessionRestarted": "已按当前权限重新开会话",
   "toast.hostAccessAllowed": "本次命令已允许访问本机文件和网络",
+  "toast.needJobCommands":
+    "停止后台命令需要 tether-agent-core 0.1.6，请更新后再试",
   "toast.defaultImagePrompt": "请详细描述这张图片的内容",
   "toast.errorAuth": "API Key 无效或未配置，请在设置中检查连接配置",
   "toast.errorQuota": "请求过于频繁或额度不足，请稍后重试并检查账户额度",
@@ -222,6 +224,11 @@ const zh = {
   "inspect.files": "文件",
   "inspect.workspace": "工作区",
   "inspect.noFiles": "没有文件",
+  "inspect.terminals": "终端 ({n})",
+  "inspect.terminalLive": "运行中",
+  "inspect.noTerminals": "没有在跑的命令",
+  "inspect.stop": "停止",
+  "inspect.stopAll": "全部停止",
   "preview.reading": "读取中…",
   "preview.binary": "二进制文件",
   "preview.currentFile": "当前文件",
@@ -300,25 +307,18 @@ const zh = {
   "shortcut.escape": "关闭弹窗与抽屉",
 
   "about.title": "Tether",
-  "about.subtitle": "基于 Pi 生态的本地优先 AI 编程工作台",
-  "about.desc":
-    "在 Pi 之上封装 Agent 运行时；桌面端负责项目协作、权限审批与 Diff 审查。会话与凭据保存在 ~/.tether，模型与 OCR 请求发往你配置的端点。",
-  "about.piCredit": "Agent 运行时基于 Pi 开源生态；Pi 依赖保留各自许可证。",
-  "about.version": "应用版本",
-  "about.core": "Agent 内核",
-  "about.coreVal": "tether-agent-core（基于 Pi 生态）",
-  "about.arch": "运行架构",
-  "about.sandbox": "沙箱状态",
-  "about.sandboxVal": "macOS Seatbelt；Windows 需安装并启用 helper",
-  "about.dataDir": "本地数据目录",
-  "about.dataDirVal": "~/.tether (0600 私有权限)",
-  "about.license": "开源协议",
+  "about.subtitle": "本地优先的 AI 编程工作台",
+  "about.intro":
+    "基于 Pi Agent 生态构建，把 DeepSeek 与兼容模型的推理变成可见、可控、可撤销的代码改动。会话与工作区数据留在本机，模型请求直达你配置的端点。",
+  "about.originName": "Tether /ˈteð.ər/ · 系绳、锚点、牵引",
+  "about.origin":
+    "比 Harness 更轻。大模型在你配置的端点上推理，像一根没系住的线；桌面端把它拴在本地仓库上，让改动看得见、权限收得住、上一轮可以用 /undo 拉回来。",
   "about.language": "界面语言",
   "about.langZh": "中文",
   "about.langEn": "English",
   "about.checkUpdate": "检查更新",
   "about.feedback": "反馈问题",
-  "about.github": "GitHub 仓库",
+  "about.site": "官网",
 
   "trace.think": "思考",
   "trace.run": "执行命令",
@@ -460,6 +460,8 @@ const en: Record<MessageKey, string> = {
     "Session restarted with the current permission mode",
   "toast.hostAccessAllowed":
     "This command may access local files and the network",
+  "toast.needJobCommands":
+    "Stopping background jobs needs tether-agent-core 0.1.6",
   "toast.defaultImagePrompt": "Describe this image in detail",
   "toast.errorAuth":
     "The API key is missing or invalid. Check the connection settings.",
@@ -575,6 +577,11 @@ const en: Record<MessageKey, string> = {
   "inspect.files": "Files",
   "inspect.workspace": "Workspace",
   "inspect.noFiles": "No files",
+  "inspect.terminals": "Terminals ({n})",
+  "inspect.terminalLive": "Running",
+  "inspect.noTerminals": "No running commands",
+  "inspect.stop": "Stop",
+  "inspect.stopAll": "Stop all",
   "preview.reading": "Loading…",
   "preview.binary": "Binary file",
   "preview.currentFile": "Current file",
@@ -654,27 +661,18 @@ const en: Record<MessageKey, string> = {
   "shortcut.escape": "Close dialogs & drawers",
 
   "about.title": "Tether",
-  "about.subtitle": "Local-first AI coding workbench built on Pi",
-  "about.desc":
-    "Wraps the Pi agent runtime; the desktop app handles projects, permissions, and diff review. Sessions and credentials stay in ~/.tether; model and OCR requests go to endpoints you configure.",
-  "about.piCredit":
-    "Agent runtime built on the Pi open-source ecosystem; Pi dependencies keep their own licenses.",
-  "about.version": "App version",
-  "about.core": "Agent core",
-  "about.coreVal": "tether-agent-core (built on Pi)",
-  "about.arch": "Runtime",
-  "about.sandbox": "Sandbox",
-  "about.sandboxVal":
-    "macOS Seatbelt; Windows helper when installed and enabled",
-  "about.dataDir": "Local data",
-  "about.dataDirVal": "~/.tether (0600)",
-  "about.license": "License",
+  "about.subtitle": "Local-first AI coding workbench",
+  "about.intro":
+    "Built on the Pi Agent ecosystem. Turns DeepSeek and compatible-model inference into visible, controllable, undoable code changes. Sessions and workspace data stay on your machine; model requests go straight to the endpoint you configure.",
+  "about.originName": "Tether /ˈteð.ər/ · a rope, an anchor, a lead",
+  "about.origin":
+    "Lighter than a harness. The model reasons at your endpoint like an untethered line; the desktop ties it to the local repo so changes stay visible, permissions stay tight, and the last turn can be pulled back with /undo.",
   "about.language": "Language",
   "about.langZh": "中文",
   "about.langEn": "English",
   "about.checkUpdate": "Check for updates",
   "about.feedback": "Feedback",
-  "about.github": "GitHub",
+  "about.site": "Website",
 
   "trace.think": "Thinking",
   "trace.run": "Run command",

@@ -6,7 +6,7 @@ import { PREVIEW_HOST, PREVIEW_SCHEME, type AgentSessionStats, type ExtensionUiR
 import { skillUserDisplay } from "../shared/skills";
 import { DEFAULT_VISION_CONFIG, visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, type ChatKind } from "../shared/chat-profiles";
-import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
+import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
 import type { AgentSkillCommand } from "../shared/skills";
 import { PROJECT_SKILL_ROOTS, USER_SKILL_ROOTS, skillSlashCommand } from "../shared/skills";
@@ -825,25 +825,33 @@ function treeChange(path: string, changes: SessionFile[]) {
 export function InspectPanel({
   files = [],
   todos,
+  terminals = [],
   folder,
   workspace,
   refresh,
   running,
   onOpen,
   onUndo,
+  onStopTerminal,
+  onStopAllTerminals,
 }: {
   files?: SessionFile[];
   todos: SessionTodo[];
+  terminals?: SessionTerminal[];
   folder?: string;
   workspace?: string;
   refresh?: number | boolean;
   running?: boolean;
   onOpen(file: FileChange): void;
   onUndo?(): void;
+  onStopTerminal?(id: string): void;
+  onStopAllTerminals?(): void;
 }) {
   const { t } = useI18n();
   const [progress, setProgress] = useState(true);
   const [changesOpen, setChangesOpen] = useState(true);
+  const [termsOpen, setTermsOpen] = useState(true);
+  const [openTerm, setOpenTerm] = useState<string>();
   const [working, setWorking] = useState(true);
   const [treeOpen, setTreeOpen] = useState(true);
   const [entries, setEntries] = useState<string[]>([]);
@@ -903,6 +911,41 @@ export function InspectPanel({
               <button type="button" className="inspect-undo" onClick={onUndo}>{t("inspect.undo")}</button>
             )}
           </div>
+        </Fold>
+      )}
+      {workspace && (
+        <Fold title={t("inspect.terminals", { n: terminals.length })} open={termsOpen} onToggle={() => setTermsOpen((current) => !current)}>
+          {terminals.length === 0 ? (
+            <p className="sidebar-empty">{t("inspect.noTerminals")}</p>
+          ) : (
+            <div className="inspect-changes">
+              {terminals.map((job) => {
+                const label = terminalLabel(job.command);
+                return (
+                  <div key={job.id} className={openTerm === job.id ? "inspect-term open" : "inspect-term"}>
+                    <button
+                      type="button"
+                      className="inspect-file"
+                      onClick={() => setOpenTerm((current) => current === job.id ? undefined : job.id)}
+                    >
+                      <i className="inspect-live" />
+                      <span title={job.command}>{label}</span>
+                      <small>{t("inspect.terminalLive")}</small>
+                    </button>
+                    {openTerm === job.id && <pre className="inspect-cmd">{job.command}</pre>}
+                    {onStopTerminal && (
+                      <button type="button" className="inspect-stop" onClick={() => onStopTerminal(job.id)}>
+                        {t("inspect.stop")}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              {onStopAllTerminals && terminals.length > 1 && (
+                <button type="button" className="inspect-undo" onClick={onStopAllTerminals}>{t("inspect.stopAll")}</button>
+              )}
+            </div>
+          )}
         </Fold>
       )}
       {workspace && (
@@ -2703,33 +2746,17 @@ export function Login({
                       <span className="about-version">v{appVersion || "0.1.3"}</span>
                     </h3>
                     <p className="about-tagline">{t("about.subtitle")}</p>
+                    <button
+                      type="button"
+                      className="about-site"
+                      onClick={() => void window.harness.app.openExternal("https://tether-code.xyz/")}
+                    >
+                      tether-code.xyz
+                    </button>
                   </div>
-
-                  <p className="about-desc">{t("about.desc")}</p>
-                  <p className="about-credit">{t("about.piCredit")}</p>
-
-                  <dl className="about-meta">
-                    <div className="about-meta-row">
-                      <dt>{t("about.core")}</dt>
-                      <dd>{t("about.coreVal")}</dd>
-                    </div>
-                    <div className="about-meta-row">
-                      <dt>{t("about.arch")}</dt>
-                      <dd>Electron 37 · React 19 · Node 22</dd>
-                    </div>
-                    <div className="about-meta-row">
-                      <dt>{t("about.sandbox")}</dt>
-                      <dd>{t("about.sandboxVal")}</dd>
-                    </div>
-                    <div className="about-meta-row">
-                      <dt>{t("about.dataDir")}</dt>
-                      <dd>{t("about.dataDirVal")}</dd>
-                    </div>
-                    <div className="about-meta-row">
-                      <dt>{t("about.license")}</dt>
-                      <dd>MIT License</dd>
-                    </div>
-                  </dl>
+                  <p className="about-intro">{t("about.intro")}</p>
+                  <p className="about-origin-name">{t("about.originName")}</p>
+                  <p className="about-origin">{t("about.origin")}</p>
                 </div>
               </div>
             )}
@@ -2768,10 +2795,10 @@ export function Login({
                 <button
                   type="button"
                   className="ghost"
-                  onClick={() => void window.harness.app.openExternal("https://github.com/tt-11-dd/tether-ai")}
+                  onClick={() => void window.harness.app.openExternal("https://tether-code.xyz/")}
                 >
-                  <Icon path="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" size={14} />
-                  <span>{t("about.github")}</span>
+                  <Icon path="M10 13a5 5 0 0 0 7.54.54l1.42-1.42a5 5 0 0 0-7.07-7.07L10.5 6.5M14 11a5 5 0 0 0-7.54-.54L5.04 11.88a5 5 0 0 0 7.07 7.07L13.5 17.5" size={14} />
+                  <span>{t("about.site")}</span>
                 </button>
               </>
             )}

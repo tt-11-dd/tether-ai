@@ -14,12 +14,18 @@ function ct(key: MessageKey, vars?: Record<string, string | number>): string {
   return t(activeLocale, key, vars);
 }
 
+export function isTransientStreamError(error: unknown): boolean {
+  const raw = error instanceof Error ? error.message : String(error);
+  return /stream ended without finish_reason|missing finish_reason/i.test(raw);
+}
+
 export function friendlyAgentError(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
   const detail = raw
     .replace(/^Error invoking remote method 'agent:(?:command|start)':\s*/i, "")
     .replace(/^Error:\s*/i, "")
     .trim();
+  if (isTransientStreamError(detail)) return "";
   if (/context (?:length|window)|maximum context|too many tokens|token limit/i.test(detail)) return ct("toast.errorContext");
   if (/\b401\b|\b403\b|unauthori[sz]ed|forbidden|invalid api.?key|authentication|credential/i.test(detail)) return ct("toast.errorAuth");
   if (/\b402\b|\b429\b|rate.?limit|too many requests|quota|insufficient (?:balance|credit|funds)/i.test(detail)) return ct("toast.errorQuota");
@@ -577,6 +583,12 @@ export function formatCommand(command: string): string {
     .join("\n");
 }
 
+export function terminalLabel(command: string): string {
+  const lines = formatCommand(command).split("\n").filter(Boolean);
+  const action = [...lines].reverse().find((line) => !/^cd\s/.test(line)) ?? lines.at(-1) ?? command;
+  return action.replace(/\s+/g, " ").trim();
+}
+
 function commandTitle(command: string): string {
   const lines = formatCommand(command).split("\n").filter(Boolean);
   if (lines.length === 0) return ct("cmd.ranEmpty");
@@ -820,6 +832,40 @@ export function collectFileChanges(tools: ToolActivity[]): FileChange[] {
 
 export function sessionTools(messages: ChatMessage[]): ToolActivity[] {
   return [...new Map(messages.flatMap((item) => item.tools).map((tool) => [tool.id, tool])).values()];
+}
+
+export interface SessionTerminal {
+  id: string;
+  command: string;
+}
+
+/** Background or in-flight shell jobs the user can still see in the inspect rail. */
+export function sessionTerminals(messages: ChatMessage[]): SessionTerminal[] {
+  const jobs = new Map<string, string>();
+  for (const message of messages) {
+    for (const tool of message.tools) applySessionTerminal(jobs, tool);
+  }
+  return [...jobs.entries()].map(([id, command]) => ({ id, command }));
+}
+
+function applySessionTerminal(jobs: Map<string, string>, tool: ToolActivity) {
+  const args = isRecord(tool.args) ? tool.args : {};
+  const output = tool.output ?? "";
+  const pid = stringField(args, "process_id") || output.match(/process_id:\s*(\S+)/)?.[1];
+  if (/write_stdin/i.test(tool.name)) {
+    if (!pid) return;
+    if (args.terminate === true || /status:\s*completed|process completed/i.test(output)) jobs.delete(pid);
+    return;
+  }
+  if (!/exec|bash|command/i.test(tool.name)) return;
+  const command = stringField(args, "cmd") || stringField(args, "command") || tool.title;
+  if (tool.status === "running") {
+    jobs.set(pid || tool.id, command);
+    return;
+  }
+  jobs.delete(tool.id);
+  if (pid && /status:\s*running/i.test(output)) jobs.set(pid, command);
+  else if (pid) jobs.delete(pid);
 }
 
 export function collectWorkingFiles(tools: ToolActivity[], mentions: string[] = []): SessionFile[] {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, approvalTitle, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
+import { applyAgentEvent, approvalTitle, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, isTransientStreamError, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, sessionTerminals, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, terminalLabel, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
 
 describe("conversation events", () => {
   it("calculates prompt cache hit rate from reported token usage", () => {
@@ -105,6 +105,8 @@ describe("conversation events", () => {
     expect(friendlyAgentError("TypeError: fetch failed")).toContain("网络");
     expect(friendlyAgentError("maximum context length exceeded")).toContain("压缩上下文");
     expect(friendlyAgentError("unknown model deepseek-x")).toContain("切换模型");
+    expect(isTransientStreamError("Stream ended without finish_reason")).toBe(true);
+    expect(friendlyAgentError("Stream ended without finish_reason")).toBe("");
   });
 
   it("keeps the command title when the end event has no args", () => {
@@ -126,9 +128,38 @@ describe("conversation events", () => {
     expect(messages[0]?.tools[0]?.title).toBe("执行 git status");
   });
 
+  it("keeps a yielded shell job in the inspect terminal list", () => {
+    let messages = applyAgentEvent([], {
+      type: "tool_execution_start",
+      toolCallId: "dev-1",
+      toolName: "exec_command",
+      args: { cmd: "pnpm dev" },
+    });
+    expect(sessionTerminals(messages).map((job) => job.command)).toEqual(["pnpm dev"]);
+    messages = applyAgentEvent(messages, {
+      type: "tool_execution_end",
+      toolCallId: "dev-1",
+      toolName: "exec_command",
+      args: { cmd: "pnpm dev" },
+      result: "process_id: abc123\nstatus: running\nsandbox: Seatbelt",
+      isError: false,
+    });
+    expect(sessionTerminals(messages)).toEqual([{ id: "abc123", command: "pnpm dev" }]);
+    messages = applyAgentEvent(messages, {
+      type: "tool_execution_end",
+      toolCallId: "stdin-1",
+      toolName: "write_stdin",
+      args: { process_id: "abc123", terminate: true },
+      result: "status: completed",
+      isError: false,
+    });
+    expect(sessionTerminals(messages)).toEqual([]);
+  });
+
   it("formats chained shell commands", () => {
     const cmd = `wc -l SkillToolApp/Sources/SkillToolApp/*.swift && echo "---" && cat SkillToolApp/Package.swift`;
     expect(formatCommand(cmd)).toBe("wc -l SkillToolApp/Sources/SkillToolApp/*.swift\ncat SkillToolApp/Package.swift");
+    expect(terminalLabel("cd /Users/github-lzt/test2 && pnpm dev")).toBe("pnpm dev");
     expect(applyAgentEvent([], {
       type: "tool_execution_start",
       toolCallId: "cmd-2",
