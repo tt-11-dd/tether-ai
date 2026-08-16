@@ -53,13 +53,16 @@ Pi provides the runtime foundations; Tether defines the product boundary, safety
 ```text
 React Renderer
   conversation, diff, settings, project and session UI
-        │ contextBridge / Electron IPC
+        │  contextBridge / Electron IPC
+        ▼
 Electron Main
   windows, workspace, credentials, agent process host
-        │ JSON-RPC over stdio
+        │  JSON-RPC over stdio
+        ▼
 tether-agent-core
   Tether permissions, sandbox, tools, checkpoints, MCP, sessions
         │
+        ▼
 Pi ecosystem
   agent loop · model protocol · coding-agent extensions · RPC · TUI
 ```

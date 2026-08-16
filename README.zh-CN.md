@@ -53,13 +53,16 @@ Pi 提供运行基础；Tether 负责产品边界、安全策略和桌面交互�
 ```text
 React Renderer
   对话、Diff、设置、项目与会话 UI
-        │ contextBridge / Electron IPC
+        │  contextBridge / Electron IPC
+        ▼
 Electron Main
   窗口、工作区、凭据与 Agent 进程托管
-        │ JSON-RPC over stdio
+        │  JSON-RPC over stdio
+        ▼
 tether-agent-core
   Tether 权限、沙箱、工具、Checkpoint、MCP、会话
         │
+        ▼
 Pi ecosystem
   Agent loop · model protocol · coding-agent extensions · RPC · TUI
 ```
