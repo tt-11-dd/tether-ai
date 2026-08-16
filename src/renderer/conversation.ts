@@ -1137,6 +1137,35 @@ export function splitHttpUrls(text: string): Array<{ type: "text" | "url"; value
   return parts.length > 0 ? parts : [{ type: "text", value: text }];
 }
 
+export function isFileChipToken(token: string): boolean {
+  const path = token.startsWith("@") ? token.slice(1) : token;
+  if (!path || path.endsWith("/")) return false;
+  return path.includes("/") || path.includes(".");
+}
+
+/** URLs and `@path` tokens for restoring chips in the composer. */
+export function splitPromptChips(text: string): Array<{ type: "text" | "url" | "file"; value: string }> {
+  const parts: Array<{ type: "text" | "url" | "file"; value: string }> = [];
+  for (const part of splitHttpUrls(text)) {
+    if (part.type === "url") {
+      parts.push(part);
+      continue;
+    }
+    const pattern = /@[^\s]+/g;
+    let last = 0;
+    for (const match of part.value.matchAll(pattern)) {
+      const index = match.index ?? 0;
+      if (index > last) parts.push({ type: "text", value: part.value.slice(last, index) });
+      const raw = match[0];
+      if (isFileChipToken(raw)) parts.push({ type: "file", value: raw.slice(1) });
+      else parts.push({ type: "text", value: raw });
+      last = index + raw.length;
+    }
+    if (last < part.value.length) parts.push({ type: "text", value: part.value.slice(last) });
+  }
+  return parts.length > 0 ? parts : [{ type: "text", value: text }];
+}
+
 export function parseFeaturesJson(input: string): SessionTodo[] {
   try {
     const data = JSON.parse(input) as unknown;
@@ -1276,6 +1305,16 @@ function crop(value: string, length: number): string {
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function spliceFileMention(text: string, path: string, at: number): { next: string; caret: number } {
+  const token = `@${path}`;
+  const index = Math.max(0, Math.min(at, text.length));
+  const left = text.slice(0, index);
+  const right = text.slice(index);
+  const glue = left && !/\s$/.test(left) ? " " : "";
+  const next = `${left}${glue}${token} ${right}`;
+  return { next, caret: left.length + glue.length + token.length + 1 };
 }
 
 export function workspaceRelative(abs: string, cwd: string): string | undefined {

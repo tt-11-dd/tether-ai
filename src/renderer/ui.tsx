@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -6,7 +6,7 @@ import { PREVIEW_HOST, PREVIEW_SCHEME, type AgentSessionStats, type ExtensionUiR
 import { skillUserDisplay } from "../shared/skills";
 import { DEFAULT_VISION_CONFIG, visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, type ChatKind } from "../shared/chat-profiles";
-import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, isHttpUrl, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, takeTrailingUrl, toolCommand, toolSummary, toolWritePreview, traceRows, trimHttpUrl, turnWork, urlChipLabel, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
+import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
 import type { AgentSkillCommand } from "../shared/skills";
 import { PROJECT_SKILL_ROOTS, USER_SKILL_ROOTS, skillSlashCommand } from "../shared/skills";
@@ -15,7 +15,10 @@ import type { MessageKey } from "../shared/i18n";
 import logo from "./logo.svg";
 
 const MAX_UPLOAD_IMAGES = 4;
-const LINK_ICON = "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71";
+
+function isPromptFileDrag(transfer: DataTransfer): boolean {
+  return [...transfer.types].includes("Files");
+}
 
 export function Icon({ path, size = 16, className }: { path: string; size?: number; className?: string }) {
   return (
@@ -32,15 +35,14 @@ function UserText({ text }: { text: string }) {
         part.type === "url" ? (
           <a
             key={`${part.value}-${index}`}
-            className="user-link"
+            className="user-url"
             href={part.value}
             onClick={(event) => {
               event.preventDefault();
               void window.harness.app.openExternal(part.value);
             }}
           >
-            <Icon path={LINK_ICON} size={12} />
-            <span>{urlChipLabel(part.value)}</span>
+            {part.value}
           </a>
         ) : (
           <span key={index}>{part.value}</span>
@@ -816,15 +818,6 @@ function fileGlyph(path: string) {
   return /\.(tsx?|jsx?|mjs|cjs|css|json|ya?ml)$/i.test(path) ? "M8 8l-4 4 4 4M16 8l4 4-4 4" : "M6 3h9l5 5v13H6z";
 }
 
-function setDragGhost(event: { dataTransfer: DataTransfer }, label: string) {
-  const ghost = document.createElement("div");
-  ghost.className = "drag-ghost";
-  ghost.textContent = label;
-  document.body.appendChild(ghost);
-  event.dataTransfer.setDragImage(ghost, 16, 14);
-  requestAnimationFrame(() => ghost.remove());
-}
-
 function treeChange(path: string, changes: SessionFile[]) {
   return changes.find((item) => item.path === path || item.path.endsWith(`/${path}`) || path.endsWith(`/${item.path}`));
 }
@@ -856,7 +849,6 @@ export function InspectPanel({
   const [entries, setEntries] = useState<string[]>([]);
   const [prefix, setPrefix] = useState("");
   const [tick, setTick] = useState(0);
-  const dragging = useRef(false);
   const edits = files.filter((file) => file.kind === "edit");
   useEffect(() => window.harness.workspace.onChanged(() => {
     if (workspace) setTick((value) => value + 1);
@@ -942,22 +934,8 @@ export function InspectPanel({
                 <button
                   key={file}
                   type="button"
-                  draggable
                   className={dirty ? "inspect-file edit" : "inspect-file"}
-                  onDragStart={(event) => {
-                    dragging.current = true;
-                    event.dataTransfer.setData("text/harness-path", file);
-                    event.dataTransfer.setData("text/plain", file);
-                    event.dataTransfer.effectAllowed = "copy";
-                    setDragGhost(event, name);
-                  }}
-                  onDragEnd={() => {
-                    window.setTimeout(() => {
-                      dragging.current = false;
-                    }, 0);
-                  }}
                   onClick={() => {
-                    if (dragging.current) return;
                     if (dir) setPrefix(file);
                     else onOpen(change ?? { path: file, additions: 0, deletions: 0 });
                   }}
@@ -1150,6 +1128,189 @@ function mentionAt(text: string, cursor: number): { start: number; query: string
   return { start, query };
 }
 
+function promptTokenLength(el: HTMLElement): number {
+  if (el.dataset.url) return el.dataset.url.length;
+  if (el.dataset.file) return `@${el.dataset.file}`.length;
+  return 0;
+}
+
+function serializePrompt(root: HTMLElement): string {
+  let out = "";
+  const push = (chunk: string) => {
+    if (!chunk) return;
+    if (out && !/\s$/.test(out) && !/^\s/.test(chunk)) out += " ";
+    out += chunk;
+  };
+  const walk = (parent: Node) => {
+    for (const node of parent.childNodes) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        out += (node.textContent ?? "").replace(/\u00a0/g, " ");
+        continue;
+      }
+      if (!(node instanceof HTMLElement)) continue;
+      if (node.dataset.url) push(node.dataset.url);
+      else if (node.dataset.file) push(`@${node.dataset.file}`);
+      else if (node.tagName === "BR") out += "\n";
+      else if (!node.dataset.image) walk(node);
+    }
+  };
+  walk(root);
+  return out;
+}
+
+function collectPromptImages(root: HTMLElement): string[] {
+  return [...root.querySelectorAll<HTMLElement>("[data-image]")].map((node) => node.dataset.image!).filter(Boolean);
+}
+
+function caretOffset(root: HTMLElement): number {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || !sel.anchorNode || !root.contains(sel.anchorNode)) return serializePrompt(root).length;
+  const endNode = sel.anchorNode;
+  const endOff = sel.anchorOffset;
+  let offset = 0;
+  const visit = (node: Node): boolean => {
+    if (node === endNode && node.nodeType === Node.TEXT_NODE) {
+      offset += endOff;
+      return true;
+    }
+    if (node.nodeType === Node.TEXT_NODE) {
+      offset += node.textContent?.length ?? 0;
+      return false;
+    }
+    if (node instanceof HTMLElement && (node.dataset.url || node.dataset.file || node.dataset.image)) {
+      offset += promptTokenLength(node);
+      return node === endNode || node.contains(endNode);
+    }
+    for (const child of node.childNodes) {
+      if (visit(child)) return true;
+    }
+    return false;
+  };
+  for (const child of root.childNodes) {
+    if (visit(child)) break;
+  }
+  return offset;
+}
+
+function placeCaret(root: HTMLElement, offset: number): void {
+  const sel = window.getSelection();
+  if (!sel) return;
+  let left = offset;
+  const range = document.createRange();
+  const visit = (node: Node): boolean => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const size = node.textContent?.length ?? 0;
+      if (left <= size) {
+        range.setStart(node, Math.max(0, left));
+        range.collapse(true);
+        return true;
+      }
+      left -= size;
+      return false;
+    }
+    if (node instanceof HTMLElement && (node.dataset.url || node.dataset.file || node.dataset.image)) {
+      const size = promptTokenLength(node);
+      if (left <= size) {
+        range.setStartAfter(node);
+        range.collapse(true);
+        return true;
+      }
+      left -= size;
+      return false;
+    }
+    for (const child of node.childNodes) {
+      if (visit(child)) return true;
+    }
+    return false;
+  };
+  for (const child of root.childNodes) {
+    if (visit(child)) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return;
+    }
+  }
+  range.selectNodeContents(root);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function promptSvg(path: string, size: number): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.75");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  const item = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  item.setAttribute("d", path);
+  svg.append(item);
+  return svg;
+}
+
+function makeUploadChip(item: { id: string; name: string; dataUri: string }): HTMLSpanElement {
+  const chip = document.createElement("span");
+  chip.className = "prompt-upload";
+  chip.contentEditable = "false";
+  chip.dataset.image = item.dataUri;
+  chip.dataset.uploadId = item.id;
+  chip.tabIndex = -1;
+  chip.setAttribute("role", "button");
+  const img = document.createElement("img");
+  img.src = item.dataUri;
+  img.alt = "";
+  chip.append(img);
+  const close = document.createElement("span");
+  close.dataset.remove = "1";
+  close.append(promptSvg("M18 6L6 18M6 6l12 12", 11));
+  chip.append(close);
+  return chip;
+}
+
+function insertNodeAtCaret(root: HTMLElement, node: Node): void {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || !root.contains(sel.anchorNode)) {
+    root.append(node);
+    return;
+  }
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function droppedAbsPath(file: File): string {
+  const path = (file as File & { path?: string }).path;
+  return typeof path === "string" ? path : "";
+}
+
+function hydratePrompt(root: HTMLElement, text: string): void {
+  const images = [...root.querySelectorAll<HTMLElement>("[data-image]")];
+  root.replaceChildren();
+  if (text) root.append(document.createTextNode(text));
+  for (const image of images) root.append(image);
+}
+
+function flattenPromptBlocks(root: HTMLElement): void {
+  for (const el of [...root.querySelectorAll(".inspect-file")]) el.remove();
+  for (const block of [...root.querySelectorAll<HTMLElement>("div, p")]) {
+    if (block.dataset.url || block.dataset.file || block.dataset.image) continue;
+    block.replaceWith(...block.childNodes);
+  }
+}
+
+function isPromptEmpty(root: HTMLElement): boolean {
+  return !serializePrompt(root).trim() && collectPromptImages(root).length === 0;
+}
+
 export function PromptBar({
   value,
   onChange,
@@ -1202,21 +1363,45 @@ export function PromptBar({
   const [files, setFiles] = useState<string[]>([]);
   const [listing, setListing] = useState(false);
   const [picked, setPicked] = useState(0);
-  const [attachments, setAttachments] = useState<string[]>([]);
-  const [links, setLinks] = useState<string[]>([]);
-  const [uploads, setUploads] = useState<Array<{ id: string; name: string; dataUri: string }>>([]);
   const [dropOver, setDropOver] = useState(false);
-  const area = useRef<HTMLTextAreaElement>(null);
+  const [blank, setBlank] = useState(!value);
+  const skipHydrate = useRef(false);
+  const area = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const mention = workspace ? mentionAt(value, cursor) : undefined;
   const matches = mention ? filterMentionPaths(files, mention.query) : [];
 
   useEffect(() => {
-    setAttachments([]);
-    setLinks([]);
-    setUploads([]);
-  }, [workspace]);
+    const root = area.current;
+    if (!root) return;
+    const lock = (event: Event) => {
+      const drag = event as globalThis.DragEvent;
+      if (!drag.dataTransfer || !isPromptFileDrag(drag.dataTransfer)) return;
+      event.preventDefault();
+      drag.dataTransfer.dropEffect = "copy";
+      root.contentEditable = "false";
+    };
+    const hosts: EventTarget[] = [root];
+    if (root.parentElement) hosts.push(root.parentElement);
+    for (const host of hosts) host.addEventListener("dragover", lock, true);
+    return () => {
+      for (const host of hosts) host.removeEventListener("dragover", lock, true);
+    };
+  }, []);
+
+  const emit = () => {
+    const root = area.current;
+    if (!root) return "";
+    flattenPromptBlocks(root);
+    if (isPromptEmpty(root) && !root.querySelector("[data-url], [data-file], [data-image]")) root.replaceChildren();
+    const next = serializePrompt(root);
+    setBlank(isPromptEmpty(root));
+    setCursor(caretOffset(root));
+    skipHydrate.current = true;
+    if (next !== value) onChange(next);
+    return next;
+  };
 
   const [tick, setTick] = useState(0);
   useEffect(() => window.harness.workspace.onChanged(() => {
@@ -1249,16 +1434,21 @@ export function PromptBar({
     menu.current?.querySelector(".on")?.scrollIntoView({ block: "nearest" });
   }, [picked]);
 
-  const compose = (text = value, extraLinks = links) => {
-    const prefix = [...attachments.map((file) => `@${file}`), ...extraLinks].join(" ");
-    return [prefix, text.trim()].filter(Boolean).join(" ");
-  };
-
-  const addLink = (url: string) => {
-    setLinks((current) => current.includes(url) ? current : [...current, url]);
-  };
+  useEffect(() => {
+    const root = area.current;
+    if (!root) return;
+    if (skipHydrate.current) {
+      skipHydrate.current = false;
+      return;
+    }
+    if (serializePrompt(root) === value) return;
+    hydratePrompt(root, value);
+    setBlank(isPromptEmpty(root));
+  }, [value]);
 
   const addUploads = async (list: FileList | File[]) => {
+    const root = area.current;
+    if (!root) return;
     const next: Array<{ id: string; name: string; dataUri: string }> = [];
     for (const file of [...list]) {
       if (!file.type.startsWith("image/")) continue;
@@ -1269,22 +1459,27 @@ export function PromptBar({
       });
     }
     if (next.length === 0) return;
-    setUploads((current) => [...current, ...next].slice(0, MAX_UPLOAD_IMAGES));
+    const room = MAX_UPLOAD_IMAGES - collectPromptImages(root).length;
+    root.focus();
+    for (const item of next.slice(0, Math.max(0, room))) {
+      insertNodeAtCaret(root, makeUploadChip(item));
+    }
+    emit();
   };
 
   const insertFile = (file: string, confirm = false) => {
-    if (!mention) return;
+    const root = area.current;
+    if (!mention || !root) return;
     const folder = file.endsWith("/");
-    // Folder click drills in; Enter / second click on the same folder seals it.
     const seal = confirm || !folder || mention.query === file;
     if (seal) {
-      setAttachments((current) => current.includes(file) ? current : [...current, file]);
-      const next = `${value.slice(0, mention.start)}${value.slice(cursor)}`;
+      const next = `${value.slice(0, mention.start)}@${file} ${value.slice(cursor)}`;
+      const caret = mention.start + file.length + 2;
       onChange(next);
-      setCursor(mention.start);
+      setCursor(caret);
       requestAnimationFrame(() => {
-        area.current?.focus();
-        area.current?.setSelectionRange(mention.start, mention.start);
+        root.focus();
+        placeCaret(root, caret);
       });
       return;
     }
@@ -1293,8 +1488,8 @@ export function PromptBar({
     const caret = mention.start + file.length + 1;
     setCursor(caret);
     requestAnimationFrame(() => {
-      area.current?.focus();
-      area.current?.setSelectionRange(caret, caret);
+      root.focus();
+      placeCaret(root, caret);
     });
   };
 
@@ -1311,12 +1506,26 @@ export function PromptBar({
     setPicked(0);
     requestAnimationFrame(() => {
       area.current?.focus();
-      area.current?.setSelectionRange(caret, caret);
+      if (area.current) placeCaret(area.current, caret);
     });
   };
 
-  const onKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    setCursor(event.currentTarget.selectionStart);
+  const sendNow = () => {
+    const root = area.current;
+    if (!root || disabled) return;
+    const text = serializePrompt(root).trim();
+    const refs = collectPromptImages(root);
+    if (!text && refs.length === 0) return;
+    root.replaceChildren();
+    setBlank(true);
+    onChange("");
+    onSubmit(text, refs.length ? refs : undefined);
+  };
+
+  const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    const root = area.current;
+    if (!root) return;
+    setCursor(caretOffset(root));
     if (slash && commands.length > 0) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
@@ -1367,42 +1576,6 @@ export function PromptBar({
         return;
       }
     }
-    if (
-      event.key === "Backspace"
-      && event.currentTarget.selectionStart === 0
-      && event.currentTarget.selectionEnd === 0
-    ) {
-      if (uploads.length > 0) {
-        event.preventDefault();
-        setUploads((current) => current.slice(0, -1));
-        return;
-      }
-      if (attachments.length > 0) {
-        event.preventDefault();
-        setAttachments((current) => current.slice(0, -1));
-        return;
-      }
-      if (links.length > 0) {
-        event.preventDefault();
-        setLinks((current) => current.slice(0, -1));
-        return;
-      }
-    }
-    if (event.key === " " && !event.nativeEvent.isComposing) {
-      const pos = event.currentTarget.selectionStart;
-      const taken = takeTrailingUrl(value, pos);
-      if (taken) {
-        event.preventDefault();
-        addLink(taken.url);
-        onChange(taken.next);
-        setCursor(taken.next.length);
-        requestAnimationFrame(() => {
-          area.current?.focus();
-          area.current?.setSelectionRange(taken.next.length, taken.next.length);
-        });
-        return;
-      }
-    }
     if (slash && event.key === "Enter" && commands[0] && !event.shiftKey) {
       event.preventDefault();
       insertSkillCommand((commands[picked] ?? commands[0]).id);
@@ -1410,20 +1583,50 @@ export function PromptBar({
     }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
-      if (disabled) return;
-      const trailing = takeTrailingUrl(value, value.length);
-      const nextLinks = trailing && !links.includes(trailing.url) ? [...links, trailing.url] : links;
-      const text = compose(trailing?.next ?? value, nextLinks);
-      if (!text && uploads.length === 0) return;
-      const refs = uploads.map((item) => item.dataUri);
-      setAttachments([]);
-      setLinks([]);
-      setUploads([]);
-      onChange("");
-      onSubmit(text, refs.length ? refs : undefined);
+      sendNow();
     }
   };
 
+  const dropIntoPrompt = (event: DragEvent<HTMLElement>) => {
+    if (!isPromptFileDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    const root = area.current;
+    if (root) root.contentEditable = "false";
+    setDropOver(false);
+    if (!root) return;
+    const paths: string[] = [];
+    const dropped = [...event.dataTransfer.files];
+    const images = dropped.filter((file) => file.type.startsWith("image/"));
+    if (images.length) void addUploads(images);
+    if (workspace) {
+      for (const file of dropped) {
+        if (file.type.startsWith("image/")) continue;
+        const rel = workspaceRelative(droppedAbsPath(file), workspace);
+        if (!rel) continue;
+        paths.push(files.includes(`${rel}/`) ? `${rel}/` : rel);
+      }
+    }
+    if (paths.length === 0) {
+      root.contentEditable = "true";
+      return;
+    }
+    let next = serializePrompt(root);
+    let caret = Math.min(cursor, next.length);
+    for (const path of paths) {
+      const inserted = spliceFileMention(next, path, caret);
+      next = inserted.next;
+      caret = inserted.caret;
+    }
+    onChange(next);
+    setCursor(caret);
+    requestAnimationFrame(() => {
+      const node = area.current;
+      if (!node) return;
+      node.contentEditable = "true";
+      node.focus();
+      placeCaret(node, caret);
+    });
+  };
   const hero = placement === "hero";
   const folder = workspace ? baseName(workspace) : undefined;
   return (
@@ -1480,111 +1683,55 @@ export function PromptBar({
         </div>
         <form
           className={dropOver ? "prompt drop" : "prompt"}
-          onDragOver={(event) => {
-            const types = [...event.dataTransfer.types];
-            if (!types.includes("text/harness-path") && !types.includes("Files")) return;
+          onDragOverCapture={(event) => {
+            if (!isPromptFileDrag(event.dataTransfer)) return;
             event.preventDefault();
             event.dataTransfer.dropEffect = "copy";
+            if (area.current) area.current.contentEditable = "false";
             setDropOver(true);
           }}
           onDragLeave={(event) => {
             if (event.currentTarget.contains(event.relatedTarget as Node)) return;
             setDropOver(false);
+            if (area.current) area.current.contentEditable = "true";
           }}
-          onDrop={(event) => {
-            event.preventDefault();
-            setDropOver(false);
-            const internal = event.dataTransfer.getData("text/harness-path").trim();
-            if (internal) {
-              setAttachments((current) => current.includes(internal) ? current : [...current, internal]);
-              area.current?.focus();
-              return;
-            }
-            const dropped = [...event.dataTransfer.files];
-            if (dropped.length === 0) return;
-            const images = dropped.filter((file) => file.type.startsWith("image/"));
-            if (images.length) void addUploads(images);
-            if (!workspace) return;
-            const extras: string[] = [];
-            for (const file of dropped) {
-              if (file.type.startsWith("image/")) continue;
-              const abs = "path" in file && typeof file.path === "string" ? file.path : "";
-              const rel = abs ? workspaceRelative(abs, workspace) : undefined;
-              if (!rel) continue;
-              extras.push(files.includes(`${rel}/`) ? `${rel}/` : rel);
-            }
-            if (extras.length === 0) return;
-            setAttachments((current) => [...current, ...extras.filter((file) => !current.includes(file))]);
-            area.current?.focus();
-          }}
+          onDropCapture={dropIntoPrompt}
           onSubmit={(event) => {
             event.preventDefault();
-            if (disabled) return;
             if (slash && commands[0]) {
               insertSkillCommand((commands[picked] ?? commands[0]).id);
               return;
             }
-            const trailing = takeTrailingUrl(value, value.length);
-            const nextLinks = trailing && !links.includes(trailing.url) ? [...links, trailing.url] : links;
-            const text = compose(trailing?.next ?? value, nextLinks);
-            if (!text && uploads.length === 0) return;
-            const refs = uploads.map((item) => item.dataUri);
-            setAttachments([]);
-            setLinks([]);
-            setUploads([]);
-            onChange("");
-            onSubmit(text, refs.length ? refs : undefined);
+            sendNow();
           }}
         >
-          {(attachments.length > 0 || links.length > 0 || uploads.length > 0) && (
-          <div className="prompt-tags">
-            {attachments.map((file) => (
-              <button
-                key={file}
-                type="button"
-                className="prompt-tag"
-                onClick={() => setAttachments((current) => current.filter((item) => item !== file))}
-                aria-label={t("composer.removeFile", { name: file })}
-              >
-                <span>@{file}</span>
-                <Icon path="M18 6L6 18M6 6l12 12" size={12} />
-              </button>
-            ))}
-            {links.map((url) => (
-              <button
-                key={url}
-                type="button"
-                className="prompt-tag link"
-                onClick={() => setLinks((current) => current.filter((item) => item !== url))}
-                aria-label={url}
-              >
-                <Icon path={LINK_ICON} size={12} />
-                <span>{urlChipLabel(url)}</span>
-                <Icon path="M18 6L6 18M6 6l12 12" size={12} />
-              </button>
-            ))}
-            {uploads.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className="prompt-upload"
-                aria-label={t("composer.removeFile", { name: item.name })}
-                onClick={() => setUploads((current) => current.filter((entry) => entry.id !== item.id))}
-              >
-                <img src={item.dataUri} alt="" />
-                <Icon path="M18 6L6 18M6 6l12 12" size={11} />
-              </button>
-            ))}
-          </div>
-        )}
-        <textarea
+        <div
           ref={area}
-          value={value}
-          onChange={(event) => {
-            onChange(event.target.value);
-            setCursor(event.target.selectionStart);
+          className={blank ? "prompt-input empty" : "prompt-input"}
+          contentEditable={!dropOver}
+          suppressContentEditableWarning
+          role="textbox"
+          aria-multiline="true"
+          data-placeholder={running ? t("composer.placeholderFollowup") : workspace ? t("composer.placeholderWorkspace") : t("composer.placeholderEmpty")}
+          onDragOverCapture={(event) => {
+            if (!isPromptFileDrag(event.dataTransfer)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+            event.currentTarget.contentEditable = "false";
           }}
-          onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
+          onMouseDown={(event) => {
+            if ((event.target as HTMLElement).closest(".prompt-upload")) event.preventDefault();
+          }}
+          onInput={emit}
+          onKeyUp={() => area.current && setCursor(caretOffset(area.current))}
+          onClick={(event) => {
+            const remove = (event.target as HTMLElement).closest("[data-remove]");
+            if (!remove) return;
+            event.preventDefault();
+            remove.closest(".prompt-upload")?.remove();
+            emit();
+            area.current?.focus();
+          }}
           onKeyDown={onKey}
           onPaste={(event) => {
             const images = [...event.clipboardData.files].filter((file) => file.type.startsWith("image/"));
@@ -1593,13 +1740,7 @@ export function PromptBar({
               void addUploads(images);
               return;
             }
-            const pasted = event.clipboardData.getData("text").trim();
-            if (!isHttpUrl(pasted)) return;
-            event.preventDefault();
-            addLink(trimHttpUrl(pasted));
           }}
-          placeholder={running ? t("composer.placeholderFollowup") : workspace ? t("composer.placeholderWorkspace") : t("composer.placeholderEmpty")}
-          rows={hero && !value ? 2 : 1}
         />
         {slash && (
           <div className="slash-menu">
@@ -1620,6 +1761,7 @@ export function PromptBar({
           <div
             className="slash-menu files"
             ref={menu}
+            onMouseDown={(event) => event.preventDefault()}
             onWheel={(event) => event.stopPropagation()}
           >
             {matches.length === 0 && <p className="slash-empty">{listing ? t("composer.listingFiles") : t("composer.noFiles")}</p>}
@@ -1652,7 +1794,7 @@ export function PromptBar({
             type="button"
             className="prompt-attach"
             aria-label={t("composer.uploadImage")}
-            disabled={uploads.length >= MAX_UPLOAD_IMAGES}
+            disabled={(area.current ? collectPromptImages(area.current).length : 0) >= MAX_UPLOAD_IMAGES}
             onClick={() => picker.current?.click()}
           >
             <Icon path="M12 5v14M5 12h14" size={15} />
@@ -1665,7 +1807,7 @@ export function PromptBar({
               <i />
             </button>
           ) : (
-            <button type="submit" className="send" disabled={disabled || (!compose().trim() && uploads.length === 0)} aria-label={t("composer.send")}>
+            <button type="submit" className="send" disabled={disabled || blank} aria-label={t("composer.send")}>
               <Icon path="M12 19V5M5 12l7-7 7 7" size={15} />
             </button>
           )}
@@ -2161,6 +2303,7 @@ export function Login({
   const [customUrl, setCustomUrl] = useState("");
   const [customModel, setCustomModel] = useState("");
   const [customKey, setCustomKey] = useState("");
+  const [customMaxTokens, setCustomMaxTokens] = useState("");
   const [visionEndpoint, setVisionEndpoint] = useState(DEFAULT_VISION_CONFIG.endpoint);
   const [visionModel, setVisionModel] = useState(DEFAULT_VISION_CONFIG.model);
   const [visionKey, setVisionKey] = useState("");
@@ -2220,6 +2363,7 @@ export function Login({
       setCustomUrl(profiles.custom.url);
       setCustomModel(profiles.custom.model);
       setCustomKey(profiles.custom.apiKey);
+      setCustomMaxTokens(profiles.custom.maxTokens ? String(profiles.custom.maxTokens) : "");
       setVisionEndpoint(config.endpoint);
       setVisionModel(config.model);
       if (config.apiKey) setVisionKey(config.apiKey);
@@ -2256,7 +2400,14 @@ export function Login({
               await window.harness.auth.saveProfiles({
                 kind,
                 deepseek: { model: deepseekModel, apiKey: deepseekKey },
-                custom: { url: customUrl, model: customModel, apiKey: customKey },
+                custom: {
+                  url: customUrl,
+                  model: customModel,
+                  apiKey: customKey,
+                  ...(kind === "custom" && customMaxTokens.trim()
+                    ? { maxTokens: Number(customMaxTokens.trim()) }
+                    : {}),
+                },
               });
             }
             await window.harness.vision.saveConfig({
@@ -2337,6 +2488,7 @@ export function Login({
                     )}
 
                     {kind === "custom" && (
+                      <>
                       <label>
                         {t("settings.baseUrl")}
                         <input
@@ -2345,6 +2497,17 @@ export function Login({
                           placeholder="https://api.example.com/v1"
                         />
                       </label>
+                      <label>
+                        {t("settings.maxTokens")}
+                        <input
+                          inputMode="numeric"
+                          value={customMaxTokens}
+                          onChange={(event) => setCustomMaxTokens(event.target.value.replace(/[^\d]/g, ""))}
+                          placeholder="384000"
+                        />
+                      </label>
+                      <p className="settings-hint">{t("settings.maxTokensHint")}</p>
+                      </>
                     )}
 
                     <SecretField value={chatKey} onChange={kind === "deepseek" ? setDeepseekKey : setCustomKey} />

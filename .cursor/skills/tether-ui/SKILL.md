@@ -50,7 +50,7 @@ description: Applies Tether’s paper + ink visual language (tokens, cards, chip
 | 主按钮 `.primary` | 墨底、纸色字 |
 | 次按钮 `.ghost` | 纸底 + 发丝 |
 | 发送键 | 30px 墨色圆钮 |
-| 链接 chip | 图标 + host/path，点开外链，复制仍是完整 URL |
+| 链接 chip | 插在光标处，和文字同一顺序；发送时还原完整 URL |
 | Composer | 底部浮卡，不要贴底通栏 IDE 输入条 |
 | 审批 | 人话标题；命令收到「查看命令」；不要 `window.confirm` |
 | 弹层 | 墨 40% 罩 + `.panel` 纸卡 |

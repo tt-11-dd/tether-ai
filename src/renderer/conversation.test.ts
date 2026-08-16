@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, approvalTitle, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
+import { applyAgentEvent, approvalTitle, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
 
 describe("conversation events", () => {
   it("calculates prompt cache hit rate from reported token usage", () => {
@@ -672,6 +672,11 @@ describe("conversation events", () => {
     ]);
   });
 
+  it("inserts a file mention at the caret without duplicating the path", () => {
+    expect(spliceFileMention("哈哈", "README.md", 2)).toEqual({ next: "哈哈 @README.md ", caret: 14 });
+    expect(spliceFileMention("", "src/App.tsx", 0)).toEqual({ next: "@src/App.tsx ", caret: 13 });
+  });
+
   it("maps Finder drop paths onto workspace-relative mentions", () => {
     expect(workspaceRelative("/proj/README.md", "/proj")).toBe("README.md");
     expect(workspaceRelative("/proj/docs/a.md", "/proj")).toBe("docs/a.md");
@@ -690,6 +695,12 @@ describe("conversation events", () => {
     expect(splitHttpUrls("https://github.com/tt-11-dd/tether-ai 这是什么")).toEqual([
       { type: "url", value: "https://github.com/tt-11-dd/tether-ai" },
       { type: "text", value: " 这是什么" },
+    ]);
+    expect(splitPromptChips("看 @src/App.tsx 和 https://example.com/a")).toEqual([
+      { type: "text", value: "看 " },
+      { type: "file", value: "src/App.tsx" },
+      { type: "text", value: " 和 " },
+      { type: "url", value: "https://example.com/a" },
     ]);
   });
 

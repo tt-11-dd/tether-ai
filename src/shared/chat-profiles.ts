@@ -8,7 +8,7 @@ export type ChatKind = "deepseek" | "custom";
 export interface ChatProfiles {
   kind: ChatKind;
   deepseek: { model: string; apiKey: string };
-  custom: { url: string; model: string; apiKey: string };
+  custom: { url: string; model: string; apiKey: string; maxTokens?: number };
 }
 
 export function emptyChatProfiles(): ChatProfiles {
@@ -43,6 +43,12 @@ function text(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function tokenCount(value: unknown): number | undefined {
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value.trim()) : Number.NaN;
+  if (!Number.isFinite(n) || n < 1) return undefined;
+  return Math.min(Math.floor(n), 2_000_000);
+}
+
 export function parseChatProfiles(raw: unknown): ChatProfiles | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const value = raw as Record<string, unknown>;
@@ -54,10 +60,16 @@ export function parseChatProfiles(raw: unknown): ChatProfiles | undefined {
   const custom = value.custom && typeof value.custom === "object" && !Array.isArray(value.custom)
     ? value.custom as Record<string, unknown>
     : {};
+  const maxTokens = tokenCount(custom.maxTokens);
   return {
     kind,
     deepseek: { model: text(deepseek.model) || DEEPSEEK_PRESET.model, apiKey: text(deepseek.apiKey) },
-    custom: { url: text(custom.url), model: text(custom.model), apiKey: text(custom.apiKey) },
+    custom: {
+      url: text(custom.url),
+      model: text(custom.model),
+      apiKey: text(custom.apiKey),
+      ...(maxTokens ? { maxTokens } : {}),
+    },
   };
 }
 
@@ -84,6 +96,13 @@ export function mergeChatProfiles(previous: ChatProfiles, next: ChatProfiles): C
       url: next.custom.url.trim() || previous.custom.url,
       model: next.custom.model.trim() || previous.custom.model,
       apiKey: next.custom.apiKey.trim() || previous.custom.apiKey,
+      ...(
+        next.kind === "custom"
+          ? (next.custom.maxTokens ? { maxTokens: next.custom.maxTokens } : {})
+          : previous.custom.maxTokens
+            ? { maxTokens: previous.custom.maxTokens }
+            : {}
+      ),
     },
   };
 }

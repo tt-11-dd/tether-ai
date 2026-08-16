@@ -80,6 +80,7 @@ export class AgentHost {
     if (options.network) args.push("--network");
     if (options.model) args.push("--model", options.model);
     if (options.baseUrl) args.push("--base-url", options.baseUrl);
+    if (options.maxTokens) args.push("--max-tokens", String(options.maxTokens));
     if (options.effort) args.push("--effort", options.effort);
     args.push("--transport", "chat");
     if (options.sessionPath) args.push("--session", options.sessionPath);

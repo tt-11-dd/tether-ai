@@ -13,8 +13,10 @@ export function resolveLocale(
 ): Locale {
   if (isLocale(stored)) return stored;
   const normalized = systemLanguages.map((item) => item.toLowerCase());
-  if (normalized.some((item) => item === "en" || item.startsWith("en-"))) return "en";
-  if (normalized.some((item) => item === "zh" || item.startsWith("zh-"))) return "zh";
+  if (normalized.some((item) => item === "en" || item.startsWith("en-")))
+    return "en";
+  if (normalized.some((item) => item === "zh" || item.startsWith("zh-")))
+    return "zh";
   return DEFAULT_LOCALE;
 }
 
@@ -97,7 +99,8 @@ const zh = {
   "suggest.hintFeatures": "先铺 features.json",
 
   "toast.fillConfig": "先填写自定义配置",
-  "toast.sandboxCancelled": "已取消。Windows 没有沙箱时，必须允许直接读写才能跑命令。",
+  "toast.sandboxCancelled":
+    "已取消。Windows 没有沙箱时，必须允许直接读写才能跑命令。",
   "toast.agentBusySwitch": "当前 agent 仍在运行，停止后再切换项目",
   "toast.noActiveSession": "没有活动会话",
   "toast.nothingToUndo": "这一轮没有可撤回的文件改动",
@@ -109,7 +112,8 @@ const zh = {
   "toast.compactDone": "上下文压缩完成",
   "toast.compactTooShort": "对话还很短，暂时不需要压缩",
   "toast.compactFailed": "上下文压缩失败：{error}",
-  "toast.readOnlySession": "当前是只读会话。点输入框里的「打开仓库」后才能改本地文件。",
+  "toast.readOnlySession":
+    "当前是只读会话。点输入框里的「打开仓库」后才能改本地文件。",
   "toast.notify": "通知",
   "toast.sandboxOff": "已关闭沙箱，命令不再询问主机权限",
   "toast.sessionRestarted": "已按当前权限重新开会话",
@@ -119,11 +123,13 @@ const zh = {
   "toast.errorQuota": "请求过于频繁或额度不足，请稍后重试并检查账户额度",
   "toast.errorNetwork": "连接模型服务失败，请检查网络和 Base URL 后重试",
   "toast.errorTimeout": "模型响应超时，请稍后重试",
-  "toast.errorEndpoint": "接口地址不可用，请检查 Base URL 是否包含正确的 API 路径",
+  "toast.errorEndpoint":
+    "接口地址不可用，请检查 Base URL 是否包含正确的 API 路径",
   "toast.errorModel": "当前模型不可用，请切换模型或检查模型名称",
   "toast.errorContext": "对话上下文已超出模型限制，请先压缩上下文或新建会话",
   "confirm.unsandboxedTitle": "允许直接访问项目",
-  "confirm.unsandboxed": "当前系统没有命令沙箱，agent 需要直接读写这个项目才能执行命令。\n\n允许访问：\n{cwd}",
+  "confirm.unsandboxed":
+    "当前系统没有命令沙箱，agent 需要直接读写这个项目才能执行命令。\n\n允许访问：\n{cwd}",
 
   "composer.placeholderWorkspace": "输入你的需求或问题，输入 @ 可选择文件…",
   "composer.placeholderEmpty": "输入你的想法或指令，或从上方选择项目开始…",
@@ -233,7 +239,7 @@ const zh = {
   "combo.fetchModels": "获取模型",
   "secret.hide": "隐藏密钥",
   "secret.show": "显示密钥",
-  "readError": "无法读取 {name}",
+  readError: "无法读取 {name}",
 
   "settings.groupModels": "模型与服务",
   "settings.chat": "对话模型",
@@ -243,28 +249,36 @@ const zh = {
   "settings.skills": "Agent Skills",
   "settings.about": "关于应用",
   "settings.skillsTitle": "已加载的 Skills",
-  "settings.skillsHint": "Skills 由 Pi 运行时加载。项目目录下的 skill 需要先信任该项目；用户目录下的 skill 全局可用。",
+  "settings.skillsHint":
+    "Skills 由 Pi 运行时加载。项目目录下的 skill 需要先信任该项目；用户目录下的 skill 全局可用。",
   "settings.skillsPaths": "标准存放路径",
   "settings.skillsPathProject": "项目（需信任）",
   "settings.skillsPathUser": "用户全局",
-  "settings.skillsEmpty": "当前会话未加载任何 skill。打开并信任项目后会自动扫描。",
+  "settings.skillsEmpty":
+    "当前会话未加载任何 skill。打开并信任项目后会自动扫描。",
   "settings.skillsRefresh": "刷新列表",
   "settings.skillsUse": "输入 /skill:名称 或在下方点击复制命令",
   "settings.skillsCopy": "复制命令",
   "settings.skillsCopied": "已复制",
   "settings.deepseekPreset": "DeepSeek 预设",
   "settings.customApi": "自定义 API",
-  "settings.deepseekHint": "直连 DeepSeek 官方接口（https://api.deepseek.com）。只需填入 API Key 即可开始对话。",
-  "settings.customHint": "兼容任意符合 OpenAI Chat Completions 规范的服务（如 OneAPI、Ollama、NewAPI 或第三方聚合商）。",
+  "settings.deepseekHint":
+    "直连 DeepSeek 官方接口（https://api.deepseek.com）。只需填入 API Key 即可开始对话。",
+  "settings.customHint":
+    "兼容任意符合 OpenAI Chat Completions 规范的服务（如 OneAPI、Ollama、NewAPI 或第三方聚合商）。",
   "settings.baseUrl": "接口地址 (Base URL)",
+  "settings.maxTokens": "最大输出 Token",
+  "settings.maxTokensHint": "默认 384000。部分中转上限更低。",
   "settings.visionTitle": "视觉分析",
   "settings.visionBadge": "主视觉",
-  "settings.visionHint": "用于对话中贴图识别、截图还原与 UI 布局解析。填入智谱开放平台 API Key 即可。",
+  "settings.visionHint":
+    "用于对话中贴图识别、截图还原与 UI 布局解析。填入智谱开放平台 API Key 即可。",
   "settings.endpoint": "接口地址 (Endpoint)",
   "settings.zhipuKey": "智谱 API Key",
   "settings.mineruTitle": "MinerU OCR 识别引擎",
   "settings.mineruBadge": "免配内置",
-  "settings.mineruHint": "高精度开源文档与截图 OCR 引擎已预置就绪，上传图片时自动提取文字，无需单独配置密钥。",
+  "settings.mineruHint":
+    "高精度开源文档与截图 OCR 引擎已预置就绪，上传图片时自动提取文字，无需单独配置密钥。",
   "settings.clearConfig": "清除配置",
   "settings.save": "保存",
   "settings.close": "关闭",
@@ -287,7 +301,8 @@ const zh = {
 
   "about.title": "Tether",
   "about.subtitle": "基于 Pi 生态的本地优先 AI 编程工作台",
-  "about.desc": "在 Pi 之上封装 Agent 运行时；桌面端负责项目协作、权限审批与 Diff 审查。会话与凭据保存在 ~/.tether，模型与 OCR 请求发往你配置的端点。",
+  "about.desc":
+    "在 Pi 之上封装 Agent 运行时；桌面端负责项目协作、权限审批与 Diff 审查。会话与凭据保存在 ~/.tether，模型与 OCR 请求发往你配置的端点。",
   "about.piCredit": "Agent 运行时基于 Pi 开源生态；Pi 依赖保留各自许可证。",
   "about.version": "应用版本",
   "about.core": "Agent 内核",
@@ -351,7 +366,8 @@ const en: Record<MessageKey, string> = {
   "update.latest": "You're up to date",
   "update.currentVersion": "Current version: v{version}",
   "update.available": "Tether v{version} is available",
-  "update.detail": "Current version: v{current}\nDownload the new build from GitHub.",
+  "update.detail":
+    "Current version: v{current}\nDownload the new build from GitHub.",
   "update.download": "Download",
   "update.later": "Later",
   "update.ok": "OK",
@@ -423,7 +439,8 @@ const en: Record<MessageKey, string> = {
   "suggest.hintFeatures": "Seed features.json",
 
   "toast.fillConfig": "Configure a custom endpoint first",
-  "toast.sandboxCancelled": "Cancelled. On Windows without a sandbox, direct read/write access is required to run commands.",
+  "toast.sandboxCancelled":
+    "Cancelled. On Windows without a sandbox, direct read/write access is required to run commands.",
   "toast.agentBusySwitch": "Stop the running agent before switching projects",
   "toast.noActiveSession": "No active session",
   "toast.nothingToUndo": "Nothing to undo in this turn",
@@ -435,25 +452,37 @@ const en: Record<MessageKey, string> = {
   "toast.compactDone": "Context compacted",
   "toast.compactTooShort": "Conversation is still short; compact not needed",
   "toast.compactFailed": "Compact failed: {error}",
-  "toast.readOnlySession": "This session is read-only. Use Open folder in the composer to edit local files.",
+  "toast.readOnlySession":
+    "This session is read-only. Use Open folder in the composer to edit local files.",
   "toast.notify": "Notice",
   "toast.sandboxOff": "Sandbox off — commands won't ask for host permission",
-  "toast.sessionRestarted": "Session restarted with the current permission mode",
-  "toast.hostAccessAllowed": "This command may access local files and the network",
+  "toast.sessionRestarted":
+    "Session restarted with the current permission mode",
+  "toast.hostAccessAllowed":
+    "This command may access local files and the network",
   "toast.defaultImagePrompt": "Describe this image in detail",
-  "toast.errorAuth": "The API key is missing or invalid. Check the connection settings.",
-  "toast.errorQuota": "Too many requests or insufficient quota. Try again later and check your account balance.",
-  "toast.errorNetwork": "Could not reach the model service. Check your network and Base URL, then retry.",
+  "toast.errorAuth":
+    "The API key is missing or invalid. Check the connection settings.",
+  "toast.errorQuota":
+    "Too many requests or insufficient quota. Try again later and check your account balance.",
+  "toast.errorNetwork":
+    "Could not reach the model service. Check your network and Base URL, then retry.",
   "toast.errorTimeout": "The model timed out. Please try again.",
-  "toast.errorEndpoint": "The endpoint is unavailable. Check that the Base URL includes the correct API path.",
-  "toast.errorModel": "This model is unavailable. Switch models or check the model name.",
-  "toast.errorContext": "This conversation exceeds the model context limit. Compact it or start a new thread.",
+  "toast.errorEndpoint":
+    "The endpoint is unavailable. Check that the Base URL includes the correct API path.",
+  "toast.errorModel":
+    "This model is unavailable. Switch models or check the model name.",
+  "toast.errorContext":
+    "This conversation exceeds the model context limit. Compact it or start a new thread.",
   "confirm.unsandboxedTitle": "Allow direct project access",
-  "confirm.unsandboxed": "This OS has no command sandbox. The agent needs direct read/write access to run commands.\n\nAllow access to:\n{cwd}",
+  "confirm.unsandboxed":
+    "This OS has no command sandbox. The agent needs direct read/write access to run commands.\n\nAllow access to:\n{cwd}",
 
   "composer.placeholderWorkspace": "Ask anything — type @ to attach files…",
-  "composer.placeholderEmpty": "Share an idea, or pick a project above to begin…",
-  "composer.placeholderFollowup": "Add a follow-up — it sends when this turn finishes…",
+  "composer.placeholderEmpty":
+    "Share an idea, or pick a project above to begin…",
+  "composer.placeholderFollowup":
+    "Add a follow-up — it sends when this turn finishes…",
   "composer.queued": "{n}/5 Queued",
   "composer.queueFull": "Queue is full (5). Wait for one to send.",
   "composer.sendQueue": "Send now",
@@ -478,18 +507,22 @@ const en: Record<MessageKey, string> = {
   "slash.login": "Settings",
 
   "perm.plan": "Plan only",
-  "perm.planDesc": "Read-only analysis and planning; diagnostic commands may run in a read-only sandbox.",
+  "perm.planDesc":
+    "Read-only analysis and planning; diagnostic commands may run in a read-only sandbox.",
   "perm.ask": "Ask before edits",
-  "perm.askDesc": "Always ask before editing outside files or using the network.",
+  "perm.askDesc":
+    "Always ask before editing outside files or using the network.",
   "perm.auto": "Workspace access",
   "perm.autoDesc": "Ask only for detected risky actions.",
   "perm.full": "Full access",
-  "perm.fullDesc": "Unrestricted internet and filesystem access on this machine.",
+  "perm.fullDesc":
+    "Unrestricted internet and filesystem access on this machine.",
 
   "approval.needConfirm": "Approval needed",
   "approval.needSelect": "Selection needed",
   "approval.destructiveTitle": "This command is risky",
-  "approval.destructiveBody": "It may delete files or change system state. Reject it if you are unsure.",
+  "approval.destructiveBody":
+    "It may delete files or change system state. Reject it if you are unsure.",
   "approval.showCommand": "Show command",
   "approval.allowOnce": "Allow once",
   "approval.allowConversation": "Allow for this conversation",
@@ -559,7 +592,7 @@ const en: Record<MessageKey, string> = {
   "combo.fetchModels": "Fetch models",
   "secret.hide": "Hide key",
   "secret.show": "Show key",
-  "readError": "Can't read {name}",
+  readError: "Can't read {name}",
 
   "settings.groupModels": "Models & services",
   "settings.chat": "Chat model",
@@ -569,28 +602,37 @@ const en: Record<MessageKey, string> = {
   "settings.skills": "Agent Skills",
   "settings.about": "About",
   "settings.skillsTitle": "Loaded skills",
-  "settings.skillsHint": "Skills are loaded by the Pi runtime. Project skills require trusting the workspace; user skills are always available.",
+  "settings.skillsHint":
+    "Skills are loaded by the Pi runtime. Project skills require trusting the workspace; user skills are always available.",
   "settings.skillsPaths": "Standard locations",
   "settings.skillsPathProject": "Project (trusted)",
   "settings.skillsPathUser": "User-global",
-  "settings.skillsEmpty": "No skills loaded in this session. Open and trust a project to scan its skill directories.",
+  "settings.skillsEmpty":
+    "No skills loaded in this session. Open and trust a project to scan its skill directories.",
   "settings.skillsRefresh": "Refresh list",
   "settings.skillsUse": "Type /skill:name or copy a command below",
   "settings.skillsCopy": "Copy command",
   "settings.skillsCopied": "Copied",
   "settings.deepseekPreset": "DeepSeek preset",
   "settings.customApi": "Custom API",
-  "settings.deepseekHint": "Talk to DeepSeek's official API (https://api.deepseek.com). Paste an API key to start.",
-  "settings.customHint": "Any OpenAI Chat Completions compatible gateway (OneAPI, Ollama, NewAPI, or a private aggregator).",
+  "settings.deepseekHint":
+    "Talk to DeepSeek's official API (https://api.deepseek.com). Paste an API key to start.",
+  "settings.customHint":
+    "Any OpenAI Chat Completions compatible gateway (OneAPI, Ollama, NewAPI, or a private aggregator).",
   "settings.baseUrl": "Base URL",
+  "settings.maxTokens": "Max output tokens",
+  "settings.maxTokensHint":
+    "Default 384000. Some gateways cap lower — Agnes is 65536.",
   "settings.visionTitle": "Vision",
   "settings.visionBadge": "Primary vision",
-  "settings.visionHint": "For pasted images, screenshot recovery, and UI layout parsing. Use a Zhipu API key.",
+  "settings.visionHint":
+    "For pasted images, screenshot recovery, and UI layout parsing. Use a Zhipu API key.",
   "settings.endpoint": "Endpoint",
   "settings.zhipuKey": "Zhipu API key",
   "settings.mineruTitle": "MinerU OCR",
   "settings.mineruBadge": "Built-in",
-  "settings.mineruHint": "Local open-source OCR for docs and screenshots — no separate API key required.",
+  "settings.mineruHint":
+    "Local open-source OCR for docs and screenshots — no separate API key required.",
   "settings.clearConfig": "Clear config",
   "settings.save": "Save",
   "settings.close": "Close",
@@ -613,14 +655,17 @@ const en: Record<MessageKey, string> = {
 
   "about.title": "Tether",
   "about.subtitle": "Local-first AI coding workbench built on Pi",
-  "about.desc": "Wraps the Pi agent runtime; the desktop app handles projects, permissions, and diff review. Sessions and credentials stay in ~/.tether; model and OCR requests go to endpoints you configure.",
-  "about.piCredit": "Agent runtime built on the Pi open-source ecosystem; Pi dependencies keep their own licenses.",
+  "about.desc":
+    "Wraps the Pi agent runtime; the desktop app handles projects, permissions, and diff review. Sessions and credentials stay in ~/.tether; model and OCR requests go to endpoints you configure.",
+  "about.piCredit":
+    "Agent runtime built on the Pi open-source ecosystem; Pi dependencies keep their own licenses.",
   "about.version": "App version",
   "about.core": "Agent core",
   "about.coreVal": "tether-agent-core (built on Pi)",
   "about.arch": "Runtime",
   "about.sandbox": "Sandbox",
-  "about.sandboxVal": "macOS Seatbelt; Windows helper when installed and enabled",
+  "about.sandboxVal":
+    "macOS Seatbelt; Windows helper when installed and enabled",
   "about.dataDir": "Local data",
   "about.dataDirVal": "~/.tether (0600)",
   "about.license": "License",
@@ -667,7 +712,7 @@ const en: Record<MessageKey, string> = {
   "error.modelFailed": "Model request failed",
   "error.toolFailed": "{title} failed with no details",
   "undo.confirm": "Undo the last turn?",
-  "undo.confirmNamed": "Undo \"{label}\"?",
+  "undo.confirmNamed": 'Undo "{label}"?',
 };
 
 export const messages = { zh, en } as const;

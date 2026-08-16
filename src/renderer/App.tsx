@@ -586,11 +586,8 @@ export function App() {
   }, [bindProject]);
 
   const newThread = useCallback(async () => {
-    if (workspace) {
-      await bindProject(workspace);
-      return;
-    }
     live.current = false;
+    setWorkspace(undefined);
     setMessages([]);
     setStats(undefined);
     setDraft("");
@@ -606,7 +603,7 @@ export function App() {
     agentCwd.current = undefined;
     await window.harness.agent.command("abort").catch(() => undefined);
     await window.harness.agent.stop().catch(() => undefined);
-  }, [bindProject, workspace]);
+  }, []);
 
   const removeSession = useCallback(async (session: SessionSummary) => {
     if (isSameSession(session, activeSession)) {

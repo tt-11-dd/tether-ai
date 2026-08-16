@@ -476,6 +476,8 @@ function registerIpc(): void {
     const sandbox = cwd === tasksDir ? "read-only" : requestedSandbox === "read-only" ? "workspace-write" : requestedSandbox;
     const storedUrl = startOptions.provider === "deepseek" ? getStoredDeepSeekBaseUrl() : undefined;
     const rawUrl = startOptions.baseUrl ?? storedUrl;
+    const profiles = await loadChatProfiles();
+    const maxTokens = profiles.kind === "custom" ? profiles.custom.maxTokens ?? 384_000 : undefined;
     const snapshot = await agentHost!.start({
       ...startOptions,
       cwd,
@@ -484,6 +486,7 @@ function registerIpc(): void {
       visionConfig: visionConfigPath(),
       visionUploads: visionUploadsDir(),
       ...(rawUrl ? { baseUrl: rawUrl } : {}),
+      ...(maxTokens ? { maxTokens } : {}),
     });
     activeSessionPath = sessionFileOf(snapshot);
     return { ...snapshot, cwd };

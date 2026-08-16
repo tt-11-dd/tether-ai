@@ -46,6 +46,14 @@ describe("mergeChatProfiles", () => {
 });
 
 describe("parseChatProfiles", () => {
+  it("keeps a custom maxTokens on the custom slot", () => {
+    expect(parseChatProfiles({
+      kind: "custom",
+      deepseek: { model: DEEPSEEK_PRESET.model, apiKey: "" },
+      custom: { url: "https://agnes.example.com/v1", model: "gpt", apiKey: "sk", maxTokens: 65536 },
+    })?.custom.maxTokens).toBe(65536);
+  });
+
   it("rejects junk", () => {
     expect(parseChatProfiles(null)).toBeUndefined();
     expect(parseChatProfiles({ kind: "other" })).toBeUndefined();

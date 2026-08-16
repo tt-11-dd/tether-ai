@@ -62,6 +62,7 @@ export interface AgentStartOptions {
   provider: ProviderId;
   model?: string;
   baseUrl?: string;
+  maxTokens?: number;
   effort?: string;
   permission: PermissionMode;
   sandbox: SandboxMode;
