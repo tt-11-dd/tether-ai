@@ -9,6 +9,8 @@ import type {
   SessionSummary,
   WorkspaceItem,
 } from "../shared/types";
+import type { AgentSkillCommand } from "../shared/skills";
+import { parseSkillCommands, skillSlashCommand } from "../shared/skills";
 import { visionAgentPrompt } from "../shared/vision-api";
 import {
   applyAgentEvent,
@@ -359,6 +361,7 @@ export function App() {
   const [openProjects, setOpenProjects] = useState<Record<string, boolean>>({});
   const [preview, setPreview] = useState<FileChange>();
   const [featureTodos, setFeatureTodos] = useState<SessionTodo[]>([]);
+  const [agentSkills, setAgentSkills] = useState<AgentSkillCommand[]>([]);
   const scroller = useRef<HTMLDivElement>(null);
   const agentCwd = useRef<string | undefined>(undefined);
   const sessionRef = useRef<string | undefined>(undefined);
@@ -407,6 +410,20 @@ export function App() {
     setMessages(normalizeMessages(snapshot.messages));
     setStats(snapshot.stats);
     setRunning(Boolean(snapshot.state.isStreaming));
+    setAgentSkills(snapshot.skills ?? []);
+  }, []);
+
+  const refreshAgentSkills = useCallback(async () => {
+    if (!agentCwd.current) {
+      setAgentSkills([]);
+      return;
+    }
+    try {
+      const data = await window.harness.agent.command<{ commands: Array<{ name: string; description?: string; source?: string }> }>("get_commands");
+      setAgentSkills(parseSkillCommands(data.commands));
+    } catch {
+      setAgentSkills([]);
+    }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -480,6 +497,7 @@ export function App() {
         ...(sessionPath ? { sessionPath } : {}),
         ...(resume ? { resume: true } : {}),
       });
+      setAgentSkills(snapshot.skills ?? []);
       if (seedMessage) {
         setMessages([...normalizeMessages(snapshot.messages), seedMessage]);
         setStats(snapshot.stats);
@@ -501,6 +519,7 @@ export function App() {
         setActiveSession(file);
       }
       void window.harness.sessions.list().then(setSessions);
+      void refreshAgentSkills();
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -510,7 +529,7 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, [hydrate, permission, t]);
+  }, [hydrate, permission, refreshAgentSkills, t]);
 
   const bindProject = useCallback(async (cwd: string): Promise<boolean> => {
     if (running && agentCwd.current && agentCwd.current !== cwd) {
@@ -530,6 +549,7 @@ export function App() {
     setUiRequest(undefined);
     setPreview(undefined);
     setFeatureTodos([]);
+    setAgentSkills([]);
     if (!agentCwd.current) return true;
     agentCwd.current = undefined;
     if (!running) await window.harness.agent.stop().catch(() => undefined);
@@ -556,6 +576,7 @@ export function App() {
     setUiRequest(undefined);
     setPreview(undefined);
     setFeatureTodos([]);
+    setAgentSkills([]);
     setActiveSession(undefined);
     sessionRef.current = undefined;
     if (!agentCwd.current) return;
@@ -910,6 +931,7 @@ export function App() {
         if (command === "/compact") void compactContext();
         if (command === "/login") setLoginOpen(true);
       }}
+      skillCommands={agentSkills}
       stats={stats}
       placement={home ? "hero" : "dock"}
     />
@@ -1113,7 +1135,10 @@ export function App() {
                     await applyUndo(pending.files);
                     pendingUndo.current = undefined;
                   } : undefined}
-                  onDone={() => setUiRequest(undefined)}
+                  onDone={() => {
+                    setUiRequest(undefined);
+                    void refreshAgentSkills();
+                  }}
                   onError={setToast}
                 />
               )}
@@ -1134,6 +1159,8 @@ export function App() {
           configured={Boolean(connected?.configured)}
           model={model}
           baseUrl={connected?.baseUrl}
+          agentSkills={agentSkills}
+          onRefreshSkills={() => void refreshAgentSkills()}
           onClose={() => setLoginOpen(false)}
           onSaved={async () => {
             const status = await window.harness.auth.status();

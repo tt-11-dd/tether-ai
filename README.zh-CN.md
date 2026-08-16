@@ -89,6 +89,17 @@ Pi ecosystem
 
 沙箱是纵深防御，不替代代码审查。执行未知仓库中的命令前仍应检查 Agent 给出的操作。
 
+## Agent Skills
+
+Skills 由 Pi 运行时加载。标准路径：
+
+| 范围 | 路径 |
+| --- | --- |
+| 项目（需信任） | `.agents/skills/<name>/SKILL.md`、`.pi/skills/<name>/SKILL.md` |
+| 用户全局 | `~/.tether/skills/<name>/SKILL.md`、`~/.agents/skills/<name>/SKILL.md` |
+
+每个 skill 目录包含 `SKILL.md`，frontmatter 需有 `name` 与 `description`。输入 `/skill:名称` 调用；设置 → Agent Skills 可查看已加载列表；输入 `/` 时也会出现在补全里。
+
 ## 使用
 
 从 [GitHub Releases](https://github.com/tt-11-dd/tether-ai/releases/latest) 下载：

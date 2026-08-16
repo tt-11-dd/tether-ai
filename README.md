@@ -89,6 +89,21 @@ For pasted images:
 
 Sandboxing is defense in depth, not a replacement for reviewing commands in an unfamiliar repository.
 
+## Agent Skills
+
+Skills are loaded by the Pi runtime (Tether does not ship a separate loader). Standard locations:
+
+| Scope | Path |
+| --- | --- |
+| Project (trusted) | `.agents/skills/<name>/SKILL.md`, `.pi/skills/<name>/SKILL.md` |
+| User-global | `~/.tether/skills/<name>/SKILL.md`, `~/.agents/skills/<name>/SKILL.md` |
+
+Each skill is a directory with a `SKILL.md` file. Frontmatter must include `name` and `description` (Pi validates; invalid skills are skipped).
+
+- Invoke with `/skill:name`; type `/` in the composer to see loaded skills
+- List paths and loaded skills under **Settings → Agent Skills**
+- Project skills require trusting the workspace; `@` mentions only scan project `.agents/skills` and `.pi/skills`
+
 ## Use Tether
 
 Download from [GitHub Releases](https://github.com/tt-11-dd/tether-ai/releases/latest):

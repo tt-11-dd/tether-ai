@@ -1,4 +1,5 @@
 import type { AgentEvent } from "../shared/types";
+import { sameUserSkillTurn } from "../shared/skills";
 import { DEFAULT_LOCALE, t, type Locale, type MessageKey } from "../shared/i18n";
 import { isVisionHandoff, mimeFromImagePath, visibleUserText, visionHandoffPaths, visionToolTitle, visionUploadUrl } from "../shared/vision-api";
 
@@ -270,10 +271,11 @@ export function applyAgentEvent(messages: ChatMessage[], event: AgentEvent): Cha
         return [{ ...incoming, text: visibleUserText(incoming.text), images: stagedImages(incoming.text) }];
       }
       const last = messages.at(-1);
-      if (last?.role === "user" && last.text === incoming.text) {
+      if (last?.role === "user" && (last.text === incoming.text || sameUserSkillTurn(last.text, incoming.text))) {
         return messages.map((message, index) =>
           index === messages.length - 1 ? {
             ...message,
+            text: incoming.text,
             queued: false,
             timestamp: incoming.timestamp ?? message.timestamp,
             images: incoming.images.length > 0 ? incoming.images : message.images,

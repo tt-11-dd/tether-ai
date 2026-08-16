@@ -3,10 +3,13 @@ import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PREVIEW_HOST, PREVIEW_SCHEME, type AgentSessionStats, type ExtensionUiRequest, type PermissionMode } from "../shared/types";
+import { skillUserDisplay } from "../shared/skills";
 import { DEFAULT_VISION_CONFIG, visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, type ChatKind } from "../shared/chat-profiles";
 import { baseName, cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, liveStatus, omitFinalReply, repairMarkdownTables, splitPatch, stripEmptyMarkdown, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, undoDialogTitle, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
+import type { AgentSkillCommand } from "../shared/skills";
+import { PROJECT_SKILL_ROOTS, USER_SKILL_ROOTS, skillSlashCommand } from "../shared/skills";
 import { useI18n } from "./i18n";
 import logo from "./logo.svg";
 
@@ -21,7 +24,8 @@ export function Icon({ path, size = 16, className }: { path: string; size?: numb
 }
 
 export function UserTurn({ text, images = [], anchor }: { text: string; images?: ChatImage[]; anchor?: string }) {
-  const shown = visibleUserText(text);
+  const skill = skillUserDisplay(text);
+  const shown = skill ? skill.command : visibleUserText(text);
   const [view, setView] = useState<string>();
   return (
     <div className="user-turn" id={anchor}>
@@ -38,7 +42,7 @@ export function UserTurn({ text, images = [], anchor }: { text: string; images?:
             })}
           </div>
         )}
-        {shown}
+        {skill ? <code className="user-skill-tag">{shown}</code> : shown}
       </article>
       <div className="bubble-actions">
         <CopyAction text={shown} />
@@ -1131,6 +1135,7 @@ export function PromptBar({
   onPermission,
   onCommand,
   stats,
+  skillCommands = [],
   placement = "dock",
 }: {
   value: string;
@@ -1148,6 +1153,7 @@ export function PromptBar({
   onPermission(value: string): void;
   onCommand(command: string): void;
   stats?: AgentSessionStats;
+  skillCommands?: AgentSkillCommand[];
   placement?: "dock" | "hero";
 }) {
   const { t } = useI18n();
@@ -1245,14 +1251,22 @@ export function PromptBar({
     });
   };
 
-  const slash = value === "/" || /^\/[^\s]*$/.test(value);
-  const commands = [
-    { id: "/undo", label: t("slash.undo") },
-    { id: "/compact", label: t("slash.compact") },
-    { id: "/new", label: t("slash.new") },
-    { id: "/open", label: t("slash.open") },
-    { id: "/login", label: t("slash.login") },
-  ].filter((item) => item.id.startsWith(value || "/"));
+  const slash = skillCommands.length > 0 && (value === "/" || /^\/[^\s]*$/.test(value));
+  const commands = skillCommands
+    .map((skill) => ({ id: skillSlashCommand(skill.name) }))
+    .filter((item) => item.id.startsWith(value || "/"));
+
+  const insertSkillCommand = (command: string) => {
+    const next = `${command} `;
+    onChange(next);
+    const caret = next.length;
+    setCursor(caret);
+    setPicked(0);
+    requestAnimationFrame(() => {
+      area.current?.focus();
+      area.current?.setSelectionRange(caret, caret);
+    });
+  };
 
   const onKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     setCursor(event.currentTarget.selectionStart);
@@ -1270,10 +1284,7 @@ export function PromptBar({
       if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
         event.preventDefault();
         const cmd = commands[picked] ?? commands[0];
-        if (cmd) {
-          onChange("");
-          onCommand(cmd.id);
-        }
+        if (cmd) insertSkillCommand(cmd.id);
         return;
       }
       if (event.key === "Escape") {
@@ -1327,8 +1338,7 @@ export function PromptBar({
     }
     if (slash && event.key === "Enter" && commands[0] && !event.shiftKey) {
       event.preventDefault();
-      onChange("");
-      onCommand(commands[0].id);
+      insertSkillCommand((commands[picked] ?? commands[0]).id);
       return;
     }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -1401,8 +1411,7 @@ export function PromptBar({
           onSubmit={(event) => {
             event.preventDefault();
             if (slash && commands[0]) {
-              onChange("");
-              onCommand(commands[0].id);
+              insertSkillCommand((commands[picked] ?? commands[0]).id);
               return;
             }
             const text = compose();
@@ -1468,13 +1477,9 @@ export function PromptBar({
                 key={item.id}
                 type="button"
                 className={index === picked ? "on" : ""}
-                onClick={() => {
-                  onChange("");
-                  onCommand(item.id);
-                }}
+                onClick={() => insertSkillCommand(item.id)}
               >
                 <code>{item.id}</code>
-                {item.label}
               </button>
             ))}
           </div>
@@ -1931,7 +1936,7 @@ function SecretField({
   );
 }
 
-type SettingsPane = "chat" | "vision" | "shortcuts" | "about";
+type SettingsPane = "chat" | "vision" | "shortcuts" | "skills" | "about";
 
 function settingsNav(t: ReturnType<typeof useI18n>["t"]): Array<{ label: string; items: Array<{ id: SettingsPane; label: string; icon: string }> }> {
   return [
@@ -1945,6 +1950,11 @@ function settingsNav(t: ReturnType<typeof useI18n>["t"]): Array<{ label: string;
   {
     label: t("settings.groupHelp"),
     items: [
+      {
+        id: "skills",
+        label: t("settings.skills"),
+        icon: "M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z",
+      },
       {
         id: "shortcuts",
         label: t("settings.shortcuts"),
@@ -1964,12 +1974,16 @@ export function Login({
   configured,
   model,
   baseUrl,
+  agentSkills = [],
+  onRefreshSkills,
   onClose,
   onSaved,
 }: {
   configured: boolean;
   model: string;
   baseUrl?: string;
+  agentSkills?: AgentSkillCommand[];
+  onRefreshSkills?: () => void;
   onClose(): void;
   onSaved(): Promise<void>;
 }) {
@@ -1989,11 +2003,13 @@ export function Login({
   const [visionModels, setVisionModels] = useState<string[]>([]);
   const [listing, setListing] = useState<"chat" | "vision" | null>(null);
   const [appVersion, setAppVersion] = useState("");
+  const [skillCopied, setSkillCopied] = useState<string>();
   const [testStatus, setTestStatus] = useState<{ target: "chat" | "vision"; ok: boolean; message: string } | null>(null);
 
   const chatUrl = kind === "deepseek" ? DEEPSEEK_PRESET.url : customUrl;
   const chatKey = kind === "deepseek" ? deepseekKey : customKey;
   const chatModel = kind === "deepseek" ? deepseekModel : customModel;
+  const modKey = window.harness.platform === "darwin" ? "⌘" : "Ctrl";
 
   const listModels = async (target: "chat" | "vision") => {
     const base = target === "chat" ? chatUrl : visionEndpoint;
@@ -2053,6 +2069,11 @@ export function Login({
     }).catch(() => undefined);
   }, []);
 
+  useEffect(() => {
+    if (pane !== "skills") return;
+    onRefreshSkills?.();
+  }, [pane, onRefreshSkills]);
+
   return (
     <div
       className="modal"
@@ -2110,9 +2131,11 @@ export function Login({
                 ? t("settings.chat")
                 : pane === "vision"
                   ? t("settings.vision")
-                  : pane === "shortcuts"
-                    ? t("settings.shortcuts")
-                    : t("settings.about")}
+                  : pane === "skills"
+                    ? t("settings.skills")
+                    : pane === "shortcuts"
+                      ? t("settings.shortcuts")
+                      : t("settings.about")}
             </h2>
             <button type="button" className="settings-close" aria-label={t("common.close")} onClick={onClose}>
               <Icon path="M6 6l12 12M18 6L6 18" />
@@ -2229,6 +2252,73 @@ export function Login({
               </>
             )}
 
+            {pane === "skills" && (
+              <div className="settings-card">
+                <div className="settings-card-body">
+                  <p className="settings-hint">{t("settings.skillsHint")}</p>
+                  <p className="settings-hint">{t("settings.skillsUse")}</p>
+
+                  <div className="skills-section">
+                    <h3 className="skills-section-title">{t("settings.skillsPaths")}</h3>
+                    <div className="skills-path-block">
+                      <div className="skills-path-label">{t("settings.skillsPathProject")}</div>
+                      <ul className="skills-path-list">
+                        {PROJECT_SKILL_ROOTS.map((root) => (
+                          <li key={root}><code>{root}/&lt;name&gt;/SKILL.md</code></li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="skills-path-block">
+                      <div className="skills-path-label">{t("settings.skillsPathUser")}</div>
+                      <ul className="skills-path-list">
+                        {USER_SKILL_ROOTS.map((root) => (
+                          <li key={root}><code>{root}/&lt;name&gt;/SKILL.md</code></li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="skills-section">
+                    <div className="skills-section-head">
+                      <h3 className="skills-section-title">{t("settings.skillsTitle")}</h3>
+                      <button type="button" className="ghost" onClick={() => onRefreshSkills?.()}>
+                        {t("settings.skillsRefresh")}
+                      </button>
+                    </div>
+                    {agentSkills.length === 0 ? (
+                      <p className="settings-hint">{t("settings.skillsEmpty")}</p>
+                    ) : (
+                      <div className="skills-list">
+                        {agentSkills.map((skill) => {
+                          const command = skillSlashCommand(skill.name);
+                          return (
+                            <div key={skill.name} className="skills-row">
+                              <div className="skills-row-main">
+                                <code className="skills-row-name">{command}</code>
+                                {skill.description ? <p className="skills-row-desc">{skill.description}</p> : null}
+                              </div>
+                              <button
+                                type="button"
+                                className="ghost"
+                                onClick={() => {
+                                  void navigator.clipboard.writeText(command).then(() => {
+                                    setSkillCopied(skill.name);
+                                    window.setTimeout(() => setSkillCopied((current) => (current === skill.name ? undefined : current)), 1200);
+                                  });
+                                }}
+                              >
+                                {skillCopied === skill.name ? t("settings.skillsCopied") : t("settings.skillsCopy")}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {pane === "shortcuts" && (
               <div className="settings-card">
                 <div className="settings-card-body">
@@ -2246,16 +2336,24 @@ export function Login({
                       <kbd>{t("shortcut.mentionKey")}</kbd>
                     </div>
                     <div className="shortcut-item">
-                      <span className="shortcut-label">{t("shortcut.undo")}</span>
-                      <kbd>/undo</kbd>
+                      <span className="shortcut-label">{t("shortcut.skills")}</span>
+                      <kbd>/</kbd>
+                    </div>
+                    <div className="shortcut-item">
+                      <span className="shortcut-label">{t("shortcut.skillInvoke")}</span>
+                      <kbd>{t("shortcut.skillKey")}</kbd>
                     </div>
                     <div className="shortcut-item">
                       <span className="shortcut-label">{t("shortcut.new")}</span>
-                      <kbd>/new</kbd>
+                      <span className="kbd-group"><kbd>{modKey}</kbd> + <kbd>N</kbd></span>
                     </div>
                     <div className="shortcut-item">
                       <span className="shortcut-label">{t("shortcut.open")}</span>
-                      <kbd>/open</kbd>
+                      <span className="kbd-group"><kbd>{modKey}</kbd> + <kbd>O</kbd></span>
+                    </div>
+                    <div className="shortcut-item">
+                      <span className="shortcut-label">{t("shortcut.undo")}</span>
+                      <kbd>/undo</kbd>
                     </div>
                     <div className="shortcut-item">
                       <span className="shortcut-label">{t("shortcut.escape")}</span>

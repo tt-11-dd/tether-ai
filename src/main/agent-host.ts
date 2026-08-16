@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { getTetherRpcEntryPath } from "tether-agent-core";
 import type { AgentEvent, AgentSessionStats, AgentSnapshot, AgentStartOptions } from "../shared/types";
+import { parseSkillCommands } from "../shared/skills";
 
 interface PendingRequest {
   resolve(value: unknown): void;
@@ -39,18 +40,20 @@ export class AgentHost {
   }
 
   async snapshot(): Promise<AgentSnapshot> {
-    const [state, messages, models, thinkingLevels, stats] = await Promise.all([
+    const [state, messages, models, thinkingLevels, stats, commands] = await Promise.all([
       this.request<Record<string, unknown>>("get_state"),
       this.request<{ messages: unknown[] }>("get_messages"),
       this.request<{ models: AgentSnapshot["models"] }>("get_available_models"),
       this.request<{ levels: string[] }>("get_available_thinking_levels"),
       this.request<AgentSessionStats>("get_session_stats").catch(() => undefined),
+      this.request<{ commands: Array<{ name: string; description?: string; source?: string }> }>("get_commands").catch(() => ({ commands: [] })),
     ]);
     return {
       state,
       messages: messages.messages,
       models: models.models,
       thinkingLevels: thinkingLevels.levels,
+      skills: parseSkillCommands(commands.commands),
       ...(stats ? { stats } : {}),
     };
   }

@@ -1,4 +1,5 @@
 import type { Locale } from "./i18n";
+import type { AgentSkillCommand } from "./skills";
 
 /** Previews load through their own origin so page storage works without reaching the app. */
 export const PREVIEW_SCHEME = "harness-preview";
@@ -99,6 +100,7 @@ export interface AgentSnapshot {
   thinkingLevels: string[];
   stats?: AgentSessionStats;
   cwd?: string;
+  skills?: AgentSkillCommand[];
 }
 
 export type AgentEvent = Record<string, unknown> & { type: string };

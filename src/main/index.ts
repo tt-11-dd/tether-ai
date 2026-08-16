@@ -35,6 +35,7 @@ import {
   type SessionSummary,
   type WorkspaceItem,
 } from "../shared/types";
+import { PROJECT_SKILL_ROOTS } from "../shared/skills";
 
 const ALLOWED_AGENT_COMMANDS = new Set([
   "prompt",
@@ -50,6 +51,7 @@ const ALLOWED_AGENT_COMMANDS = new Set([
   "get_available_thinking_levels",
   "get_fork_messages",
   "get_entries",
+  "get_commands",
   "fork",
   "compact",
 ]);
@@ -773,7 +775,7 @@ async function listWorkspaceFiles(root: string, fileLimit = 8000, perDirLimit = 
   return dirs.concat(files);
 }
 
-const SKILL_ROOTS = [".agents/skills", ".tether/skills", ".claude/skills", "skills"];
+const SKILL_ROOTS = PROJECT_SKILL_ROOTS;
 
 async function addSkillManifests(root: string, files: string[]): Promise<void> {
   const seen = new Set(files);
