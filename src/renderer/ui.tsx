@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { forwardRef, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -715,6 +715,18 @@ function extractNodeText(node: ReactNode): string {
   return "";
 }
 
+/** Plain stream body — memo'd so React won't reconcile text on every IPC chunk. */
+const StreamPlainBody = memo(
+  forwardRef<HTMLSpanElement>(function StreamPlainBody(_props, ref) {
+    return (
+      <p className="stream-plain">
+        <span ref={ref} />
+        <span className="caret" aria-hidden="true" />
+      </p>
+    );
+  }),
+);
+
 export function StreamingText({
   text,
   streaming,
@@ -722,15 +734,28 @@ export function StreamingText({
   text: string;
   streaming?: boolean;
 }) {
+  const line = useRef<HTMLSpanElement>(null);
+
+  useLayoutEffect(() => {
+    if (!streaming || !line.current) return;
+    line.current.textContent = text;
+  }, [text, streaming]);
+
   if (!text && !streaming) return null;
-  return (
-    <div className={streaming ? "stream live" : "stream"}>
-      {text && (
+
+  if (!streaming) {
+    return (
+      <div className="stream">
         <div className="markdown">
           <Markdown>{text}</Markdown>
-          {streaming && <span className="caret" />}
         </div>
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="stream live">
+      <StreamPlainBody ref={line} />
     </div>
   );
 }
@@ -1124,6 +1149,11 @@ export function PromptBar({
   onChange,
   onSubmit,
   onStop,
+  queued,
+  onEditQueue,
+  onDropQueue,
+  onSendQueue,
+  rootRef,
   running,
   disabled,
   workspace,
@@ -1142,6 +1172,11 @@ export function PromptBar({
   onChange(value: string): void;
   onSubmit(text?: string, images?: string[]): void;
   onStop(): void;
+  queued?: Array<{ id: string; text: string }>;
+  onEditQueue?(id: string): void;
+  onDropQueue?(id: string): void;
+  onSendQueue?(id: string): void;
+  rootRef?: Ref<HTMLDivElement>;
   running: boolean;
   disabled?: boolean;
   workspace?: string;
@@ -1343,6 +1378,7 @@ export function PromptBar({
     }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
+      if (disabled) return;
       const text = compose();
       if (!text && uploads.length === 0) return;
       const refs = uploads.map((item) => item.dataUri);
@@ -1356,18 +1392,56 @@ export function PromptBar({
   const hero = placement === "hero";
   const folder = workspace ? baseName(workspace) : undefined;
   return (
-    <div className={hero ? "prompt-wrap hero" : "prompt-wrap"}>
+    <div ref={rootRef} className={hero ? "prompt-wrap hero" : "prompt-wrap"}>
       <div className="prompt-shell">
         <div className="prompt-topbar">
-          <button
-            type="button"
-            className={folder ? "prompt-folder on" : "prompt-folder"}
-            onClick={onPickWorkspace}
-            title={workspace ?? t("composer.selectOrOpen")}
-          >
-            <Icon path="M3 7h6l2 2h10v10H3z" size={13} />
-            <span>{folder ?? t("composer.selectProject")}</span>
-          </button>
+          <div className="prompt-topbar-row">
+            <button
+              type="button"
+              className={folder ? "prompt-folder on" : "prompt-folder"}
+              onClick={onPickWorkspace}
+              title={workspace ?? t("composer.selectOrOpen")}
+            >
+              <Icon path="M3 7h6l2 2h10v10H3z" size={13} />
+              <span>{folder ?? t("composer.selectProject")}</span>
+            </button>
+            {queued && queued.length > 0 && (
+              <div className="prompt-queue-meta">
+                <span className="prompt-queue-count">{t("composer.queued", { n: queued.length })}</span>
+                {!running && (
+                  <button type="button" className="prompt-queue-flush" onClick={() => onSendQueue?.(queued[0]!.id)}>
+                    {t("composer.sendQueue")}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {queued && queued.length > 0 && (
+            <div className="prompt-queue">
+              {queued.map((item, index) => (
+                <div key={item.id} className="prompt-queue-row">
+                  <span className="prompt-queue-index">{index + 1}</span>
+                  <p className="prompt-queue-text">{item.text}</p>
+                  <div className="prompt-queue-actions">
+                    <button
+                      type="button"
+                      className="bubble-action"
+                      aria-label={running ? t("composer.bumpQueue") : t("composer.sendQueue")}
+                      onClick={() => onSendQueue?.(item.id)}
+                    >
+                      <Icon path="M12 19V5M5 12l7-7 7 7" size={13} />
+                    </button>
+                    <button type="button" className="bubble-action" aria-label={t("composer.editQueue")} onClick={() => onEditQueue?.(item.id)}>
+                      <Icon path="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" size={13} />
+                    </button>
+                    <button type="button" className="bubble-action" aria-label={t("composer.dropQueue")} onClick={() => onDropQueue?.(item.id)}>
+                      <Icon path="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <form
           className={dropOver ? "prompt drop" : "prompt"}
@@ -1410,6 +1484,7 @@ export function PromptBar({
           }}
           onSubmit={(event) => {
             event.preventDefault();
+            if (disabled) return;
             if (slash && commands[0]) {
               insertSkillCommand((commands[picked] ?? commands[0]).id);
               return;
@@ -1466,7 +1541,7 @@ export function PromptBar({
             event.preventDefault();
             void addUploads(images);
           }}
-          placeholder={workspace ? t("composer.placeholderWorkspace") : t("composer.placeholderEmpty")}
+          placeholder={running ? t("composer.placeholderFollowup") : workspace ? t("composer.placeholderWorkspace") : t("composer.placeholderEmpty")}
           rows={hero && !value ? 2 : 1}
         />
         {slash && (

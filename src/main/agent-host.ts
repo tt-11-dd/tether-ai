@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { getTetherRpcEntryPath } from "tether-agent-core";
 import type { AgentEvent, AgentSessionStats, AgentSnapshot, AgentStartOptions } from "../shared/types";
 import { parseSkillCommands } from "../shared/skills";
+import { drainUtf8Lines } from "./rpc-lines";
 
 interface PendingRequest {
   resolve(value: unknown): void;
@@ -25,7 +26,7 @@ const LONG_RUNNING_REQUESTS = new Set([
 
 export class AgentHost {
   private child?: ChildProcessWithoutNullStreams;
-  private buffer = "";
+  private lineBuffer = Buffer.alloc(0);
   private stderr = "";
   private requestId = 0;
   private pending = new Map<string, PendingRequest>();
@@ -84,7 +85,7 @@ export class AgentHost {
     if (options.sessionPath) args.push("--session", options.sessionPath);
     if (options.visionExtension) args.push("--extension", options.visionExtension);
 
-    this.buffer = "";
+    this.lineBuffer = Buffer.alloc(0);
     this.stderr = "";
     const child = spawn(process.execPath, args, {
       cwd: options.cwd,
@@ -166,14 +167,9 @@ export class AgentHost {
   }
 
   private handleChunk(chunk: Buffer): void {
-    this.buffer += chunk.toString("utf8");
-    let index = this.buffer.indexOf("\n");
-    while (index >= 0) {
-      const line = this.buffer.slice(0, index).replace(/\r$/, "");
-      this.buffer = this.buffer.slice(index + 1);
-      if (line) this.handleLine(line);
-      index = this.buffer.indexOf("\n");
-    }
+    const drained = drainUtf8Lines(this.lineBuffer, chunk);
+    this.lineBuffer = drained.rest;
+    for (const line of drained.lines) this.handleLine(line);
   }
 
   private handleLine(line: string): void {

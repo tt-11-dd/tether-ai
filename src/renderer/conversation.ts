@@ -282,6 +282,15 @@ export function applyAgentEvent(messages: ChatMessage[], event: AgentEvent): Cha
           } : message,
         );
       }
+      const prev = messages.at(-2);
+      if (
+        last?.role === "assistant"
+        && !last.text.trim()
+        && prev?.role === "user"
+        && (prev.text === incoming.text || sameUserSkillTurn(prev.text, incoming.text))
+      ) {
+        return messages;
+      }
       if (event.type === "message_start") return [...messages, incoming];
       return messages;
     }
@@ -754,19 +763,25 @@ export interface SessionTodo {
   done: boolean;
 }
 
+export function normalizeFilePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\.\/+/, "");
+}
+
 export function collectFileChanges(tools: ToolActivity[]): FileChange[] {
   const byPath = new Map<string, FileChange>();
   const merge = (change: FileChange) => {
-    const current = byPath.get(change.path);
+    const path = normalizeFilePath(change.path);
+    const next = { ...change, path };
+    const current = byPath.get(path);
     if (!current) {
-      byPath.set(change.path, change);
+      byPath.set(path, next);
       return;
     }
-    byPath.set(change.path, {
-      path: change.path,
-      additions: change.additions || current.additions,
-      deletions: change.deletions || current.deletions,
-      patch: change.patch || current.patch,
+    byPath.set(path, {
+      path,
+      additions: next.additions || current.additions,
+      deletions: next.deletions || current.deletions,
+      patch: next.patch || current.patch,
     });
   };
   for (const tool of tools) {
@@ -800,13 +815,14 @@ export function collectWorkingFiles(tools: ToolActivity[], mentions: string[] = 
   }
   for (const tool of tools) {
     if (tool.status === "error" || !/read|grep|glob|search/i.test(tool.name)) continue;
-    const file = toolPath(tool);
+    const file = normalizeFilePath(toolPath(tool));
     if (!file || byPath.has(file)) continue;
     byPath.set(file, { path: file, kind: "read", additions: 0, deletions: 0 });
   }
   for (const file of mentions) {
-    if (byPath.has(file)) continue;
-    byPath.set(file, { path: file, kind: "read", additions: 0, deletions: 0 });
+    const path = normalizeFilePath(file);
+    if (byPath.has(path)) continue;
+    byPath.set(path, { path, kind: "read", additions: 0, deletions: 0 });
   }
   return [...byPath.values()];
 }

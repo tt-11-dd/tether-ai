@@ -31,6 +31,7 @@ Skills 由 Pi 运行时加载（Tether 不另写 loader）。标准路径：
 ## 约定
 
 - 新对话必须先选项目；绑定 cwd，发第一条消息才 `startAgent`。
+- 生成中回车进入排队（最多 5 条，不入会话文件）；停止保留排队，换对话/项目清空。`/` 命令不进队。
 - 权限：`plan` / `ask` / `auto` / `full`。有项目时 `sandbox: workspace-write`。
 - 跨会话进度写在 `.agents/features.json` 和 `.agents/progress.md`，不要只写在聊天里。
 - `features.json` 只改 `passes`，不要删条目或改 `description`。

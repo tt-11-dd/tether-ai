@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type {
   AgentSessionStats,
@@ -352,6 +352,7 @@ export function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [stats, setStats] = useState<AgentSessionStats>();
   const [draft, setDraft] = useState("");
+  const [queued, setQueued] = useState<Array<{ id: string; text: string; images?: string[] }>>([]);
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -366,7 +367,11 @@ export function App() {
   const agentCwd = useRef<string | undefined>(undefined);
   const sessionRef = useRef<string | undefined>(undefined);
   const sending = useRef(false);
+  const holdQueue = useRef(false);
+  const queuedRef = useRef(queued);
+  queuedRef.current = queued;
   const stick = useRef(true);
+  const dock = useRef<HTMLDivElement>(null);
   const live = useRef(false);
   const pendingUndo = useRef<{ files: RestoreFile[] } | undefined>(
     undefined,
@@ -464,6 +469,10 @@ export function App() {
       setLoading(false);
       return false;
     }
+    if (!seedMessage && !resume) {
+      setQueued([]);
+      holdQueue.current = false;
+    }
     const modelId = modelRef.current.trim() || chat.defaultModel;
     if (!resume) {
       setActiveSession(sessionPath);
@@ -543,6 +552,7 @@ export function App() {
     setMessages([]);
     setStats(undefined);
     setDraft("");
+    setQueued([]);
     setActiveSession(undefined);
     sessionRef.current = undefined;
     setRunning(false);
@@ -572,6 +582,7 @@ export function App() {
     setMessages([]);
     setStats(undefined);
     setDraft("");
+    setQueued([]);
     setRunning(false);
     setUiRequest(undefined);
     setPreview(undefined);
@@ -596,6 +607,7 @@ export function App() {
       }
       setMessages([]);
       setStats(undefined);
+      setQueued([]);
       setActiveSession(undefined);
       setRunning(false);
       setUiRequest(undefined);
@@ -639,6 +651,7 @@ export function App() {
     setWorkspace(undefined);
     setMessages([]);
     setStats(undefined);
+    setQueued([]);
     setActiveSession(undefined);
     setRunning(false);
     setUiRequest(undefined);
@@ -738,11 +751,27 @@ export function App() {
   const sendMessage = useCallback(async (preset?: string, images?: string[]) => {
     const text = (preset ?? draft).trim();
     if (text === "/undo") {
+      if (running) return;
       setDraft("");
       void undoLastTurn();
       return;
     }
     if ((!text && !images?.length) || loading || sending.current) return;
+    holdQueue.current = false;
+    if (running) {
+      if (text.startsWith("/")) return;
+      if (queuedRef.current.length >= 5) {
+        setToast(t("composer.queueFull"));
+        return;
+      }
+      setQueued((current) => [...current, {
+        id: `q-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        text: text || t("toast.defaultImagePrompt"),
+        images,
+      }]);
+      setDraft("");
+      return;
+    }
     sending.current = true;
     const question = text || t("toast.defaultImagePrompt");
     const thumbs = (images ?? []).map((item) => {
@@ -753,7 +782,6 @@ export function App() {
       };
     });
     let optimistic: ChatMessage | undefined;
-    const alreadyRunning = running;
     try {
       let cwd = workspace ?? agentCwd.current;
       if (!cwd) {
@@ -763,7 +791,7 @@ export function App() {
       }
 
       // Paint the user turn immediately so first-send doesn't sit on the home screen.
-      optimistic = optimisticUserMessage(question, alreadyRunning, thumbs);
+      optimistic = optimisticUserMessage(question, false, thumbs);
       setDraft("");
       setMessages((current) => [...current, optimistic!]);
       setRunning(true);
@@ -781,18 +809,26 @@ export function App() {
       const message = images?.length
         ? visionAgentPrompt(question, await window.harness.vision.stage(images))
         : question;
-      await window.harness.agent.command(alreadyRunning ? "steer" : "prompt", { message });
+      await window.harness.agent.command("prompt", { message });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       const optimisticId = optimistic?.id;
       if (optimisticId) setMessages((current) => current.filter((item) => item.id !== optimisticId));
       setDraft(text);
-      setRunning(alreadyRunning);
+      setRunning(false);
       if (!/Agent session closed/.test(detail)) setToast(friendlyAgentError(error));
     } finally {
       sending.current = false;
     }
   }, [draft, loading, openFolder, permission, running, startAgent, t, undoLastTurn, workspace]);
+
+  useEffect(() => {
+    if (holdQueue.current || running || loading || queued.length === 0 || sending.current) return;
+    const [job, ...rest] = queued;
+    if (!job) return;
+    setQueued(rest);
+    void sendMessage(job.text, job.images);
+  }, [loading, queued, running, sendMessage]);
 
   useEffect(() => {
     void refresh().then((status) => {
@@ -883,12 +919,26 @@ export function App() {
     };
   }, [workspace, running, workingFiles]);
 
-  useEffect(() => {
-    const node = scroller.current;
-    if (node && stick.current) node.scrollTop = node.scrollHeight;
-  }, [messages, uiRequest]);
-
   const home = groups.length === 0;
+
+  useLayoutEffect(() => {
+    const node = scroller.current;
+    if (!node || home) return;
+
+    const pin = () => {
+      const overlay = dock.current?.offsetHeight ?? 0;
+      if (overlay > 0) node.style.setProperty("--dock-clearance", `${overlay + 24}px`);
+      if (stick.current) node.scrollTop = node.scrollHeight;
+    };
+
+    const content = node.querySelector(".messages");
+    const ro = new ResizeObserver(pin);
+    if (content) ro.observe(content);
+    if (dock.current) ro.observe(dock.current);
+    pin();
+    return () => ro.disconnect();
+  }, [home, queued.length]);
+
   const homeRecents = (
     workspace
       ? projects.find((item) => item.item.path === workspace)?.sessions ?? []
@@ -900,9 +950,29 @@ export function App() {
       onChange={setDraft}
       onSubmit={(text, images) => void sendMessage(text, images)}
       onStop={() => {
-        setRunning(false);
+        holdQueue.current = true;
         void window.harness.agent.command("abort").catch(() => undefined);
       }}
+      queued={queued}
+      onEditQueue={(id) => {
+        const item = queued.find((entry) => entry.id === id);
+        if (!item) return;
+        setDraft(item.text);
+        setQueued((current) => current.filter((entry) => entry.id !== id));
+      }}
+      onDropQueue={(id) => setQueued((current) => current.filter((entry) => entry.id !== id))}
+      onSendQueue={(id) => {
+        const item = queued.find((entry) => entry.id === id);
+        if (!item) return;
+        if (running || sending.current) {
+          setQueued((current) => [item, ...current.filter((entry) => entry.id !== id)]);
+          return;
+        }
+        holdQueue.current = false;
+        setQueued((current) => current.filter((entry) => entry.id !== id));
+        void sendMessage(item.text, item.images);
+      }}
+      rootRef={dock}
       running={running}
       disabled={loading}
       workspace={workspace}

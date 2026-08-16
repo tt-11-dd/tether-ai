@@ -404,6 +404,8 @@ button:disabled { cursor: default; opacity: .4; }
 .chat {
   /* Reading column grows with the viewport so 1080p+ screens don't leave both sides empty. */
   --col: min(100%, 1320px, max(720px, 68vw));
+  /* Fallback until the dock height is measured; pin() overwrites this. */
+  --dock-clearance: 280px;
   min-width: 0;
   min-height: 0;
   flex: 1;
@@ -757,12 +759,20 @@ button:disabled { cursor: default; opacity: .4; }
   position: relative;
   overflow: hidden;
 }
-.conversation { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; background: var(--page); }
+.conversation {
+  min-height: 0;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  background: var(--page);
+}
 /* Content dissolves at the title bar instead of being cut off mid-line. The mask makes
    this scroller a containing block for fixed children, so the image lightbox is portaled. */
 .conversation:not(.home) { mask-image: linear-gradient(to bottom, transparent 0, #000 30px); }
 .conversation.home { display: flex; align-items: center; }
-.messages { width: var(--col); padding: 28px 28px 180px; margin: 0 auto; }
+.messages { width: var(--col); padding: 28px 28px var(--dock-clearance); margin: 0 auto; }
 .empty {
   /* Hero column tracks the viewport like the reading column, so 1080p+ stops looking pinched. */
   width: min(100%, 880px, max(640px, 46vw));
@@ -1127,6 +1137,12 @@ button:disabled { cursor: default; opacity: .4; }
 .turn:last-child { margin-bottom: 8px; }
 .markdown :first-child { margin-top: 0; }
 .markdown :last-child { margin-bottom: 0; }
+.markdown p,
+.markdown ul,
+.markdown ol {
+  margin: 0 0 0.75em;
+}
+.markdown li { margin: 0.2em 0; }
 .markdown table {
   width: 100%;
   border-collapse: collapse;
@@ -1142,11 +1158,24 @@ button:disabled { cursor: default; opacity: .4; }
 .markdown th { background: var(--inset); font-weight: 500; }
 .markdown td { color: var(--ink); }
 .markdown a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
-.markdown code { font-family: var(--mono); font-size: .84em; background: var(--inset); padding: .12em .35em; border-radius: 4px; }
+.markdown :not(pre) > code {
+  font-family: var(--mono);
+  font-size: .84em;
+  background: var(--inset);
+  padding: .12em .35em;
+  margin: 0 .15em;
+  border-radius: 4px;
+}
+.markdown pre code {
+  padding: 0;
+  margin: 0;
+  background: none;
+  font-size: inherit;
+}
 .markdown pre, .chip-out pre, .approval pre {
   overflow: auto;
   max-height: 280px;
-  margin: 8px 0 0;
+  margin: 0.85em 0;
   padding: 12px 14px;
   border-radius: 10px;
   background: var(--inset);
@@ -1583,16 +1612,29 @@ button:disabled { cursor: default; opacity: .4; }
 }
 
 .stream { position: relative; }
+.stream-plain {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+  letter-spacing: -.011em;
+}
 .caret {
   display: inline-block;
-  width: 6px;
-  height: .95em;
+  width: 2px;
+  height: 1.05em;
   margin-left: 2px;
-  background: var(--ink);
+  border-radius: 1px;
+  background: var(--ink-3);
   vertical-align: text-bottom;
-  animation: caret 1s steps(1) infinite;
+  animation: caret-pulse 1.15s ease-in-out infinite;
 }
-@keyframes caret { 50% { opacity: 0; } }
+@keyframes caret-pulse {
+  0%, 100% { opacity: .3; }
+  50% { opacity: .9; }
+}
 
 .approval {
   margin: 10px 0 16px;
@@ -1670,11 +1712,44 @@ button:disabled { cursor: default; opacity: .4; }
 .prompt-topbar {
   background: var(--inset);
   border-radius: 16px 16px 0 0;
-  padding: 6px 14px 14px;
+  padding: 6px 10px 14px 14px;
   margin-bottom: -10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.prompt-topbar-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  min-height: 22px;
+}
+.prompt-queue-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.prompt-queue-count {
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  font-size: 11px;
+  color: var(--ink-2);
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.prompt-queue-flush {
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow-hairline);
+  font-size: 11px;
+  color: var(--ink);
 }
 .prompt-folder {
   height: 22px;
@@ -1800,6 +1875,44 @@ button:disabled { cursor: default; opacity: .4; }
 .prompt-wrap.hero textarea:placeholder-shown { min-height: 72px; }
 .prompt textarea::placeholder { color: var(--ink-3); }
 .prompt-bar { display: flex; align-items: center; gap: 4px; min-height: 32px; flex-wrap: wrap; }
+.prompt-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 4px -4px 0;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.prompt-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 2px 4px 2px 6px;
+  border-radius: 8px;
+}
+.prompt-queue-row:hover { background: var(--hover); }
+.prompt-queue-index {
+  flex: none;
+  width: 14px;
+  font-size: 11px;
+  color: var(--ink-3);
+  text-align: center;
+}
+.prompt-queue-text {
+  margin: 0;
+  min-width: 0;
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prompt-queue-actions { display: flex; flex: none; opacity: .55; }
+.prompt-queue-row:hover .prompt-queue-actions,
+.prompt-queue-actions:focus-within { opacity: 1; }
+.prompt-queue .bubble-action { opacity: 1; width: 22px; height: 22px; }
 .send {
   width: 30px;
   height: 30px;

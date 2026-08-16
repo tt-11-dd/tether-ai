@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
+import { applyAgentEvent, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
 
 describe("conversation events", () => {
   it("calculates prompt cache hit rate from reported token usage", () => {
@@ -25,6 +25,17 @@ describe("conversation events", () => {
 
     expect(messages).toHaveLength(2);
     expect(messages[1]).toMatchObject({ role: "assistant", text: "Working. Done.", streaming: false });
+  });
+
+  it("does not append a duplicate user turn while the assistant is still empty", () => {
+    const messages = applyAgentEvent([
+      optimisticUserMessage("没事"),
+      { id: "a", role: "assistant", text: "", images: [], tools: [], work: [] },
+    ], {
+      type: "message_start",
+      message: { role: "user", content: [{ type: "text", text: "没事" }] },
+    });
+    expect(messages.filter((item) => item.role === "user")).toHaveLength(1);
   });
 
   it("hides the vision handoff user turn so write tools stay on the same assistant", () => {
@@ -617,6 +628,23 @@ describe("conversation events", () => {
     expect(files).toEqual([
       { path: "src/App.vue", additions: 2, deletions: 1, patch: expect.stringContaining("+new line") },
     ]);
+  });
+
+  it("merges the same file when Windows and POSIX paths are mixed", () => {
+    expect(collectFileChanges([{
+      id: "1",
+      name: "apply_patch",
+      title: "Edited DyParser.vue",
+      status: "complete",
+      args: {
+        input: "*** Begin Patch\n*** Update File: src/components/DyParser.vue\n@@\n-old\n+new\n*** End Patch",
+      },
+      details: { files: ["src\\components\\DyParser.vue"], additions: 1, deletions: 1 },
+      output: "Applied patch to 1 file(s): +1 -1\nsrc\\components\\DyParser.vue",
+    }])).toEqual([
+      { path: "src/components/DyParser.vue", additions: 1, deletions: 1, patch: expect.stringContaining("+new") },
+    ]);
+    expect(normalizeFilePath(".\\src\\App.vue")).toBe("src/App.vue");
   });
 
   it("lists top-level folders first, then one level of children after a prefix", () => {
