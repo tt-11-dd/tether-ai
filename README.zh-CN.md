@@ -29,7 +29,7 @@ Tether 是一个面向真实代码仓库的 Electron 桌面 Agent。它把模型
 
 ## 基于 Pi 的哪些部分
 
-Tether 没有重复实现 Agent 基础设施，而是通过公开包 [`tether-agent-core`](https://www.npmjs.com/package/tether-agent-core) 复用并扩展 [Pi 生态](https://github.com/earendil-works/pi)：
+Tether 没有重复实现 Agent 基础设施，而是通过 [`tether-agent-core`](https://www.npmjs.com/package/tether-agent-core) 基于 [Pi 生态](https://github.com/earendil-works/pi) 封装并扩展：
 
 | Pi 包 | Tether 使用的能力 |
 | --- | --- |
@@ -131,7 +131,7 @@ Agent 核心通过 npm 依赖 `tether-agent-core`。开发 Runtime 本身时，�
 
 ## 致谢
 
-Tether 的 Agent 运行时基于开源 [Pi 生态](https://github.com/earendil-works/pi)（`@earendil-works/pi-agent-core`、`pi-ai`、`pi-coding-agent`、`pi-tui`）构建。公开 npm 包 [`tether-agent-core`](https://www.npmjs.com/package/tether-agent-core) 在 Pi 之上封装 DeepSeek 默认体验、权限模式、沙箱、Checkpoint、MCP、Hooks 与本地数据层。Pi 依赖保留各自的许可证与版权。
+Tether 的 Agent 运行时基于开源 [Pi 生态](https://github.com/earendil-works/pi)（`@earendil-works/pi-agent-core`、`pi-ai`、`pi-coding-agent`、`pi-tui`）构建。[`tether-agent-core`](https://www.npmjs.com/package/tether-agent-core) 在 Pi 之上封装 DeepSeek 默认体验、权限模式、沙箱、Checkpoint、MCP、Hooks 与本地数据层。Pi 依赖保留各自的许可证与版权。
 
 ## 隐私说明
 

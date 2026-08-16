@@ -29,7 +29,7 @@ Tether is an Electron desktop agent for real codebases. It brings model calls, w
 
 ## What Tether uses from Pi
 
-Tether does not reimplement the agent foundations. Its public [`tether-agent-core`](https://www.npmjs.com/package/tether-agent-core) package reuses and extends the [Pi ecosystem](https://github.com/earendil-works/pi):
+Tether does not reimplement the agent foundations. [`tether-agent-core`](https://www.npmjs.com/package/tether-agent-core) wraps the [Pi ecosystem](https://github.com/earendil-works/pi) and extends it:
 
 | Pi package | Used by Tether for |
 | --- | --- |
@@ -131,7 +131,7 @@ The app consumes `tether-agent-core` from npm. When developing the Runtime itsel
 
 ## Acknowledgments
 
-Tether's agent runtime is built on the open-source [Pi ecosystem](https://github.com/earendil-works/pi) (`@earendil-works/pi-agent-core`, `pi-ai`, `pi-coding-agent`, `pi-tui`). The [`tether-agent-core`](https://www.npmjs.com/package/tether-agent-core) npm package wraps Pi with Tether's DeepSeek defaults, permission modes, sandboxing, checkpoints, MCP, Hooks, and local data layout. Pi dependencies retain their own licenses and copyright.
+Tether's agent runtime is built on the open-source [Pi ecosystem](https://github.com/earendil-works/pi) (`@earendil-works/pi-agent-core`, `pi-ai`, `pi-coding-agent`, `pi-tui`). [`tether-agent-core`](https://www.npmjs.com/package/tether-agent-core) wraps Pi with Tether's DeepSeek defaults, permission modes, sandboxing, checkpoints, MCP, Hooks, and local data layout. Pi dependencies retain their own licenses and copyright.
 
 ## Privacy
 

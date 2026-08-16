@@ -2268,70 +2268,41 @@ export function Login({
 
             {pane === "about" && (
               <div className="settings-card">
-                <div className="settings-card-body">
+                <div className="settings-card-body about-body">
                   <div className="about-hero">
-                    <div className="about-logo">
-                      <img src={logo} alt="" width={32} height={18} />
-                    </div>
-                    <div>
-                      <h3>{t("about.title")}</h3>
-                      <p>{t("about.subtitle")}</p>
-                    </div>
+                    <img src={logo} alt="" className="about-logo" width={40} height={23} />
+                    <h3>
+                      {t("about.title")}
+                      <span className="about-version">v{appVersion || "0.1.3"}</span>
+                    </h3>
+                    <p className="about-tagline">{t("about.subtitle")}</p>
                   </div>
 
-                  <div className="about-features">
-                    <div className="about-feature-item">
-                      <Icon path="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-6h2zm0-8h-2V7h2z" size={15} />
-                      <div>
-                        <strong>{t("about.f1Title")}</strong>{t("about.f1Body")}
-                      </div>
-                    </div>
-                    <div className="about-feature-item">
-                      <Icon path="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" size={15} />
-                      <div>
-                        <strong>{t("about.f2Title")}</strong>{t("about.f2Body")}
-                      </div>
-                    </div>
-                    <div className="about-feature-item">
-                      <Icon path="M4 6h16v12H4zM8 14l3-3 2 2 3-4 4 5" size={15} />
-                      <div>
-                        <strong>{t("about.f3Title")}</strong>{t("about.f3Body")}
-                      </div>
-                    </div>
-                    <div className="about-feature-item">
-                      <Icon path="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" size={15} />
-                      <div>
-                        <strong>{t("about.f4Title")}</strong>{t("about.f4Body")}
-                      </div>
-                    </div>
-                  </div>
+                  <p className="about-desc">{t("about.desc")}</p>
+                  <p className="about-credit">{t("about.piCredit")}</p>
 
-                  <div className="about-grid">
-                    <div className="about-cell">
-                      <span className="about-key">{t("about.version")}</span>
-                      <span className="about-val">v{appVersion || "0.1.0"}</span>
+                  <dl className="about-meta">
+                    <div className="about-meta-row">
+                      <dt>{t("about.core")}</dt>
+                      <dd>{t("about.coreVal")}</dd>
                     </div>
-                    <div className="about-cell">
-                      <span className="about-key">{t("about.core")}</span>
-                      <span className="about-val">{t("about.coreVal")}</span>
+                    <div className="about-meta-row">
+                      <dt>{t("about.arch")}</dt>
+                      <dd>Electron 37 · React 19 · Node 22</dd>
                     </div>
-                    <div className="about-cell">
-                      <span className="about-key">{t("about.arch")}</span>
-                      <span className="about-val">Electron 37 · React 19 · Node 22</span>
+                    <div className="about-meta-row">
+                      <dt>{t("about.sandbox")}</dt>
+                      <dd>{t("about.sandboxVal")}</dd>
                     </div>
-                    <div className="about-cell">
-                      <span className="about-key">{t("about.sandbox")}</span>
-                      <span className="about-val">{t("about.sandboxVal")}</span>
+                    <div className="about-meta-row">
+                      <dt>{t("about.dataDir")}</dt>
+                      <dd>{t("about.dataDirVal")}</dd>
                     </div>
-                    <div className="about-cell">
-                      <span className="about-key">{t("about.dataDir")}</span>
-                      <span className="about-val">{t("about.dataDirVal")}</span>
+                    <div className="about-meta-row">
+                      <dt>{t("about.license")}</dt>
+                      <dd>MIT License</dd>
                     </div>
-                    <div className="about-cell">
-                      <span className="about-key">{t("about.license")}</span>
-                      <span className="about-val">MIT License</span>
-                    </div>
-                  </div>
+                  </dl>
                 </div>
               </div>
             )}
