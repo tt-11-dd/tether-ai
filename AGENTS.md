@@ -1,6 +1,6 @@
 # Tether
 
-面向仓库的 AI 编程桌面工作台。Agent 循环、沙箱、会话在本地 `tether-agent-core`；本仓库只做 Electron 壳和中文工作流界面。
+面向仓库的 AI 编程桌面工作台。Agent 循环、沙箱、会话在 npm 包 `tether-agent-core`；本仓库只做 Electron 壳和中文工作流界面。
 
 ## 地图
 

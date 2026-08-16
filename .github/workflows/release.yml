@@ -39,28 +39,6 @@ jobs:
     steps:
       - name: Check out tether-ai
         uses: actions/checkout@v4
-        with:
-          path: tether-ai
-
-      - name: Require TETHER_RUNTIME_TOKEN
-        env:
-          TETHER_RUNTIME_TOKEN: ${{ secrets.TETHER_RUNTIME_TOKEN }}
-        run: |
-          if [ -z "$TETHER_RUNTIME_TOKEN" ]; then
-            echo "::error::Missing secret TETHER_RUNTIME_TOKEN. Add a PAT that can read private repo tt-11-dd/tether-runtime (Contents: Read), then re-run."
-            exit 1
-          fi
-
-      # Agent core lives in a sibling private repo. GITHUB_TOKEN cannot read
-      # other private repos — set secret TETHER_RUNTIME_TOKEN (PAT with
-      # Contents: Read on tt-11-dd/tether-runtime). Default branch is `dev`.
-      - name: Check out tether-runtime
-        uses: actions/checkout@v4
-        with:
-          repository: tt-11-dd/tether-runtime
-          ref: dev
-          path: tether-runtime
-          token: ${{ secrets.TETHER_RUNTIME_TOKEN }}
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -73,44 +51,15 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: |
-            tether-ai/pnpm-lock.yaml
-            tether-runtime/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
-      - name: Set up Go (Windows sandbox helper)
-        if: matrix.target == 'win'
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-
-      - name: Install tether-runtime dependencies
-        working-directory: tether-runtime
-        # Remote lockfile sometimes drifts from patchedDependencies in
-        # pnpm-workspace.yaml; don't block releases on that mismatch.
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Build tether-agent-core
-        working-directory: tether-runtime/packages/core
-        run: |
-          pnpm build
-          if [ "${{ matrix.target }}" = "win" ]; then
-            pnpm build:windows-sandbox
-          fi
-
-      - name: Install tether-ai dependencies
-        working-directory: tether-ai
+      - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Link tether-agent-core
-        working-directory: tether-ai
-        run: pnpm core:link
-
       - name: Build desktop app
-        working-directory: tether-ai
         run: pnpm build:electron && pnpm build:renderer
 
       - name: Pack installer
-        working-directory: tether-ai
         env:
           # Use the ad-hoc identity from electron-builder.yml; skip keychain discovery.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
@@ -119,7 +68,6 @@ jobs:
       # Only ship the two installers — never blockmap / yaml / unpacked dirs.
       - name: Stage release assets
         id: stage
-        working-directory: tether-ai
         run: |
           mkdir -p release-upload
           if [ "${{ matrix.target }}" = "mac" ]; then
@@ -135,7 +83,7 @@ jobs:
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           name: Tether ${{ steps.stage.outputs.version }}
-          files: tether-ai/release-upload/*
+          files: release-upload/*
           fail_on_unmatched_files: true
           body: |
             ## Downloads
