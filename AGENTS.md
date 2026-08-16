@@ -12,6 +12,7 @@
 - 会话归并：[src/renderer/conversation.ts](src/renderer/conversation.ts)
 - IPC 契约：[src/shared/types.ts](src/shared/types.ts)
 - 长任务协议：`.agents/skills/init-long-run`、`.agents/skills/continue-long-run`、`.agents/skills/plan-then-act`
+- 界面气质（改 CSS / 组件 / 克隆同款工作台）：`.agents/skills/tether-ui`（Cursor 侧同步 `.cursor/skills/tether-ui`）
 
 ## Agent Skills
 

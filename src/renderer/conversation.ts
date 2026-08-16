@@ -202,6 +202,20 @@ export function undoDialogTitle(heading: string | undefined, lastTurn?: string):
   });
 }
 
+export function approvalTitle(heading: string | undefined, lastTurn?: string): string {
+  const line = heading?.split("\n")[0]?.trim() ?? "";
+  if (!line) return ct("approval.needConfirm");
+  if (/^run destructive command\??$/i.test(line)) return ct("approval.destructiveTitle");
+  if (/^allow network access\??$/i.test(line)) return ct("approval.networkTitle");
+  if (/^allow unrestricted host access\??$/i.test(line)) return ct("approval.hostTitle");
+  const apply = /^Apply (.+)\?$/.exec(line);
+  if (apply?.[1]) return ct("approval.applyFile", { file: apply[1] });
+  const tool = /^Allow ([a-z][a-z0-9_]+)\?$/i.exec(line);
+  if (tool?.[1]) return ct("approval.allowTool", { tool: tool[1] });
+  if (/^Undo\s/i.test(line)) return undoDialogTitle(line, lastTurn) ?? ct("undo.confirm");
+  return line;
+}
+
 export function groupConversation(messages: ChatMessage[]): ConversationGroup[] {
   const groups: ConversationGroup[] = [];
   for (const message of messages) {
@@ -503,7 +517,7 @@ function preferToolTitle(next: string, previous: string): string {
 }
 
 function vagueToolTitle(title: string): boolean {
-  return /^(Ran a command|Read files|Wrote a file|Edited files)$/.test(title);
+  return /^(Ran a command|Read files|Wrote a file|Edited files|执行命令|读取文件|写入文件|编辑文件)$/.test(title);
 }
 
 function toolTitle(name: string, args: unknown): string {
@@ -512,12 +526,12 @@ function toolTitle(name: string, args: unknown): string {
   const target = patchTarget(stringField(record, "input"));
   const file = stringField(record, "path") || stringField(record, "file_path") || target?.path || "";
   if (name.includes("exec") || name.includes("bash") || name.includes("command")) {
-    return command ? commandTitle(command) : "Ran a command";
+    return command ? commandTitle(command) : ct("cmd.ranEmpty");
   }
-  if (name.includes("read")) return file ? `Read ${file}` : "Read files";
-  if (name.includes("write") || target?.action === "add") return file ? `Wrote ${file}` : "Wrote a file";
-  if (name.includes("edit") || name.includes("patch")) return file ? `Edited ${file}` : "Edited files";
-  if (name.includes("search")) return "Searched the workspace";
+  if (name.includes("read")) return file ? ct("tool.read", { file }) : ct("tool.readEmpty");
+  if (name.includes("write") || target?.action === "add") return file ? ct("tool.wrote", { file }) : ct("tool.wroteEmpty");
+  if (name.includes("edit") || name.includes("patch")) return file ? ct("tool.edited", { file }) : ct("tool.editedEmpty");
+  if (name.includes("search")) return ct("tool.search");
   if (name === "vision") return ct("tool.vision");
   return name.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
 }
@@ -565,8 +579,8 @@ export function formatCommand(command: string): string {
 
 function commandTitle(command: string): string {
   const lines = formatCommand(command).split("\n").filter(Boolean);
-  if (lines.length === 0) return "Ran a command";
-  if (lines.length === 1) return `Ran ${crop(lines[0]!, 72)}`;
+  if (lines.length === 0) return ct("cmd.ranEmpty");
+  if (lines.length === 1) return ct("cmd.ran", { cmd: crop(lines[0]!, 72) });
   const bin = baseName(lines[0]!.split(/\s+/)[0] ?? "") || "command";
   return ct("cmd.ranN", { bin, n: lines.length });
 }

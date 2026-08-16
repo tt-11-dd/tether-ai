@@ -218,13 +218,10 @@ function allowedProjects(): Set<string> {
 }
 
 /** Windows/Linux have no Seatbelt; workspace-write cannot run commands without Docker. */
-function confirmUnsandboxedProject(cwd: string | undefined, message: string): boolean {
-  if (window.harness.platform === "darwin" || !cwd) return false;
+function rememberUnsandboxed(cwd: string): void {
   const remembered = allowedProjects();
-  if (remembered.has(cwd)) return true;
-  const ok = window.confirm(message);
-  if (ok) localStorage.setItem(SANDBOX_OK_KEY, JSON.stringify([...remembered, cwd]));
-  return ok;
+  if (remembered.has(cwd)) return;
+  localStorage.setItem(SANDBOX_OK_KEY, JSON.stringify([...remembered, cwd]));
 }
 
 function AccountMenu({
@@ -356,6 +353,8 @@ export function App() {
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [sandboxAsk, setSandboxAsk] = useState<{ cwd: string; message: string }>();
+  const sandboxWaiter = useRef<((ok: boolean) => void) | undefined>(undefined);
   const [toast, setToast] = useState<string>();
   const [uiRequest, setUiRequest] = useState<ExtensionUiRequest>();
   const [fullscreen, setFullscreen] = useState(false);
@@ -443,6 +442,21 @@ export function App() {
     return status;
   }, []);
 
+  const resolveSandbox = useCallback(async (asProject: boolean, mode: PermissionMode, cwd?: string) => {
+    if (!asProject) return "read-only" as const;
+    if (mode === "full") return "danger-full-access" as const;
+    if (window.harness.platform === "darwin" || !cwd) return "workspace-write" as const;
+    if (allowedProjects().has(cwd)) return "danger-full-access" as const;
+    const ok = await new Promise<boolean>((resolve) => {
+      sandboxWaiter.current = resolve;
+      setSandboxAsk({ cwd, message: t("confirm.unsandboxed", { cwd }) });
+    });
+    setSandboxAsk(undefined);
+    sandboxWaiter.current = undefined;
+    if (ok) rememberUnsandboxed(cwd);
+    return ok ? "danger-full-access" as const : "workspace-write" as const;
+  }, [t]);
+
   const startAgent = useCallback(async (
     cwd?: string,
     sessionPath?: string,
@@ -484,9 +498,7 @@ export function App() {
         setWorkspace(undefined);
       }
     }
-    const sandbox = asProject
-      ? (mode === "full" || confirmUnsandboxedProject(cwd, t("confirm.unsandboxed", { cwd: cwd ?? "" })) ? "danger-full-access" : "workspace-write")
-      : "read-only";
+    const sandbox = await resolveSandbox(asProject, mode, cwd);
     if (asProject && sandbox !== "danger-full-access" && window.harness.platform !== "darwin") {
       setLoading(false);
       setToast(t("toast.sandboxCancelled"));
@@ -538,7 +550,7 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, [hydrate, permission, refreshAgentSkills, t]);
+  }, [hydrate, permission, refreshAgentSkills, resolveSandbox, t]);
 
   const bindProject = useCallback(async (cwd: string): Promise<boolean> => {
     if (running && agentCwd.current && agentCwd.current !== cwd) {
@@ -1224,6 +1236,24 @@ export function App() {
         )}
       </Chat>
 
+      {sandboxAsk && (
+        <div
+          className="modal"
+          onClick={(event) => {
+            if (event.target !== event.currentTarget) return;
+            sandboxWaiter.current?.(false);
+          }}
+        >
+          <div className="panel" role="dialog">
+            <h2>{t("confirm.unsandboxedTitle")}</h2>
+            <p>{sandboxAsk.message}</p>
+            <div className="row-actions">
+              <button type="button" className="ghost" onClick={() => sandboxWaiter.current?.(false)}>{t("common.cancel")}</button>
+              <button type="button" className="primary" onClick={() => sandboxWaiter.current?.(true)}>{t("common.allow")}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {loginOpen && (
         <Login
           configured={Boolean(connected?.configured)}

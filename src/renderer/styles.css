@@ -441,7 +441,7 @@ button:disabled { cursor: default; opacity: .4; }
   border-radius: 0;
 }
 .win-controls button:hover { background: var(--hover); color: var(--ink); }
-.win-controls button.close:hover { background: #c4473a; color: #fff; }
+.win-controls button.close:hover { background: var(--red); color: var(--surface); }
 .darwin .win-controls { display: none; }
 .darwin .chat-bar { height: 42px; padding-right: 12px; }
 .chat-title {
@@ -541,7 +541,7 @@ button:disabled { cursor: default; opacity: .4; }
   gap: 4px;
   padding: 2px 7px;
   border-radius: 99px;
-  background: rgba(46, 160, 67, 0.09);
+  background: var(--green-tint);
   color: var(--green);
   font: 11px/1.2 var(--mono);
   font-weight: 500;
@@ -1451,9 +1451,9 @@ button:disabled { cursor: default; opacity: .4; }
   display: inline-block;
   opacity: 0.85;
 }
-.terminal-dot.red { background: #eb6f65; }
-.terminal-dot.yellow { background: #f4bf4f; }
-.terminal-dot.green { background: #61c554; }
+.terminal-dot.red { background: var(--red); }
+.terminal-dot.yellow { background: var(--ink-3); }
+.terminal-dot.green { background: var(--green); }
 .terminal-title {
   margin-left: 6px;
   font-size: 11.5px;
@@ -1713,7 +1713,7 @@ button:disabled { cursor: default; opacity: .4; }
   color: var(--ink);
 }
 .choices button:hover, .ghost:hover { background: var(--hover); }
-.primary { color: #fff; background: var(--ink); font-weight: 500; justify-content: center; box-shadow: none; }
+.primary { color: var(--surface); background: var(--ink); font-weight: 500; justify-content: center; box-shadow: none; }
 .primary:hover:not(:disabled) { background: var(--accent-ink); }
 .ghost.danger { color: var(--red); }
 .row-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
@@ -1882,7 +1882,7 @@ button:disabled { cursor: default; opacity: .4; }
   right: 3px;
   padding: 2px;
   border-radius: 999px;
-  background: #fffcf8cc;
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
   color: var(--ink);
 }
 .prompt-attach {
@@ -1961,7 +1961,7 @@ button:disabled { cursor: default; opacity: .4; }
   place-items: center;
   border-radius: 999px;
   background: var(--ink);
-  color: #fff;
+  color: var(--surface);
 }
 .send:hover:not(:disabled) { background: var(--accent-ink); }
 .send:disabled { background: var(--hover-2); color: var(--ink-3); }
@@ -1969,7 +1969,7 @@ button:disabled { cursor: default; opacity: .4; }
   width: 10px;
   height: 10px;
   border-radius: 2.5px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .slash-menu {
@@ -2223,7 +2223,7 @@ button:disabled { cursor: default; opacity: .4; }
   position: fixed;
   inset: 0;
   z-index: 20;
-  background: #1f212466;
+  background: color-mix(in srgb, var(--ink) 40%, transparent);
   display: grid;
   place-items: center;
 }
@@ -2254,7 +2254,7 @@ button:disabled { cursor: default; opacity: .4; }
   border: 0;
   border-radius: 10px;
   padding: 8px 10px;
-  background: #fff;
+  background: var(--inset);
   color: var(--ink);
   box-shadow: inset 0 0 0 1px var(--line-strong);
 }
@@ -2777,9 +2777,9 @@ kbd {
 }
 .code-line em { font-style: normal; }
 .code-line .com { color: var(--ink-3); font-style: italic; }
-.code-line .str { color: #2f7d4a; }
-.code-line .kw { color: #7048b6; }
-.code-line .num { color: #9a5b1f; }
+.code-line .str { color: var(--green); }
+.code-line .kw { color: var(--accent-ink); }
+.code-line .num { color: var(--ink-2); }
 .drawer .diff { flex: none; max-height: 38%; padding: 12px 16px 14px; border-bottom: 1px solid var(--line); background: var(--inset); }
 .drawer .diff .add { color: var(--green); }
 .drawer .diff .del { color: var(--red); }
@@ -2828,14 +2828,15 @@ kbd {
   line-height: 1.65;
 }
 .drawer .file-preview h1, .drawer .file-preview h2, .drawer .file-preview h3 { margin: 1em 0 .4em; letter-spacing: -.02em; }
-.drawer .file-preview h1 { font-size: 1.45em; }
-.drawer .file-preview h2 { font-size: 1.2em; }
+.drawer .file-preview h1 { font-size: 16px; }
+.drawer .file-preview h2 { font-size: 15px; }
+.drawer .file-preview h3 { font-size: 14px; }
 .file-frame {
   width: 100%;
   min-height: 0;
   flex: 1;
   border: 0;
-  background: #fff;
+  background: var(--surface);
 }
 .drawer .file-preview ul, .drawer .file-preview ol { margin: 0 0 .8em; padding-left: 1.3em; }
 

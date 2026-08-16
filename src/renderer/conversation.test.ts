@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
+import { applyAgentEvent, approvalTitle, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
 
 describe("conversation events", () => {
   it("calculates prompt cache hit rate from reported token usage", () => {
@@ -123,7 +123,7 @@ describe("conversation events", () => {
     });
 
     expect(messages[0]?.tools).toHaveLength(1);
-    expect(messages[0]?.tools[0]?.title).toBe("Ran git status");
+    expect(messages[0]?.tools[0]?.title).toBe("执行 git status");
   });
 
   it("formats chained shell commands", () => {
@@ -134,7 +134,7 @@ describe("conversation events", () => {
       toolCallId: "cmd-2",
       toolName: "exec_command",
       args: { cmd },
-    })[0]?.tools[0]?.title).toBe("Ran wc · 2 条命令");
+    })[0]?.tools[0]?.title).toBe("执行 wc · 2 条命令");
   });
 
   it("correlates tool start and completion events", () => {
@@ -238,7 +238,7 @@ describe("conversation events", () => {
       },
     ]);
     expect(messages[0]).toMatchObject({ role: "assistant", text: "Done." });
-    expect(messages[0]?.tools[0]).toMatchObject({ id: "tool-1", title: "Ran rg --files", output: "src/index.ts" });
+    expect(messages[0]?.tools[0]).toMatchObject({ id: "tool-1", title: "执行 rg --files", output: "src/index.ts" });
   });
 
   it("keeps one assistant turn across thinking, tools, and later text", () => {
@@ -748,6 +748,10 @@ describe("conversation events", () => {
     expect(undoDialogTitle("Undo 7f6eb0f8-6a0?", "在新增一个我的")).toBe("撤回「在新增一个我的」？");
     expect(undoDialogTitle("Undo abc?", "x".repeat(40))).toBe(`撤回「${"x".repeat(36)}…」？`);
     expect(undoDialogTitle("Allow unrestricted host access?")).toBe("Allow unrestricted host access?");
+    expect(approvalTitle("Allow unrestricted host access?")).toBe("允许访问本机");
+    expect(approvalTitle("Allow network access?")).toBe("允许访问网络");
+    expect(approvalTitle("Apply src/App.tsx?")).toBe("允许改 src/App.tsx");
+    expect(approvalTitle("Allow exec_command?")).toBe("允许调用 exec_command");
   });
 
   it("breaks thinking walls into list-friendly lines", () => {

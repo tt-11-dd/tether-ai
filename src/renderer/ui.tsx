@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -6,11 +6,12 @@ import { PREVIEW_HOST, PREVIEW_SCHEME, type AgentSessionStats, type ExtensionUiR
 import { skillUserDisplay } from "../shared/skills";
 import { DEFAULT_VISION_CONFIG, visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, type ChatKind } from "../shared/chat-profiles";
-import { baseName, cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, isHttpUrl, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, takeTrailingUrl, toolCommand, toolSummary, toolWritePreview, traceRows, trimHttpUrl, turnWork, undoDialogTitle, urlChipLabel, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
+import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, isHttpUrl, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, takeTrailingUrl, toolCommand, toolSummary, toolWritePreview, traceRows, trimHttpUrl, turnWork, urlChipLabel, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
 import type { AgentSkillCommand } from "../shared/skills";
 import { PROJECT_SKILL_ROOTS, USER_SKILL_ROOTS, skillSlashCommand } from "../shared/skills";
 import { useI18n } from "./i18n";
+import type { MessageKey } from "../shared/i18n";
 import logo from "./logo.svg";
 
 const MAX_UPLOAD_IMAGES = 4;
@@ -1976,25 +1977,18 @@ export function ApprovalCard({
     request.title ?? (request.method === "confirm" ? t("approval.needConfirm") : t("approval.needSelect")),
     request.message,
   );
-  const title = undoDialogTitle(copy.heading, lastTurn);
+  const title = copy.destructive ? t("approval.destructiveTitle") : approvalTitle(copy.heading, lastTurn);
+  const folded = copy.command || copy.detail;
   return (
     <div className="approval">
-      <strong>{copy.destructive ? t("approval.destructiveTitle") : title}</strong>
-      {copy.destructive ? (
-        <>
-          <p>{t("approval.destructiveBody")}</p>
-          {copy.command && (
-            <details className="approval-cmd">
-              <summary>{t("approval.showCommand")}</summary>
-              <pre className="approval-detail">{copy.command}</pre>
-            </details>
-          )}
-        </>
-      ) : (
-        <>
-          {copy.detail && <pre className="approval-detail">{copy.detail}</pre>}
-          {copy.message && <p>{copy.message}</p>}
-        </>
+      <strong>{title}</strong>
+      {copy.destructive && <p>{t("approval.destructiveBody")}</p>}
+      {!copy.destructive && copy.message && <p>{copy.message}</p>}
+      {folded && (
+        <details className="approval-cmd">
+          <summary>{t("approval.showCommand")}</summary>
+          <pre className="approval-detail">{folded}</pre>
+        </details>
       )}
       {request.method === "select" && (
         <div className="choices">
@@ -2024,12 +2018,13 @@ export function ApprovalCard({
   );
 }
 
-function accessChoiceLabel(option: string, t: (key: string) => string): string {
+function accessChoiceLabel(option: string, t: (key: MessageKey) => string): string {
   if (option === "Allow once") return t("approval.allowOnce");
   if (option === "Allow for this conversation" || option === "Allow this command for this session") {
     return t("approval.allowConversation");
   }
   if (option === "Deny") return t("common.reject");
+  if (/^allow\b/i.test(option)) return t("common.allow");
   return option;
 }
 
