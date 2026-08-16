@@ -39,7 +39,16 @@ Skills 由 Pi 运行时加载（Tether 不另写 loader）。标准路径：
 
 ## 检查
 
+macOS / Linux:
+
 ```bash
+pnpm test
+pnpm typecheck
+```
+
+Windows PowerShell:
+
+```powershell
 pnpm test
 pnpm typecheck
 ```
