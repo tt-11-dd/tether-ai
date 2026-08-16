@@ -41,7 +41,7 @@ Tether does not reimplement the agent foundations. Its public [`tether-agent-cor
 Tether adds:
 
 - DeepSeek defaults and an OpenAI-compatible gateway workflow
-- Four permission modes, macOS Seatbelt, and a Windows sandbox helper
+- Four permission modes, macOS Seatbelt, and an experimental Windows sandbox helper (install + enable)
 - Workspace-scoped tools, managed commands, file patches, and durable checkpoints
 - MCP, Hooks, Skills, planning, and subagent integration
 - The `~/.tether` local data conventions and Electron/React desktop workbench
@@ -128,6 +128,10 @@ pnpm build
 ```
 
 The app consumes `tether-agent-core` from npm. When developing the Runtime itself, temporarily link `../tether-runtime/packages/core`.
+
+## Acknowledgments
+
+Tether's agent runtime is built on the open-source [Pi ecosystem](https://github.com/earendil-works/pi) (`@earendil-works/pi-agent-core`, `pi-ai`, `pi-coding-agent`, `pi-tui`). The [`tether-agent-core`](https://www.npmjs.com/package/tether-agent-core) npm package wraps Pi with Tether's DeepSeek defaults, permission modes, sandboxing, checkpoints, MCP, Hooks, and local data layout. Pi dependencies retain their own licenses and copyright.
 
 ## Privacy
 

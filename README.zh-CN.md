@@ -41,7 +41,7 @@ Tether 没有重复实现 Agent 基础设施，而是通过公开包 [`tether-ag
 在此之上，Tether 增加：
 
 - DeepSeek 默认配置与 OpenAI 兼容网关体验
-- 四级权限模型、macOS Seatbelt 与 Windows sandbox helper
+- 四级权限模型、macOS Seatbelt 与实验性 Windows sandbox helper（需安装并启用）
 - 工作区约束工具、托管命令、文件补丁与持久化 Checkpoint
 - MCP、Hooks、Skills、计划与子 Agent 集成
 - `~/.tether` 本地数据约定和 Electron/React 桌面工作台
@@ -128,6 +128,10 @@ pnpm build
 ```
 
 Agent 核心通过 npm 依赖 `tether-agent-core`。开发 Runtime 本身时，可在本地临时 link `../tether-runtime/packages/core`。
+
+## 致谢
+
+Tether 的 Agent 运行时基于开源 [Pi 生态](https://github.com/earendil-works/pi)（`@earendil-works/pi-agent-core`、`pi-ai`、`pi-coding-agent`、`pi-tui`）构建。公开 npm 包 [`tether-agent-core`](https://www.npmjs.com/package/tether-agent-core) 在 Pi 之上封装 DeepSeek 默认体验、权限模式、沙箱、Checkpoint、MCP、Hooks 与本地数据层。Pi 依赖保留各自的许可证与版权。
 
 ## 隐私说明
 
