@@ -2536,7 +2536,7 @@ export function Login({
                         {t("settings.baseUrl")}
                         <input
                           value={customUrl}
-                          onChange={(event) => setCustomUrl(event.target.value)}
+                          onChange={(event) => { setCustomUrl(event.target.value); setChatModels([]); setCustomModel(""); }}
                           placeholder="https://api.example.com/v1"
                         />
                       </label>
