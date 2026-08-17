@@ -15,9 +15,31 @@ import type { MessageKey } from "../shared/i18n";
 import logo from "./logo.svg";
 
 const MAX_UPLOAD_IMAGES = 4;
+const PATH_MIME = "text/tether-path";
+let treeDragPath = "";
 
 function isPromptFileDrag(transfer: DataTransfer): boolean {
-  return [...transfer.types].includes("Files");
+  if (treeDragPath) return true;
+  const types = [...transfer.types];
+  return types.includes(PATH_MIME) || types.includes("Files");
+}
+
+function setDragGhost(transfer: DataTransfer, label: string) {
+  const ghost = document.createElement("div");
+  ghost.className = "drag-ghost";
+  ghost.textContent = label;
+  document.body.appendChild(ghost);
+  transfer.setDragImage(ghost, 16, 14);
+  requestAnimationFrame(() => ghost.remove());
+}
+
+function beginTreeDrag(event: DragEvent<HTMLElement>, path: string, label: string) {
+  treeDragPath = path;
+  event.dataTransfer.effectAllowed = "copy";
+  // Override the button's default text/html; otherwise contenteditable clones the row.
+  event.dataTransfer.setData("text/html", "<span></span>");
+  event.dataTransfer.setData(PATH_MIME, path);
+  setDragGhost(event.dataTransfer, label);
 }
 
 export function Icon({ path, size = 16, className }: { path: string; size?: number; className?: string }) {
@@ -99,9 +121,13 @@ export function CopyButton({
 }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
-  const copy = async () => {
+  const copy = async (host: HTMLElement) => {
+    const markdown = host.closest(".turn")?.querySelector(".stream .markdown");
+    const plain = markdown instanceof HTMLElement
+      ? markdown.innerText.replace(/\n{3,}/g, "\n\n").trim()
+      : "";
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(plain || text);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
     } catch {
@@ -109,7 +135,7 @@ export function CopyButton({
     }
   };
   return (
-    <button type="button" className={className} aria-label={copied ? t("common.copied") : label ?? t("common.copy")} onClick={() => void copy()}>
+    <button type="button" className={className} aria-label={copied ? t("common.copied") : label ?? t("common.copy")} onClick={(event) => void copy(event.currentTarget)}>
       <Icon path={copied ? "M5 12.5l4 4 10-10" : "M8 8h12v12H8zM4 16V4h12"} size={size} />
     </button>
   );
@@ -709,6 +735,13 @@ function Fold({
   );
 }
 
+function copyMarkdownPlain(event: { preventDefault(): void; clipboardData: DataTransfer | null }) {
+  const selected = window.getSelection()?.toString();
+  if (!selected) return;
+  event.preventDefault();
+  event.clipboardData?.setData("text/plain", selected);
+}
+
 function Markdown({ children, streaming }: { children: string; streaming?: boolean }) {
   const source = stripEmptyMarkdown(repairMarkdownTables(streaming ? closeOpenFences(children) : children));
   if (!source) return null;
@@ -791,7 +824,7 @@ export function AssistantTurn({
     ? omitFinalReply(work, text)
     : work.filter((item) => item.type !== "text");
   return (
-    <article className="turn">
+    <article className="turn" onCopy={copyMarkdownPlain}>
       {(live || thinking || traceWork.length > 0 || tools.length > 0) && (
         <div className="turn-trace">
           <Thinking text={thinking} work={traceWork} tools={tools} live={live} startedAt={started} endedAt={ended || undefined} />
@@ -850,13 +883,14 @@ export function InspectPanel({
   const { t } = useI18n();
   const [progress, setProgress] = useState(true);
   const [changesOpen, setChangesOpen] = useState(true);
-  const [termsOpen, setTermsOpen] = useState(true);
+  const [termsOpen, setTermsOpen] = useState(false);
   const [openTerm, setOpenTerm] = useState<string>();
   const [working, setWorking] = useState(true);
   const [treeOpen, setTreeOpen] = useState(true);
   const [entries, setEntries] = useState<string[]>([]);
   const [prefix, setPrefix] = useState("");
   const [tick, setTick] = useState(0);
+  const dragging = useRef(false);
   const edits = files.filter((file) => file.kind === "edit");
   useEffect(() => window.harness.workspace.onChanged(() => {
     if (workspace) setTick((value) => value + 1);
@@ -897,7 +931,24 @@ export function InspectPanel({
         <Fold title={t("inspect.changes")} open={changesOpen} onToggle={() => setChangesOpen((current) => !current)}>
           <div className="inspect-changes">
             {edits.map((file) => (
-              <button key={file.path} type="button" className="inspect-file edit" onClick={() => onOpen(file)}>
+              <button
+                key={file.path}
+                type="button"
+                className="inspect-file edit"
+                draggable
+                onDragStart={(event) => {
+                  dragging.current = true;
+                  beginTreeDrag(event, file.path, baseName(file.path));
+                }}
+                onDragEnd={() => {
+                  treeDragPath = "";
+                  requestAnimationFrame(() => { dragging.current = false; });
+                }}
+                onClick={() => {
+                  if (dragging.current) return;
+                  onOpen(file);
+                }}
+              >
                 <Icon path={fileGlyph(file.path)} size={14} />
                 <span>{baseName(file.path)}</span>
                 <small>
@@ -978,7 +1029,17 @@ export function InspectPanel({
                   key={file}
                   type="button"
                   className={dirty ? "inspect-file edit" : "inspect-file"}
+                  draggable
+                  onDragStart={(event) => {
+                    dragging.current = true;
+                    beginTreeDrag(event, file, name);
+                  }}
+                  onDragEnd={() => {
+                    treeDragPath = "";
+                    requestAnimationFrame(() => { dragging.current = false; });
+                  }}
                   onClick={() => {
+                    if (dragging.current) return;
                     if (dir) setPrefix(file);
                     else onOpen(change ?? { path: file, additions: 0, deletions: 0 });
                   }}
@@ -1638,10 +1699,13 @@ export function PromptBar({
     setDropOver(false);
     if (!root) return;
     const paths: string[] = [];
+    const treePath = treeDragPath || event.dataTransfer.getData(PATH_MIME);
     const dropped = [...event.dataTransfer.files];
     const images = dropped.filter((file) => file.type.startsWith("image/"));
     if (images.length) void addUploads(images);
-    if (workspace) {
+    if (treePath) {
+      paths.push(treePath);
+    } else if (workspace) {
       for (const file of dropped) {
         if (file.type.startsWith("image/")) continue;
         const rel = workspaceRelative(droppedAbsPath(file), workspace);
