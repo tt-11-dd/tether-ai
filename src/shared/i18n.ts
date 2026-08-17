@@ -274,8 +274,10 @@ const zh = {
   "settings.customHint":
     "兼容任意符合 OpenAI Chat Completions 规范的服务（如 OneAPI、Ollama、NewAPI 或第三方聚合商）。",
   "settings.baseUrl": "接口地址 (Base URL)",
-  "settings.maxTokens": "最大输出 Token",
-  "settings.maxTokensHint": "默认 384000。部分中转上限更低。",
+  "settings.advanced": "高级选项",
+  "settings.maxTokens": "最大输出 Token（可选）",
+  "settings.maxTokensPlaceholder": "留空使用默认",
+  "settings.maxTokensHint": "留空时默认 384000。部分中转上限更低时再填写。",
   "settings.visionTitle": "视觉分析",
   "settings.visionBadge": "主视觉",
   "settings.visionHint":
@@ -627,9 +629,11 @@ const en: Record<MessageKey, string> = {
   "settings.customHint":
     "Any OpenAI Chat Completions compatible gateway (OneAPI, Ollama, NewAPI, or a private aggregator).",
   "settings.baseUrl": "Base URL",
-  "settings.maxTokens": "Max output tokens",
+  "settings.advanced": "Advanced",
+  "settings.maxTokens": "Max output tokens (optional)",
+  "settings.maxTokensPlaceholder": "Default if empty",
   "settings.maxTokensHint":
-    "Default 384000. Some gateways cap lower — Agnes is 65536.",
+    "Leave empty for 384000. Set only when your gateway caps lower (e.g. Agnes 65536).",
   "settings.visionTitle": "Vision",
   "settings.visionBadge": "Primary vision",
   "settings.visionHint":

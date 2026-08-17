@@ -80,8 +80,14 @@ button:disabled {
   outline-offset: 2px;
 }
 ::selection {
-  background: var(--accent-tint);
-  color: var(--ink);
+  background: var(--brand);
+  color: #fff;
+}
+input::selection,
+textarea::selection,
+.combo-input::selection {
+  background: var(--ink);
+  color: var(--surface);
 }
 
 .app {
@@ -3092,6 +3098,7 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   flex: none;
+  flex-shrink: 0;
   border-bottom: 1px solid var(--line);
 }
 .settings-head h2 {
@@ -3113,21 +3120,30 @@ button:disabled {
   color: var(--ink);
 }
 .settings-body {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
-  padding: 16px 24px 28px;
+  padding: 18px 24px 16px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  position: relative;
-  z-index: 1;
-  overflow-y: auto;
+  gap: 10px;
+  overflow: hidden;
+}
+.settings label {
+  gap: 5px;
+  font-size: 12.5px;
+}
+.settings input {
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
 }
 .settings-hint {
   margin: 0;
   color: var(--ink-2);
   font-size: 12.5px;
-  line-height: 1.5;
+  line-height: 1.45;
 }
 .settings-hint code {
   font: 11.5px/1.2 var(--mono);
@@ -3141,7 +3157,6 @@ button:disabled {
   gap: 2px;
   border-radius: 10px;
   background: var(--field);
-  border: 1px solid var(--line);
 }
 .settings-seg button {
   flex: 1;
@@ -3159,28 +3174,7 @@ button:disabled {
   font-weight: 500;
   box-shadow: var(--shadow-btn);
 }
-.settings-card {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface);
-  display: flex;
-  flex-direction: column;
-  flex: none;
-}
-.settings-card.muted {
-  background: var(--page);
-}
-.settings-card-head {
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--surface);
-  font-size: 13px;
-  color: var(--ink);
-}
-.settings-card-badge {
+.settings-badge {
   font-size: 11px;
   padding: 2px 7px;
   border-radius: 6px;
@@ -3188,48 +3182,59 @@ button:disabled {
   color: var(--ink-2);
   font-weight: 500;
 }
-.settings-card-badge.free {
+.settings-badge.free {
   background: rgba(46, 160, 67, 0.1);
   color: var(--green);
 }
-.settings-card-body {
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.settings-feedback {
-  margin-top: 2px;
-  padding: 8px 12px;
-  border-radius: 8px;
+.settings-status {
+  margin-top: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--field);
   display: flex;
   align-items: center;
   gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.settings-status strong {
+  color: var(--ink);
+  font-weight: 550;
+}
+.settings-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  flex: none;
+}
+.settings-feedback {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
+  min-height: 18px;
 }
 .settings-feedback.ok {
-  background: rgba(46, 160, 67, 0.08);
-  border: 1px solid rgba(46, 160, 67, 0.2);
   color: var(--green);
 }
 .settings-feedback.err {
-  background: rgba(224, 76, 53, 0.08);
-  border: 1px solid var(--red-tint);
   color: var(--red);
 }
 .shortcut-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
 }
 .shortcut-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 4px;
+  gap: 12px;
+  padding: 8px 0;
   border-bottom: 1px solid var(--line);
   font-size: 13px;
   color: var(--ink);
+  white-space: nowrap;
 }
 .shortcut-item:last-child {
   border-bottom: none;
@@ -3257,14 +3262,18 @@ kbd {
 }
 .about-body {
   gap: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .about-hero {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 6px;
-  padding: 16px 0 8px;
+  gap: 4px;
+  padding: 8px 0 4px;
 }
 .about-logo {
   display: block;
@@ -3295,7 +3304,7 @@ kbd {
   color: var(--ink-3);
 }
 .about-site {
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--ink-2);
   font-size: 13px;
   text-decoration: underline;
@@ -3306,33 +3315,39 @@ kbd {
 }
 .about-intro,
 .about-origin {
-  margin: 14px 0 0;
+  margin: 12px 0 0;
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.55;
   color: var(--ink-2);
   text-align: left;
 }
 .about-origin-name {
-  margin: 16px 0 0;
+  margin: 14px 0 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--ink);
   text-align: left;
 }
 .skills-section {
-  margin-top: 14px;
-  padding-top: 14px;
+  margin-top: 4px;
+  padding-top: 10px;
   border-top: 1px solid var(--line);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.skills-section:last-child {
+  flex: 1;
 }
 .skills-section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 .skills-section-title {
-  margin: 0 0 8px;
+  margin: 0 0 6px;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--ink);
@@ -3340,8 +3355,10 @@ kbd {
 .skills-section-head .skills-section-title {
   margin-bottom: 0;
 }
-.skills-path-block + .skills-path-block {
-  margin-top: 10px;
+.skills-paths {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 20px;
 }
 .skills-path-label {
   font-size: 11.5px;
@@ -3353,7 +3370,7 @@ kbd {
   padding-left: 18px;
   font-size: 12.5px;
   color: var(--ink-2);
-  line-height: 1.55;
+  line-height: 1.5;
 }
 .skills-path-list code {
   font: 11.5px/1.35 var(--mono);
@@ -3361,13 +3378,15 @@ kbd {
 .skills-list {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
 }
 .skills-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 0;
+  padding: 8px 0;
   border-bottom: 1px solid var(--line);
 }
 .skills-row:last-child {
@@ -3398,9 +3417,6 @@ kbd {
   flex: 1;
   min-width: 0;
 }
-.settings-model .ghost {
-  flex: none;
-}
 .secret {
   position: relative;
   display: block;
@@ -3426,11 +3442,49 @@ kbd {
   background: var(--hover);
 }
 .settings-foot {
+  flex: none;
+  flex-shrink: 0;
   padding: 12px 24px;
   border-top: 1px solid var(--line);
+  background: var(--surface);
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+.settings-advanced {
+  margin: 0;
+  border: none;
+  padding: 0;
+}
+.settings-advanced > summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  user-select: none;
+}
+.settings-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.settings-advanced > summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+.settings-advanced[open] > summary::before {
+  transform: rotate(90deg);
+}
+.settings-advanced[open] > summary {
+  margin-bottom: 10px;
+}
+.settings-advanced label {
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+.settings-advanced input {
+  height: 32px;
+  font-size: 13px;
 }
 .combo.open {
   z-index: 5;
@@ -3439,15 +3493,29 @@ kbd {
   width: 100%;
 }
 .panel .combo-trigger,
-.panel .combo-input,
+.panel .combo-input {
+  width: 100%;
+  max-width: none;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--field);
+  color: var(--ink);
+}
 .settings .combo-trigger,
 .settings .combo-input {
   width: 100%;
   max-width: none;
-  height: 36px;
+  height: 34px;
   border-radius: 10px;
-  background: var(--field);
+  background: var(--surface);
   color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.settings-model .ghost {
+  flex: none;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 10px;
 }
 .notice {
   font: 12px/1.5 var(--mono);

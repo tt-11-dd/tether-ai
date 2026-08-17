@@ -2240,6 +2240,7 @@ function ModelField({
           value={value}
           options={options}
           searchable
+          down
           placeholder={placeholder ?? t("composer.filterModels")}
           onChange={onChange}
         />
@@ -2522,116 +2523,95 @@ export function Login({
                   ))}
                 </div>
 
-                <div className="settings-card">
-                  <div className="settings-card-body">
-                    {kind === "deepseek" ? (
-                      <p className="settings-hint">{t("settings.deepseekHint")}</p>
-                    ) : (
-                      <p className="settings-hint">{t("settings.customHint")}</p>
-                    )}
-
-                    {kind === "custom" && (
-                      <>
-                      <label>
-                        {t("settings.baseUrl")}
-                        <input
-                          value={customUrl}
-                          onChange={(event) => { setCustomUrl(event.target.value); setChatModels([]); setCustomModel(""); }}
-                          placeholder="https://api.example.com/v1"
-                        />
-                      </label>
-                      <label>
-                        {t("settings.maxTokens")}
-                        <input
-                          inputMode="numeric"
-                          value={customMaxTokens}
-                          onChange={(event) => setCustomMaxTokens(event.target.value.replace(/[^\d]/g, ""))}
-                          placeholder="384000"
-                        />
-                      </label>
-                      <p className="settings-hint">{t("settings.maxTokensHint")}</p>
-                      </>
-                    )}
-
-                    <SecretField value={chatKey} onChange={kind === "deepseek" ? setDeepseekKey : setCustomKey} />
-
-                    <ModelField
-                      value={chatModel}
-                      onChange={kind === "deepseek" ? setDeepseekModel : setCustomModel}
-                      models={chatModels}
-                      listing={listing === "chat"}
-                      canList={Boolean(chatUrl.trim() && chatKey.trim())}
-                      onList={() => void listModels("chat")}
+                {kind === "custom" && (
+                  <label>
+                    {t("settings.baseUrl")}
+                    <input
+                      value={customUrl}
+                      onChange={(event) => { setCustomUrl(event.target.value); setChatModels([]); setCustomModel(""); }}
+                      placeholder="https://api.example.com/v1"
                     />
+                  </label>
+                )}
 
-                    {testStatus?.target === "chat" && (
-                      <div className={`settings-feedback ${testStatus.ok ? "ok" : "err"}`}>
-                        <Icon path={testStatus.ok ? "M5 12.5l4 4 10-10" : "M12 8v4m0 4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 22 0z"} size={14} />
-                        <span>{testStatus.message}</span>
-                      </div>
-                    )}
+                <SecretField value={chatKey} onChange={kind === "deepseek" ? setDeepseekKey : setCustomKey} />
+
+                <ModelField
+                  value={chatModel}
+                  onChange={kind === "deepseek" ? setDeepseekModel : setCustomModel}
+                  models={chatModels}
+                  listing={listing === "chat"}
+                  canList={Boolean(chatUrl.trim() && chatKey.trim())}
+                  onList={() => void listModels("chat")}
+                />
+
+                {kind === "custom" && (
+                  <details className="settings-advanced">
+                    <summary>{t("settings.advanced")}</summary>
+                    <label>
+                      {t("settings.maxTokens")}
+                      <input
+                        inputMode="numeric"
+                        value={customMaxTokens}
+                        onChange={(event) => setCustomMaxTokens(event.target.value.replace(/[^\d]/g, ""))}
+                        placeholder={t("settings.maxTokensPlaceholder")}
+                      />
+                    </label>
+                  </details>
+                )}
+
+                {testStatus?.target === "chat" && (
+                  <div className={`settings-feedback ${testStatus.ok ? "ok" : "err"}`}>
+                    <Icon path={testStatus.ok ? "M5 12.5l4 4 10-10" : "M12 8v4m0 4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 22 0z"} size={14} />
+                    <span>{testStatus.message}</span>
                   </div>
-                </div>
+                )}
               </>
             )}
 
             {pane === "vision" && (
               <>
-                <div className="settings-card">
-                  <div className="settings-card-head">
-                    <strong>{t("settings.visionTitle")}</strong>
-                    <span className="settings-card-badge">{t("settings.visionBadge")}</span>
-                  </div>
-                  <div className="settings-card-body">
-                    <p className="settings-hint">{t("settings.visionHint")}</p>
-                    <label>
-                      {t("settings.endpoint")}
-                      <input
-                        value={visionEndpoint}
-                        onChange={(event) => setVisionEndpoint(event.target.value)}
-                        placeholder={DEFAULT_VISION_CONFIG.endpoint}
-                      />
-                    </label>
-                    <SecretField value={visionKey} onChange={setVisionKey} placeholder={t("settings.zhipuKey")} />
-                    <ModelField
-                      value={visionModel}
-                      onChange={setVisionModel}
-                      models={visionModels}
-                      listing={listing === "vision"}
-                      canList={Boolean(visionEndpoint.trim() && visionKey.trim())}
-                      onList={() => void listModels("vision")}
-                      placeholder={DEFAULT_VISION_CONFIG.model}
-                    />
+                <label>
+                  {t("settings.endpoint")}
+                  <input
+                    value={visionEndpoint}
+                    onChange={(event) => setVisionEndpoint(event.target.value)}
+                    placeholder={DEFAULT_VISION_CONFIG.endpoint}
+                  />
+                </label>
+                <SecretField value={visionKey} onChange={setVisionKey} placeholder={t("settings.zhipuKey")} />
+                <ModelField
+                  value={visionModel}
+                  onChange={setVisionModel}
+                  models={visionModels}
+                  listing={listing === "vision"}
+                  canList={Boolean(visionEndpoint.trim() && visionKey.trim())}
+                  onList={() => void listModels("vision")}
+                  placeholder={DEFAULT_VISION_CONFIG.model}
+                />
 
-                    {testStatus?.target === "vision" && (
-                      <div className={`settings-feedback ${testStatus.ok ? "ok" : "err"}`}>
-                        <Icon path={testStatus.ok ? "M5 12.5l4 4 10-10" : "M12 8v4m0 4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 22 0z"} size={14} />
-                        <span>{testStatus.message}</span>
-                      </div>
-                    )}
+                {testStatus?.target === "vision" && (
+                  <div className={`settings-feedback ${testStatus.ok ? "ok" : "err"}`}>
+                    <Icon path={testStatus.ok ? "M5 12.5l4 4 10-10" : "M12 8v4m0 4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 22 0z"} size={14} />
+                    <span>{testStatus.message}</span>
                   </div>
-                </div>
+                )}
 
-                <div className="settings-card muted">
-                  <div className="settings-card-head">
-                    <strong>{t("settings.mineruTitle")}</strong>
-                    <span className="settings-card-badge free">{t("settings.mineruBadge")}</span>
-                  </div>
-                  <div className="settings-card-body">
-                    <p className="settings-hint">{t("settings.mineruHint")}</p>
-                  </div>
+                <div className="settings-status">
+                  <span className="settings-status-dot" />
+                  <strong>{t("settings.mineruTitle")}</strong>
+                  <span className="settings-badge free">{t("settings.mineruBadge")}</span>
                 </div>
               </>
             )}
 
             {pane === "skills" && (
-              <div className="settings-card">
-                <div className="settings-card-body">
-                  <p className="settings-hint">{t("settings.skillsHint")}</p>
-                  <p className="settings-hint">{t("settings.skillsUse")}</p>
+              <>
+                <p className="settings-hint">{t("settings.skillsUse")}</p>
 
-                  <div className="skills-section">
-                    <h3 className="skills-section-title">{t("settings.skillsPaths")}</h3>
+                <div className="skills-section">
+                  <h3 className="skills-section-title">{t("settings.skillsPaths")}</h3>
+                  <div className="skills-paths">
                     <div className="skills-path-block">
                       <div className="skills-path-label">{t("settings.skillsPathProject")}</div>
                       <ul className="skills-path-list">
@@ -2649,115 +2629,109 @@ export function Login({
                       </ul>
                     </div>
                   </div>
-
-                  <div className="skills-section">
-                    <div className="skills-section-head">
-                      <h3 className="skills-section-title">{t("settings.skillsTitle")}</h3>
-                      <button type="button" className="ghost" onClick={() => onRefreshSkills?.()}>
-                        {t("settings.skillsRefresh")}
-                      </button>
-                    </div>
-                    {agentSkills.length === 0 ? (
-                      <p className="settings-hint">{t("settings.skillsEmpty")}</p>
-                    ) : (
-                      <div className="skills-list">
-                        {agentSkills.map((skill) => {
-                          const command = skillSlashCommand(skill.name);
-                          return (
-                            <div key={skill.name} className="skills-row">
-                              <div className="skills-row-main">
-                                <code className="skills-row-name">{command}</code>
-                                {skill.description ? <p className="skills-row-desc">{skill.description}</p> : null}
-                              </div>
-                              <button
-                                type="button"
-                                className="ghost"
-                                onClick={() => {
-                                  void navigator.clipboard.writeText(command).then(() => {
-                                    setSkillCopied(skill.name);
-                                    window.setTimeout(() => setSkillCopied((current) => (current === skill.name ? undefined : current)), 1200);
-                                  });
-                                }}
-                              >
-                                {skillCopied === skill.name ? t("settings.skillsCopied") : t("settings.skillsCopy")}
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
                 </div>
-              </div>
+
+                <div className="skills-section">
+                  <div className="skills-section-head">
+                    <h3 className="skills-section-title">{t("settings.skillsTitle")}</h3>
+                    <button type="button" className="ghost" onClick={() => onRefreshSkills?.()}>
+                      {t("settings.skillsRefresh")}
+                    </button>
+                  </div>
+                  {agentSkills.length === 0 ? (
+                    <p className="settings-hint">{t("settings.skillsEmpty")}</p>
+                  ) : (
+                    <div className="skills-list">
+                      {agentSkills.map((skill) => {
+                        const command = skillSlashCommand(skill.name);
+                        return (
+                          <div key={skill.name} className="skills-row">
+                            <div className="skills-row-main">
+                              <code className="skills-row-name">{command}</code>
+                              {skill.description ? <p className="skills-row-desc">{skill.description}</p> : null}
+                            </div>
+                            <button
+                              type="button"
+                              className="ghost"
+                              onClick={() => {
+                                void navigator.clipboard.writeText(command).then(() => {
+                                  setSkillCopied(skill.name);
+                                  window.setTimeout(() => setSkillCopied((current) => (current === skill.name ? undefined : current)), 1200);
+                                });
+                              }}
+                            >
+                              {skillCopied === skill.name ? t("settings.skillsCopied") : t("settings.skillsCopy")}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
             )}
 
             {pane === "shortcuts" && (
-              <div className="settings-card">
-                <div className="settings-card-body">
-                  <div className="shortcut-list">
-                    <div className="shortcut-item">
-                      <span className="shortcut-label">{t("shortcut.send")}</span>
-                      <kbd>Enter</kbd>
-                    </div>
-                    <div className="shortcut-item">
-                      <span className="shortcut-label">{t("shortcut.newline")}</span>
-                      <span className="kbd-group"><kbd>Shift</kbd> + <kbd>Enter</kbd></span>
-                    </div>
-                    <div className="shortcut-item">
-                      <span className="shortcut-label">{t("shortcut.mention")}</span>
-                      <kbd>{t("shortcut.mentionKey")}</kbd>
-                    </div>
-                    <div className="shortcut-item">
-                      <span className="shortcut-label">{t("shortcut.skills")}</span>
-                      <kbd>/</kbd>
-                    </div>
-                    <div className="shortcut-item">
-                      <span className="shortcut-label">{t("shortcut.skillInvoke")}</span>
-                      <kbd>{t("shortcut.skillKey")}</kbd>
-                    </div>
-                    <div className="shortcut-item">
-                      <span className="shortcut-label">{t("shortcut.new")}</span>
-                      <span className="kbd-group"><kbd>{modKey}</kbd> + <kbd>N</kbd></span>
-                    </div>
-                    <div className="shortcut-item">
-                      <span className="shortcut-label">{t("shortcut.open")}</span>
-                      <span className="kbd-group"><kbd>{modKey}</kbd> + <kbd>O</kbd></span>
-                    </div>
-                    <div className="shortcut-item">
-                      <span className="shortcut-label">{t("shortcut.undo")}</span>
-                      <kbd>/undo</kbd>
-                    </div>
-                    <div className="shortcut-item">
-                      <span className="shortcut-label">{t("shortcut.escape")}</span>
-                      <kbd>Esc</kbd>
-                    </div>
-                  </div>
+              <div className="shortcut-list">
+                <div className="shortcut-item">
+                  <span className="shortcut-label">{t("shortcut.send")}</span>
+                  <kbd>Enter</kbd>
+                </div>
+                <div className="shortcut-item">
+                  <span className="shortcut-label">{t("shortcut.newline")}</span>
+                  <span className="kbd-group"><kbd>Shift</kbd> + <kbd>Enter</kbd></span>
+                </div>
+                <div className="shortcut-item">
+                  <span className="shortcut-label">{t("shortcut.mention")}</span>
+                  <kbd>{t("shortcut.mentionKey")}</kbd>
+                </div>
+                <div className="shortcut-item">
+                  <span className="shortcut-label">{t("shortcut.skills")}</span>
+                  <kbd>/</kbd>
+                </div>
+                <div className="shortcut-item">
+                  <span className="shortcut-label">{t("shortcut.skillInvoke")}</span>
+                  <kbd>{t("shortcut.skillKey")}</kbd>
+                </div>
+                <div className="shortcut-item">
+                  <span className="shortcut-label">{t("shortcut.new")}</span>
+                  <span className="kbd-group"><kbd>{modKey}</kbd> + <kbd>N</kbd></span>
+                </div>
+                <div className="shortcut-item">
+                  <span className="shortcut-label">{t("shortcut.open")}</span>
+                  <span className="kbd-group"><kbd>{modKey}</kbd> + <kbd>O</kbd></span>
+                </div>
+                <div className="shortcut-item">
+                  <span className="shortcut-label">{t("shortcut.undo")}</span>
+                  <kbd>/undo</kbd>
+                </div>
+                <div className="shortcut-item">
+                  <span className="shortcut-label">{t("shortcut.escape")}</span>
+                  <kbd>Esc</kbd>
                 </div>
               </div>
             )}
 
             {pane === "about" && (
-              <div className="settings-card">
-                <div className="settings-card-body about-body">
-                  <div className="about-hero">
-                    <img src={logo} alt="" className="about-logo" width={40} height={23} />
-                    <h3>
-                      {t("about.title")}
-                      <span className="about-version">v{appVersion || "0.1.3"}</span>
-                    </h3>
-                    <p className="about-tagline">{t("about.subtitle")}</p>
-                    <button
-                      type="button"
-                      className="about-site"
-                      onClick={() => void window.harness.app.openExternal("https://tether-code.xyz/")}
-                    >
-                      tether-code.xyz
-                    </button>
-                  </div>
-                  <p className="about-intro">{t("about.intro")}</p>
-                  <p className="about-origin-name">{t("about.originName")}</p>
-                  <p className="about-origin">{t("about.origin")}</p>
+              <div className="about-body">
+                <div className="about-hero">
+                  <img src={logo} alt="" className="about-logo" width={40} height={23} />
+                  <h3>
+                    {t("about.title")}
+                    <span className="about-version">v{appVersion || "0.1.3"}</span>
+                  </h3>
+                  <p className="about-tagline">{t("about.subtitle")}</p>
+                  <button
+                    type="button"
+                    className="about-site"
+                    onClick={() => void window.harness.app.openExternal("https://tether-code.xyz/")}
+                  >
+                    tether-code.xyz
+                  </button>
                 </div>
+                <p className="about-intro">{t("about.intro")}</p>
+                <p className="about-origin-name">{t("about.originName")}</p>
+                <p className="about-origin">{t("about.origin")}</p>
               </div>
             )}
           </div>
