@@ -8,7 +8,7 @@ describe("drainUtf8Lines", () => {
     const split = bytes.indexOf("散") + 1;
     let rest = Buffer.alloc(0);
     const first = drainUtf8Lines(rest, bytes.subarray(0, split));
-    rest = first.rest;
+    rest = Buffer.from(first.rest);
     expect(first.lines).toEqual([]);
     const second = drainUtf8Lines(rest, bytes.subarray(split));
     expect(second.lines).toHaveLength(1);

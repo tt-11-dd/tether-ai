@@ -7,6 +7,8 @@ export const USER_SKILL_ROOTS = ["~/.tether/skills", "~/.agents/skills"] as cons
 export interface AgentSkillCommand {
   name: string;
   description?: string;
+  /** Skill root dir or SKILL.md path from agent sourceInfo. */
+  path?: string;
 }
 
 export function skillSlashCommand(name: string): string {
@@ -15,14 +17,24 @@ export function skillSlashCommand(name: string): string {
 }
 
 export function parseSkillCommands(
-  commands: Array<{ name: string; description?: string; source?: string }>,
+  commands: Array<{
+    name: string;
+    description?: string;
+    source?: string;
+    sourceInfo?: { path?: string; baseDir?: string };
+  }>,
 ): AgentSkillCommand[] {
   const skills: AgentSkillCommand[] = [];
   for (const command of commands) {
     if (command.source !== "skill") continue;
     const name = command.name.startsWith("skill:") ? command.name.slice("skill:".length) : command.name;
     if (!name) continue;
-    skills.push({ name, description: command.description });
+    const skillPath = command.sourceInfo?.path ?? command.sourceInfo?.baseDir;
+    skills.push({
+      name,
+      description: command.description,
+      ...(skillPath ? { path: skillPath } : {}),
+    });
   }
   return skills.sort((a, b) => a.name.localeCompare(b.name));
 }

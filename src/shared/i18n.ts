@@ -117,6 +117,8 @@ const zh = {
   "toast.notify": "通知",
   "toast.sandboxOff": "已关闭沙箱，命令不再询问主机权限",
   "toast.sessionRestarted": "已按当前权限重新开会话",
+  "toast.modelSwitched": "已切换至 {model}",
+  "toast.modelNextTurn": "已选择 {model}，下一条消息生效",
   "toast.hostAccessAllowed": "本次命令已允许访问本机文件和网络",
   "toast.needJobCommands":
     "停止后台命令需要 tether-agent-core 0.1.6，请更新后再试",
@@ -146,6 +148,7 @@ const zh = {
   "composer.selectOrOpen": "选择或打开本地项目",
   "composer.uploadImage": "上传图片",
   "composer.filterModels": "筛选模型",
+  "composer.effort": "推理强度",
   "composer.abort": "中止",
   "composer.send": "发送",
   "composer.noCommands": "无匹配命令",
@@ -160,6 +163,10 @@ const zh = {
   "slash.login": "设置",
 
   "perm.plan": "仅规划",
+  "effort.low": "轻度",
+  "effort.medium": "中",
+  "effort.high": "高",
+  "effort.xhigh": "极高",
   "perm.planDesc": "只读分析与规划；诊断命令可在只读沙箱中运行，不修改文件。",
   "perm.ask": "编辑时询问",
   "perm.askDesc": "编辑外部文件或使用互联网时始终询问。",
@@ -264,7 +271,8 @@ const zh = {
   "settings.skillsEmpty":
     "当前会话未加载任何 skill。打开并信任项目后会自动扫描。",
   "settings.skillsRefresh": "刷新列表",
-  "settings.skillsUse": "输入 /skill:名称 或在下方点击复制命令",
+  "settings.skillsRevealFailed": "无法打开 skill 目录",
+  "settings.skillsUse": "输入 /skill:名称，或点击下方条目在文件夹中打开",
   "settings.skillsCopy": "复制命令",
   "settings.skillsCopied": "已复制",
   "settings.deepseekPreset": "DeepSeek 预设",
@@ -272,7 +280,18 @@ const zh = {
   "settings.deepseekHint":
     "直连 DeepSeek 官方接口（https://api.deepseek.com）。只需填入 API Key 即可开始对话。",
   "settings.customHint":
-    "兼容任意符合 OpenAI Chat Completions 规范的服务（如 OneAPI、Ollama、NewAPI 或第三方聚合商）。",
+    "兼容 OpenAI Chat Completions 的中转（OneAPI、Ollama、NewAPI 等）。右侧可直接编辑选中的配置。",
+  "settings.profilesList": "配置列表",
+  "settings.customProfile": "当前配置",
+  "settings.profileName": "配置名称",
+  "settings.addCustomProfile": "添加配置",
+  "settings.removeCustomProfile": "删除",
+  "settings.editCustomProfile": "编辑",
+  "settings.profileInUse": "使用中",
+  "settings.customEmpty": "还没有自定义配置",
+  "settings.editCustomTitle": "编辑自定义 API",
+  "settings.addCustomTitle": "添加自定义 API",
+  "settings.profileUntitled": "未命名配置",
   "settings.baseUrl": "接口地址 (Base URL)",
   "settings.advanced": "高级选项",
   "settings.maxTokens": "最大输出 Token（可选）",
@@ -460,6 +479,8 @@ const en: Record<MessageKey, string> = {
   "toast.sandboxOff": "Sandbox off — commands won't ask for host permission",
   "toast.sessionRestarted":
     "Session restarted with the current permission mode",
+  "toast.modelSwitched": "Switched to {model}",
+  "toast.modelNextTurn": "Selected {model} — applies to your next message",
   "toast.hostAccessAllowed":
     "This command may access local files and the network",
   "toast.needJobCommands":
@@ -497,6 +518,7 @@ const en: Record<MessageKey, string> = {
   "composer.selectOrOpen": "Choose or open a local project",
   "composer.uploadImage": "Upload image",
   "composer.filterModels": "Filter models",
+  "composer.effort": "Reasoning",
   "composer.abort": "Stop",
   "composer.send": "Send",
   "composer.noCommands": "No matching commands",
@@ -511,6 +533,10 @@ const en: Record<MessageKey, string> = {
   "slash.login": "Settings",
 
   "perm.plan": "Plan only",
+  "effort.low": "Light",
+  "effort.medium": "Medium",
+  "effort.high": "High",
+  "effort.xhigh": "Max",
   "perm.planDesc":
     "Read-only analysis and planning; diagnostic commands may run in a read-only sandbox.",
   "perm.ask": "Ask before edits",
@@ -619,7 +645,8 @@ const en: Record<MessageKey, string> = {
   "settings.skillsEmpty":
     "No skills loaded in this session. Open and trust a project to scan its skill directories.",
   "settings.skillsRefresh": "Refresh list",
-  "settings.skillsUse": "Type /skill:name or copy a command below",
+  "settings.skillsRevealFailed": "Could not open the skill folder",
+  "settings.skillsUse": "Type /skill:name, or click an entry below to reveal it in the file manager",
   "settings.skillsCopy": "Copy command",
   "settings.skillsCopied": "Copied",
   "settings.deepseekPreset": "DeepSeek preset",
@@ -627,7 +654,18 @@ const en: Record<MessageKey, string> = {
   "settings.deepseekHint":
     "Talk to DeepSeek's official API (https://api.deepseek.com). Paste an API key to start.",
   "settings.customHint":
-    "Any OpenAI Chat Completions compatible gateway (OneAPI, Ollama, NewAPI, or a private aggregator).",
+    "OpenAI-compatible gateways (OneAPI, Ollama, NewAPI). Edit details on the right for the selected profile.",
+  "settings.profilesList": "Profiles",
+  "settings.customProfile": "Profile",
+  "settings.profileName": "Profile name",
+  "settings.addCustomProfile": "Add profile",
+  "settings.removeCustomProfile": "Remove",
+  "settings.editCustomProfile": "Edit",
+  "settings.profileInUse": "In use",
+  "settings.customEmpty": "No custom profiles yet",
+  "settings.editCustomTitle": "Edit custom API",
+  "settings.addCustomTitle": "Add custom API",
+  "settings.profileUntitled": "Untitled profile",
   "settings.baseUrl": "Base URL",
   "settings.advanced": "Advanced",
   "settings.maxTokens": "Max output tokens (optional)",

@@ -13,6 +13,8 @@ const api: DesktopApi = {
   app: {
     version: () => ipcRenderer.invoke("app:version"),
     openExternal: (url) => ipcRenderer.invoke("app:open-external", url),
+    revealPath: (skillName, hint) => ipcRenderer.invoke("app:reveal-path", skillName, hint),
+    listSkills: () => ipcRenderer.invoke("app:list-skills"),
     checkUpdate: () => ipcRenderer.invoke("app:check-update"),
     getLocale: () => ipcRenderer.invoke("app:get-locale"),
     setLocale: (locale: Locale) => ipcRenderer.invoke("app:set-locale", locale),

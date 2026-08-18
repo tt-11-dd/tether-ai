@@ -10,12 +10,17 @@ describe("skills", () => {
   it("parses rpc skill commands", () => {
     expect(
       parseSkillCommands([
-        { name: "skill:init-long-run", description: "Init", source: "skill" },
+        {
+          name: "skill:init-long-run",
+          description: "Init",
+          source: "skill",
+          sourceInfo: { baseDir: "/home/.agents/skills/init-long-run", path: "/home/.agents/skills/init-long-run/SKILL.md" },
+        },
         { name: "/compact", source: "prompt" },
         { name: "skill:plan-then-act", description: "Plan", source: "skill" },
       ]),
     ).toEqual([
-      { name: "init-long-run", description: "Init" },
+      { name: "init-long-run", description: "Init", path: "/home/.agents/skills/init-long-run/SKILL.md" },
       { name: "plan-then-act", description: "Plan" },
     ]);
   });

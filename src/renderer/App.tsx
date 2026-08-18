@@ -11,6 +11,13 @@ import type {
 } from "../shared/types";
 import type { AgentSkillCommand } from "../shared/skills";
 import { parseSkillCommands, skillSlashCommand } from "../shared/skills";
+import {
+  DEFAULT_EFFORT,
+  levelsForModel,
+  normalizeEffort,
+  readStoredEffort,
+  writeStoredEffort,
+} from "../shared/thinking";
 import { visionAgentPrompt } from "../shared/vision-api";
 import {
   applyAgentEvent,
@@ -347,6 +354,8 @@ export function App() {
   const [activeSession, setActiveSession] = useState<string>();
   const [model, setModel] = useState("");
   const [chatModels, setChatModels] = useState<string[]>([]);
+  const [effort, setEffort] = useState(readStoredEffort);
+  const [thinkingLevels, setThinkingLevels] = useState<string[]>(["low", "medium", "high", "max"]);
   const [permission, setPermission] = useState<PermissionMode>("auto");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [stats, setStats] = useState<AgentSessionStats>();
@@ -385,6 +394,54 @@ export function App() {
   );
   const modelRef = useRef(model);
   modelRef.current = model;
+  const chatModelsRef = useRef(chatModels);
+  chatModelsRef.current = chatModels;
+  const effortRef = useRef(effort);
+  effortRef.current = effort;
+  const agentModelIdsRef = useRef<string[]>([]);
+  const agentModelsRef = useRef<AgentSnapshot["models"]>([]);
+
+  const applyThinkingForModel = useCallback((modelId: string) => {
+    const levels = levelsForModel(modelId, agentModelsRef.current);
+    setThinkingLevels(levels);
+    const next = normalizeEffort(effortRef.current, levels);
+    effortRef.current = next;
+    setEffort(next);
+    writeStoredEffort(next);
+  }, []);
+
+  const syncAgentThinking = useCallback(async () => {
+    if (!agentCwd.current) return;
+    try {
+      const [levelsResp, stateResp] = await Promise.all([
+        window.harness.agent.command<{ levels: string[] }>("get_available_thinking_levels"),
+        window.harness.agent.command<{ thinkingLevel?: string; model?: { id?: string } }>("get_state"),
+      ]);
+      const levels = Array.isArray(levelsResp?.levels) ? levelsResp.levels : ["off"];
+      setThinkingLevels(levels);
+      const activeLevel = typeof stateResp?.thinkingLevel === "string"
+        ? stateResp.thinkingLevel
+        : effortRef.current;
+      const next = normalizeEffort(activeLevel, levels);
+      effortRef.current = next;
+      setEffort(next);
+      writeStoredEffort(next);
+      if (typeof stateResp?.model?.id === "string" && stateResp.model.id) {
+        setModel(stateResp.model.id);
+        modelRef.current = stateResp.model.id;
+      }
+      await window.harness.agent.command("set_thinking_level", { level: next }).catch(() => undefined);
+    } catch {
+      // Agent may not be ready yet.
+    }
+  }, []);
+
+  const applyEffort = useCallback((next: string) => {
+    effortRef.current = next;
+    setEffort(next);
+    writeStoredEffort(next);
+    void window.harness.agent.command("set_thinking_level", { level: next }).catch(() => undefined);
+  }, []);
 
   const groups = useMemo(() => groupConversation(messages), [messages]);
   const anchors = useMemo(() => turnAnchors(groups), [groups]);
@@ -430,15 +487,28 @@ export function App() {
   }, []);
 
   const refreshAgentSkills = useCallback(async () => {
+    const loadDisk = () => window.harness.app.listSkills().catch(() => [] as AgentSkillCommand[]);
     if (!agentCwd.current) {
-      setAgentSkills([]);
+      setAgentSkills(await loadDisk());
       return;
     }
     try {
-      const data = await window.harness.agent.command<{ commands: Array<{ name: string; description?: string; source?: string }> }>("get_commands");
-      setAgentSkills(parseSkillCommands(data.commands));
+      const data = await window.harness.agent.command<{
+        commands: Array<{
+          name: string;
+          description?: string;
+          source?: string;
+          sourceInfo?: { path?: string; baseDir?: string };
+        }>;
+      }>("get_commands");
+      const fromAgent = parseSkillCommands(data.commands);
+      if (fromAgent.length) {
+        setAgentSkills(fromAgent);
+        return;
+      }
+      setAgentSkills(await loadDisk());
     } catch {
-      setAgentSkills([]);
+      setAgentSkills(await loadDisk());
     }
   }, []);
 
@@ -500,6 +570,7 @@ export function App() {
       holdQueue.current = false;
     }
     const modelId = modelRef.current.trim() || chat.defaultModel;
+    const extraModels = [...new Set([modelId, ...chatModelsRef.current].filter(Boolean))];
     if (!resume) {
       setActiveSession(sessionPath);
       sessionRef.current = sessionPath;
@@ -523,12 +594,13 @@ export function App() {
         provider: "deepseek",
         ...(modelId ? { model: modelId } : {}),
         ...(chat.baseUrl ? { baseUrl: chat.baseUrl } : {}),
-        effort: "high",
+        effort: effortRef.current || DEFAULT_EFFORT,
         permission: mode,
         sandbox,
         ...(mode === "auto" || mode === "full" ? { network: true } : {}),
         ...(sessionPath ? { sessionPath } : {}),
         ...(resume ? { resume: true } : {}),
+        ...(extraModels.length ? { extraModels } : {}),
       });
       setAgentSkills(snapshot.skills ?? []);
       if (seedMessage) {
@@ -540,12 +612,15 @@ export function App() {
       }
       live.current = true;
       agentCwd.current = snapshot.cwd ?? cwd ?? agentCwd.current;
+      agentModelsRef.current = snapshot.models ?? [];
+      agentModelIdsRef.current = agentModelsRef.current.map((item) => item.id).filter(Boolean);
       if (modelId) {
         setModel(modelId);
         await window.harness.agent.command("set_model", { provider: "deepseek", modelId }).catch(() => undefined);
       }
-      // ponytail: DeepSeek adapter defaults effort max; gpt-5.x only allows none|low|medium|high|xhigh.
-      await window.harness.agent.command("set_thinking_level", { level: "high" }).catch(() => undefined);
+      applyThinkingForModel(modelId);
+      const nextEffort = effortRef.current;
+      await window.harness.agent.command("set_thinking_level", { level: nextEffort }).catch(() => undefined);
       const file = sessionFileOf(snapshot) ?? sessionPath;
       if (file) {
         sessionRef.current = file;
@@ -562,7 +637,37 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, [hydrate, permission, refreshAgentSkills, resolveSandbox, t]);
+  }, [applyThinkingForModel, hydrate, permission, refreshAgentSkills, resolveSandbox, t]);
+
+  const ensureModelReady = useCallback(async (): Promise<boolean> => {
+    if (!agentCwd.current) return true;
+    const next = modelRef.current.trim();
+    if (!next) return true;
+    if (agentModelIdsRef.current.includes(next)) {
+      try {
+        await window.harness.agent.command("set_model", { provider: "deepseek", modelId: next });
+        await syncAgentThinking();
+        return true;
+      } catch (error) {
+        setToast(friendlyAgentError(error));
+        return false;
+      }
+    }
+    await window.harness.agent.stop().catch(() => undefined);
+    return startAgent(workspace, sessionRef.current, Boolean(workspace), true);
+  }, [startAgent, syncAgentThinking, workspace]);
+
+  const switchModel = useCallback((next: string) => {
+    setModel(next);
+    modelRef.current = next;
+    applyThinkingForModel(next);
+    if (agentCwd.current && agentModelIdsRef.current.includes(next)) {
+      void window.harness.agent.command("set_model", { provider: "deepseek", modelId: next })
+        .then(() => syncAgentThinking())
+        .catch(() => undefined);
+    }
+    setToast(agentCwd.current ? t("toast.modelNextTurn", { model: next }) : t("toast.modelSwitched", { model: next }));
+  }, [applyThinkingForModel, syncAgentThinking, t]);
 
   const bindProject = useCallback(async (cwd: string): Promise<boolean> => {
     if (running && agentCwd.current && agentCwd.current !== cwd) {
@@ -832,6 +937,11 @@ export function App() {
           setRunning(false);
           return;
         }
+      } else if (!(await ensureModelReady())) {
+        setMessages((current) => current.filter((item) => item.id !== optimistic!.id));
+        setDraft(text);
+        setRunning(false);
+        return;
       }
 
       const message = images?.length
@@ -848,7 +958,7 @@ export function App() {
     } finally {
       sending.current = false;
     }
-  }, [draft, loading, openFolder, permission, running, startAgent, t, undoLastTurn, workspace]);
+  }, [draft, ensureModelReady, loading, openFolder, permission, running, startAgent, t, undoLastTurn, workspace]);
 
   useEffect(() => {
     if (holdQueue.current || running || loading || queued.length === 0 || sending.current) return;
@@ -1011,10 +1121,10 @@ export function App() {
       onPickWorkspace={() => void openFolder()}
       model={model}
       models={[...new Set([model, ...chatModels].filter(Boolean))].map((id) => ({ value: id, label: id }))}
-      onModel={(next) => {
-        setModel(next);
-        void window.harness.agent.command("set_model", { provider: "deepseek", modelId: next }).catch(() => undefined);
-      }}
+      onModel={switchModel}
+      effort={effort}
+      effortLevels={thinkingLevels}
+      onEffort={applyEffort}
       permission={permission}
       onPermission={(next) => {
         const mode = next as PermissionMode;
@@ -1305,6 +1415,7 @@ export function App() {
               const nextModel = current.defaultModel;
               modelRef.current = nextModel;
               setModel(nextModel);
+              applyThinkingForModel(nextModel);
               setLoginOpen(false);
               await window.harness.agent.stop().catch(() => undefined);
               if (workspace || agentCwd.current) {

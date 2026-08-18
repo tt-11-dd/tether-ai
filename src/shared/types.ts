@@ -69,6 +69,7 @@ export interface AgentStartOptions {
   network?: boolean;
   sessionPath?: string;
   resume?: boolean;
+  extraModels?: string[];
 }
 
 export interface AgentSessionStats {
@@ -124,6 +125,8 @@ export interface DesktopApi {
   app: {
     version(): Promise<string>;
     openExternal(url: string): Promise<void>;
+    revealPath(skillName: string, hint?: string): Promise<void>;
+    listSkills(): Promise<Array<{ name: string; path: string }>>;
     checkUpdate(): Promise<void>;
     getLocale(): Promise<Locale>;
     setLocale(locale: Locale): Promise<void>;

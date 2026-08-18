@@ -5,17 +5,44 @@ export const DEEPSEEK_PRESET = {
 
 export type ChatKind = "deepseek" | "custom";
 
+export interface CustomApiProfile {
+  id: string;
+  name: string;
+  url: string;
+  model: string;
+  apiKey: string;
+  maxTokens?: number;
+}
+
 export interface ChatProfiles {
   kind: ChatKind;
   deepseek: { model: string; apiKey: string };
-  custom: { url: string; model: string; apiKey: string; maxTokens?: number };
+  customProfiles: CustomApiProfile[];
+  activeCustomId: string;
+}
+
+export function newCustomProfileId(): string {
+  return `custom_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+export function defaultCustomProfile(partial: Partial<CustomApiProfile> = {}): CustomApiProfile {
+  return {
+    id: partial.id ?? newCustomProfileId(),
+    name: partial.name?.trim() || "未命名",
+    url: partial.url?.trim() ?? "",
+    model: partial.model?.trim() ?? "",
+    apiKey: partial.apiKey?.trim() ?? "",
+    ...(partial.maxTokens ? { maxTokens: partial.maxTokens } : {}),
+  };
 }
 
 export function emptyChatProfiles(): ChatProfiles {
+  const profile = defaultCustomProfile({ name: "默认" });
   return {
     kind: "deepseek",
     deepseek: { model: DEEPSEEK_PRESET.model, apiKey: "" },
-    custom: { url: "", model: "", apiKey: "" },
+    customProfiles: [profile],
+    activeCustomId: profile.id,
   };
 }
 
@@ -24,12 +51,19 @@ export function isDeepSeekUrl(value: string) {
   return trimmed === DEEPSEEK_PRESET.url || trimmed === `${DEEPSEEK_PRESET.url}/v1`;
 }
 
+export function activeCustomProfile(profiles: ChatProfiles): CustomApiProfile | undefined {
+  return profiles.customProfiles.find((item) => item.id === profiles.activeCustomId)
+    ?? profiles.customProfiles[0];
+}
+
 export function activeChat(profiles: ChatProfiles) {
   if (profiles.kind === "custom") {
+    const profile = activeCustomProfile(profiles);
+    if (!profile) return { url: "", model: "", apiKey: "" };
     return {
-      url: profiles.custom.url.trim(),
-      model: profiles.custom.model.trim(),
-      apiKey: profiles.custom.apiKey.trim(),
+      url: profile.url.trim(),
+      model: profile.model.trim(),
+      apiKey: profile.apiKey.trim(),
     };
   }
   return {
@@ -49,6 +83,46 @@ function tokenCount(value: unknown): number | undefined {
   return Math.min(Math.floor(n), 2_000_000);
 }
 
+function parseCustomProfile(raw: unknown): CustomApiProfile | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const value = raw as Record<string, unknown>;
+  const id = text(value.id);
+  if (!id) return undefined;
+  const maxTokens = tokenCount(value.maxTokens);
+  return defaultCustomProfile({
+    id,
+    name: text(value.name) || "未命名",
+    url: text(value.url),
+    model: text(value.model),
+    apiKey: text(value.apiKey),
+    ...(maxTokens ? { maxTokens } : {}),
+  });
+}
+
+function profilesFromLegacyCustom(
+  custom: Record<string, unknown>,
+  activeCustomId: string,
+): { customProfiles: CustomApiProfile[]; activeCustomId: string } {
+  const url = text(custom.url);
+  const model = text(custom.model);
+  const apiKey = text(custom.apiKey);
+  const maxTokens = tokenCount(custom.maxTokens);
+  if (!url && !model && !apiKey) {
+    const profile = defaultCustomProfile({ name: "默认" });
+    return { customProfiles: [profile], activeCustomId: profile.id };
+  }
+  const id = activeCustomId || newCustomProfileId();
+  const profile = defaultCustomProfile({
+    id,
+    name: "默认",
+    url,
+    model,
+    apiKey,
+    ...(maxTokens ? { maxTokens } : {}),
+  });
+  return { customProfiles: [profile], activeCustomId: profile.id };
+}
+
 export function parseChatProfiles(raw: unknown): ChatProfiles | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const value = raw as Record<string, unknown>;
@@ -57,19 +131,27 @@ export function parseChatProfiles(raw: unknown): ChatProfiles | undefined {
   const deepseek = value.deepseek && typeof value.deepseek === "object" && !Array.isArray(value.deepseek)
     ? value.deepseek as Record<string, unknown>
     : {};
-  const custom = value.custom && typeof value.custom === "object" && !Array.isArray(value.custom)
-    ? value.custom as Record<string, unknown>
-    : {};
-  const maxTokens = tokenCount(custom.maxTokens);
+  const activeCustomId = text(value.activeCustomId);
+  let customProfiles = Array.isArray(value.customProfiles)
+    ? value.customProfiles.map(parseCustomProfile).filter((item): item is CustomApiProfile => Boolean(item))
+    : [];
+  let resolvedActiveId = activeCustomId;
+  if (!customProfiles.length) {
+    const custom = value.custom && typeof value.custom === "object" && !Array.isArray(value.custom)
+      ? value.custom as Record<string, unknown>
+      : {};
+    const legacy = profilesFromLegacyCustom(custom, activeCustomId);
+    customProfiles = legacy.customProfiles;
+    resolvedActiveId = legacy.activeCustomId;
+  }
+  const resolvedActive = customProfiles.some((item) => item.id === resolvedActiveId)
+    ? resolvedActiveId
+    : customProfiles[0]?.id ?? "";
   return {
     kind,
     deepseek: { model: text(deepseek.model) || DEEPSEEK_PRESET.model, apiKey: text(deepseek.apiKey) },
-    custom: {
-      url: text(custom.url),
-      model: text(custom.model),
-      apiKey: text(custom.apiKey),
-      ...(maxTokens ? { maxTokens } : {}),
-    },
+    customProfiles,
+    activeCustomId: resolvedActive,
   };
 }
 
@@ -80,29 +162,64 @@ export function migrateChatProfiles(stored: { url?: string; model?: string; apiK
   const apiKey = stored.apiKey?.trim() ?? "";
   const base = emptyChatProfiles();
   if (url && !isDeepSeekUrl(url)) {
-    return { ...base, kind: "custom", custom: { url, model, apiKey } };
+    const profile = defaultCustomProfile({ name: "默认", url, model, apiKey });
+    return { ...base, kind: "custom", customProfiles: [profile], activeCustomId: profile.id };
   }
   return { ...base, deepseek: { model: model || DEEPSEEK_PRESET.model, apiKey } };
 }
 
+function mergeCustomProfile(previous: CustomApiProfile | undefined, next: CustomApiProfile): CustomApiProfile {
+  const maxTokens = next.maxTokens ?? previous?.maxTokens;
+  return defaultCustomProfile({
+    id: next.id,
+    name: next.name.trim() || previous?.name || "未命名",
+    url: next.url.trim() || previous?.url || "",
+    model: next.model.trim() || previous?.model || "",
+    apiKey: next.apiKey.trim() || previous?.apiKey || "",
+    ...(maxTokens ? { maxTokens } : {}),
+  });
+}
+
 export function mergeChatProfiles(previous: ChatProfiles, next: ChatProfiles): ChatProfiles {
+  const previousById = new Map(previous.customProfiles.map((item) => [item.id, item]));
+  const mergedProfiles = next.customProfiles.length
+    ? next.customProfiles.map((item) => mergeCustomProfile(previousById.get(item.id), item))
+    : previous.customProfiles;
+  const activeCustomId = mergedProfiles.some((item) => item.id === next.activeCustomId)
+    ? next.activeCustomId
+    : mergedProfiles[0]?.id ?? previous.activeCustomId;
   return {
     kind: next.kind,
     deepseek: {
       model: next.deepseek.model.trim() || previous.deepseek.model || DEEPSEEK_PRESET.model,
       apiKey: next.deepseek.apiKey.trim() || previous.deepseek.apiKey,
     },
-    custom: {
-      url: next.custom.url.trim() || previous.custom.url,
-      model: next.custom.model.trim() || previous.custom.model,
-      apiKey: next.custom.apiKey.trim() || previous.custom.apiKey,
-      ...(
-        next.kind === "custom"
-          ? (next.custom.maxTokens ? { maxTokens: next.custom.maxTokens } : {})
-          : previous.custom.maxTokens
-            ? { maxTokens: previous.custom.maxTokens }
-            : {}
-      ),
-    },
+    customProfiles: mergedProfiles.length ? mergedProfiles : previous.customProfiles,
+    activeCustomId,
+  };
+}
+
+export function buildCustomProfilesPayload(
+  profiles: CustomApiProfile[],
+  activeCustomId: string,
+  draft: Pick<CustomApiProfile, "name" | "url" | "model" | "apiKey" | "maxTokens">,
+): { customProfiles: CustomApiProfile[]; activeCustomId: string } {
+  const nextProfiles = profiles.map((item) => (
+    item.id === activeCustomId
+      ? defaultCustomProfile({
+        id: item.id,
+        name: draft.name,
+        url: draft.url,
+        model: draft.model,
+        apiKey: draft.apiKey,
+        ...(draft.maxTokens ? { maxTokens: draft.maxTokens } : {}),
+      })
+      : item
+  ));
+  return {
+    customProfiles: nextProfiles,
+    activeCustomId: nextProfiles.some((item) => item.id === activeCustomId)
+      ? activeCustomId
+      : nextProfiles[0]?.id ?? activeCustomId,
   };
 }

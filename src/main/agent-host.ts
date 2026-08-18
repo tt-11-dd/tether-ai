@@ -47,7 +47,7 @@ export class AgentHost {
       this.request<{ models: AgentSnapshot["models"] }>("get_available_models"),
       this.request<{ levels: string[] }>("get_available_thinking_levels"),
       this.request<AgentSessionStats>("get_session_stats").catch(() => undefined),
-      this.request<{ commands: Array<{ name: string; description?: string; source?: string }> }>("get_commands").catch(() => ({ commands: [] })),
+      this.request<{ commands: Array<{ name: string; description?: string; source?: string; sourceInfo?: { path?: string; baseDir?: string } }> }>("get_commands").catch(() => ({ commands: [] })),
     ]);
     return {
       state,
@@ -95,6 +95,9 @@ export class AgentHost {
         ELECTRON_RUN_AS_NODE: "1",
         PI_TELEMETRY: "0",
         PI_SKIP_VERSION_CHECK: "1",
+        ...(options.extraModels?.length
+          ? { HARNESS_EXTRA_MODELS: options.extraModels.join(",") }
+          : {}),
         ...(options.visionConfig ? { HARNESS_VISION_CONFIG: options.visionConfig } : {}),
         ...(options.visionUploads ? { HARNESS_VISION_UPLOADS: options.visionUploads } : {}),
       },
@@ -169,7 +172,7 @@ export class AgentHost {
 
   private handleChunk(chunk: Buffer): void {
     const drained = drainUtf8Lines(this.lineBuffer, chunk);
-    this.lineBuffer = drained.rest;
+    this.lineBuffer = Buffer.from(drained.rest);
     for (const line of drained.lines) this.handleLine(line);
   }
 

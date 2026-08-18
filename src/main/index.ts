@@ -21,8 +21,9 @@ import {
   type SupportedProviderId,
 } from "tether-agent-core";
 import { AgentHost } from "./agent-host";
+import { listLocalSkills, revealSkillPath } from "./skills-fs";
 import { listOpenAiModels } from "../shared/openai-models";
-import { activeChat, mergeChatProfiles, migrateChatProfiles, parseChatProfiles, type ChatProfiles } from "../shared/chat-profiles";
+import { activeChat, activeCustomProfile, mergeChatProfiles, migrateChatProfiles, parseChatProfiles, type ChatProfiles } from "../shared/chat-profiles";
 import { DEFAULT_VISION_CONFIG, resolveVisionSettings, visionTitle, type VisionConfig } from "../shared/vision-api";
 import { DEFAULT_LOCALE, isLocale, resolveLocale, t, type Locale } from "../shared/i18n";
 import { getLatestUpdate } from "./update-check";
@@ -251,6 +252,11 @@ function registerIpc(): void {
     if (!isSafeExternalUrl(url)) throw new Error("Only http(s) links can be opened");
     await shell.openExternal(url);
   });
+  ipcMain.handle("app:reveal-path", async (_event, skillName: string, hint?: string) => {
+    if (typeof skillName !== "string" || !skillName.trim()) throw new Error("Invalid skill name");
+    await revealSkillPath(skillName.trim(), typeof hint === "string" ? hint : undefined);
+  });
+  ipcMain.handle("app:list-skills", async () => listLocalSkills(activeAgentCwd));
 
   ipcMain.handle("window:minimize", () => mainWindow?.minimize());
   ipcMain.handle("window:toggle-maximize", () => {
@@ -484,7 +490,9 @@ function registerIpc(): void {
     const storedUrl = startOptions.provider === "deepseek" ? getStoredDeepSeekBaseUrl() : undefined;
     const rawUrl = startOptions.baseUrl ?? storedUrl;
     const profiles = await loadChatProfiles();
-    const maxTokens = profiles.kind === "custom" ? profiles.custom.maxTokens ?? 384_000 : undefined;
+    const maxTokens = profiles.kind === "custom"
+      ? activeCustomProfile(profiles)?.maxTokens ?? 384_000
+      : undefined;
     const snapshot = await agentHost!.start({
       ...startOptions,
       cwd,
