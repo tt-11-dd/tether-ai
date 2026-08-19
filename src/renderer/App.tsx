@@ -27,6 +27,7 @@ import {
   dropLastTurn,
   friendlyAgentError,
   isTransientStreamError,
+  isRecoverableRequestError,
   groupConversation,
   lastTurnRestoreFiles,
   mentionedFiles,
@@ -61,6 +62,14 @@ import { useI18n } from "./i18n";
 import type { MessageKey } from "../shared/i18n";
 
 const PERMISSIONS: PermissionMode[] = ["plan", "ask", "auto", "full"];
+
+function assistantGroupSucceeded(messages: ChatMessage[]): boolean {
+  return messages.some((item) => item.text.trim() && !item.error);
+}
+
+function assistantGroupHasRecoverableError(messages: ChatMessage[]): boolean {
+  return messages.some((item) => isRecoverableRequestError(item.error));
+}
 
 function relativeTime(iso: string, t: (key: MessageKey, vars?: Record<string, string | number>) => string) {
   const delta = Date.now() - Date.parse(iso);
@@ -452,7 +461,7 @@ export function App() {
   );
   const workingFiles = useMemo(() => collectWorkingFiles(tools, mentionedFiles(messages)), [messages, tools]);
   const chatTodos = useMemo(() => collectTodos(messages), [messages]);
-  const todos = featureTodos.length ? featureTodos : chatTodos;
+  const todos = chatTodos.length ? chatTodos : featureTodos;
   const darwin = window.harness.platform === "darwin";
   const connected = providers.find((item) => item.id === "deepseek");
   const waiting = running && (groups.length === 0 || groups.at(-1)?.type === "user");
@@ -1322,20 +1331,28 @@ export function App() {
           )}
           {groups.length > 0 && (
             <div className="messages">
-              {groups.map((group) => group.type === "user" ? (
-                <UserTurn
-                  key={group.id}
-                  anchor={turnAnchorId(group.id)}
-                  text={group.message.text}
-                  images={group.message.images}
-                />
-              ) : (
-                <AssistantTurn
-                  key={group.id}
-                  messages={group.messages}
-                  onOpenFile={setPreview}
-                />
-              ))}
+              {groups.map((group, index) => {
+                if (group.type === "user") {
+                  return (
+                    <UserTurn
+                      key={group.id}
+                      anchor={turnAnchorId(group.id)}
+                      text={group.message.text}
+                      images={group.message.images}
+                    />
+                  );
+                }
+                const recovered = assistantGroupHasRecoverableError(group.messages)
+                  && groups.slice(index + 1).some((next) => next.type === "assistant" && assistantGroupSucceeded(next.messages));
+                return (
+                  <AssistantTurn
+                    key={group.id}
+                    messages={group.messages}
+                    errorRecovered={recovered}
+                    onOpenFile={setPreview}
+                  />
+                );
+              })}
               {waiting && (
                 <article className="turn">
                   <div className="turn-trace">

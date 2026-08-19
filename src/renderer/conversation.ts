@@ -24,16 +24,26 @@ export function friendlyAgentError(error: unknown): string {
   const detail = raw
     .replace(/^Error invoking remote method 'agent:(?:command|start)':\s*/i, "")
     .replace(/^Error:\s*/i, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
   if (isTransientStreamError(detail)) return "";
   if (/context (?:length|window)|maximum context|too many tokens|token limit/i.test(detail)) return ct("toast.errorContext");
   if (/\b401\b|\b403\b|unauthori[sz]ed|forbidden|invalid api.?key|authentication|credential/i.test(detail)) return ct("toast.errorAuth");
   if (/\b402\b|\b429\b|rate.?limit|too many requests|quota|insufficient (?:balance|credit|funds)/i.test(detail)) return ct("toast.errorQuota");
-  if (/timeout|timed out|ETIMEDOUT|AbortError/i.test(detail)) return ct("toast.errorTimeout");
+  if (/\b504\b|gateway time-?out|timeout|timed out|ETIMEDOUT|AbortError/i.test(detail)) return ct("toast.errorTimeout");
   if (/model .*(?:not found|unavailable|unknown)|unknown model|invalid model|model.*does not exist/i.test(detail)) return ct("toast.errorModel");
   if (/\b404\b|\/chat\/completions.*not found|endpoint.*not found/i.test(detail)) return ct("toast.errorEndpoint");
-  if (/fetch failed|network|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up/i.test(detail)) return ct("toast.errorNetwork");
+  if (/\b502\b|\b503\b|bad gateway|service unavailable|fetch failed|network|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up/i.test(detail)) {
+    return ct("toast.errorNetwork");
+  }
   return detail || ct("error.modelFailed");
+}
+
+/** Intermittent network/provider hiccups that may recover next turn. */
+export function isRecoverableRequestError(error: string | undefined): boolean {
+  if (!error) return false;
+  return /网络|连接模型服务失败|超时|model timed out|network|timed out|gateway|service unavailable|status code\s*5\d\d/i.test(error);
 }
 
 export interface ToolActivity {
@@ -787,6 +797,7 @@ export interface SessionTodo {
   id: string;
   text: string;
   done: boolean;
+  active?: boolean;
 }
 
 export function normalizeFilePath(path: string): string {
@@ -1234,8 +1245,14 @@ export function parseFeaturesJson(input: string): SessionTodo[] {
 }
 
 export function collectTodos(messages: ChatMessage[]): SessionTodo[] {
+  let fromPlan: SessionTodo[] | undefined;
   const fromTools: SessionTodo[] = [];
   for (const tool of sessionTools(messages)) {
+    const planned = todosFromPlanTool(tool);
+    if (planned) {
+      fromPlan = planned;
+      continue;
+    }
     if (!/todo/i.test(tool.name)) continue;
     const args = isRecord(tool.args) ? tool.args : {};
     const list = [args.todos, args.items, args.tasks].find(Array.isArray);
@@ -1255,6 +1272,7 @@ export function collectTodos(messages: ChatMessage[]): SessionTodo[] {
       });
     });
   }
+  if (fromPlan?.length) return fromPlan;
   if (fromTools.length) return fromTools;
   const text = messages.filter((item) => item.role === "assistant").map((item) => item.text).join("\n");
   const checks: SessionTodo[] = [];
@@ -1263,6 +1281,31 @@ export function collectTodos(messages: ChatMessage[]): SessionTodo[] {
   }
   if (checks.length) return checks;
   return [];
+}
+
+function todosFromPlanTool(tool: ToolActivity): SessionTodo[] | undefined {
+  if (!/plan/i.test(tool.name)) return undefined;
+  const args = isRecord(tool.args) ? tool.args : {};
+  const details = isRecord(tool.details) ? tool.details : {};
+  return planStepsFromUnknown(args.plan) ?? planStepsFromUnknown(details.steps) ?? planStepsFromUnknown(details.plan);
+}
+
+function planStepsFromUnknown(value: unknown): SessionTodo[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const todos: SessionTodo[] = [];
+  for (const [index, item] of value.entries()) {
+    if (!isRecord(item)) continue;
+    const text = stringField(item, "step") || stringField(item, "content") || stringField(item, "text") || stringField(item, "title");
+    if (!text) continue;
+    const status = stringField(item, "status");
+    todos.push({
+      id: stringField(item, "id") || `plan-${index}`,
+      text,
+      done: status === "completed" || status === "complete" || item.done === true,
+      ...(status === "in_progress" ? { active: true } : {}),
+    });
+  }
+  return todos.length ? todos : undefined;
 }
 
 function toolPath(tool: ToolActivity): string {

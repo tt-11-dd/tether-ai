@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, approvalTitle, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, isTransientStreamError, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, sessionTerminals, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, terminalLabel, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative } from "./conversation";
+import { applyAgentEvent, approvalTitle, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, isRecoverableRequestError, isTransientStreamError, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, sessionTerminals, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, terminalLabel, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative, type ChatMessage } from "./conversation";
 
 describe("conversation events", () => {
   it("calculates prompt cache hit rate from reported token usage", () => {
@@ -105,8 +105,17 @@ describe("conversation events", () => {
     expect(friendlyAgentError("TypeError: fetch failed")).toContain("网络");
     expect(friendlyAgentError("maximum context length exceeded")).toContain("压缩上下文");
     expect(friendlyAgentError("unknown model deepseek-x")).toContain("切换模型");
+    expect(friendlyAgentError("503 status code (no body)")).toContain("网络");
+    expect(friendlyAgentError("504 <html><head><title>504 Gateway Time-out</title></head><body bgcolor=\"white\"><center><h1>504 Gateway Time-out</h1></center></body></html>")).toContain("超时");
     expect(isTransientStreamError("Stream ended without finish_reason")).toBe(true);
     expect(friendlyAgentError("Stream ended without finish_reason")).toBe("");
+  });
+
+  it("marks intermittent network/timeouts as recoverable", () => {
+    expect(isRecoverableRequestError("连接模型服务失败，请检查网络和 Base URL 后重试")).toBe(true);
+    expect(isRecoverableRequestError("模型响应超时，请稍后重试")).toBe(true);
+    expect(isRecoverableRequestError("接口地址不可用，请检查 Base URL 是否包含正确的 API 路径")).toBe(false);
+    expect(isRecoverableRequestError("当前模型不可用，请切换模型或检查模型名称")).toBe(false);
   });
 
   it("keeps the command title when the end event has no args", () => {
@@ -578,6 +587,35 @@ describe("conversation events", () => {
         work: [],
       },
     ])).toEqual([]);
+  });
+
+  it("lists the latest update_plan steps in the inspect rail", () => {
+    const plan = (id: string, steps: Array<{ step: string; status: string }>): ChatMessage => ({
+      id,
+      role: "assistant",
+      text: "",
+      images: [],
+      tools: [{
+        id: `tool-${id}`,
+        name: "update_plan",
+        title: "Update plan",
+        status: "complete",
+        args: { plan: steps },
+      }],
+      work: [],
+    });
+    expect(collectTodos([
+      plan("old", [{ step: "过时步骤", status: "pending" }]),
+      plan("new", [
+        { step: "读代码", status: "completed" },
+        { step: "改 UI", status: "in_progress" },
+        { step: "补测试", status: "pending" },
+      ]),
+    ])).toEqual([
+      { id: "plan-0", text: "读代码", done: true },
+      { id: "plan-1", text: "改 UI", done: false, active: true },
+      { id: "plan-2", text: "补测试", done: false },
+    ]);
   });
 
   it("parses features.json into session todos", () => {

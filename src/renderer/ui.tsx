@@ -7,7 +7,7 @@ import { skillUserDisplay } from "../shared/skills";
 import { DEFAULT_VISION_CONFIG, visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, activeCustomProfile, defaultCustomProfile, type ChatKind, type CustomApiProfile } from "../shared/chat-profiles";
 import { effortLabelKey, pickEffortOptions, reasoningLevelsAvailable } from "../shared/thinking";
-import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
+import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, isRecoverableRequestError, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
 import type { AgentSkillCommand } from "../shared/skills";
 import { PROJECT_SKILL_ROOTS, USER_SKILL_ROOTS, skillSlashCommand } from "../shared/skills";
@@ -227,6 +227,36 @@ export function Chat({
 }) {
   const { t } = useI18n();
   const [drawer, setDrawer] = useState(true);
+  const [inspectWidth, setInspectWidth] = useState(readInspectWidth);
+  const widthRef = useRef(inspectWidth);
+  widthRef.current = inspectWidth;
+
+  const startInspectResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = widthRef.current;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (move: PointerEvent) => {
+      const next = clampInspectWidth(startWidth + startX - move.clientX);
+      widthRef.current = next;
+      setInspectWidth(next);
+    };
+    const onUp = () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      writeInspectWidth(widthRef.current);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
+
   return (
     <section className={home ? "chat home" : "chat"}>
       <header className="chat-bar">
@@ -249,10 +279,48 @@ export function Chat({
           {children}
           {composer}
         </div>
-        {drawer && inspect}
+        {drawer && inspect && (
+          <div className="inspect-shell" style={{ width: inspectWidth }}>
+            <div
+              className="inspect-resize"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={t("inspect.resize")}
+              onPointerDown={startInspectResize}
+            />
+            {inspect}
+          </div>
+        )}
       </div>
     </section>
   );
+}
+
+const INSPECT_WIDTH_KEY = "tether.inspectWidth";
+const INSPECT_MIN = 220;
+const INSPECT_MAX = 480;
+const INSPECT_DEFAULT = 268;
+
+function clampInspectWidth(width: number): number {
+  return Math.min(INSPECT_MAX, Math.max(INSPECT_MIN, Math.round(width)));
+}
+
+function readInspectWidth(): number {
+  try {
+    const raw = Number(localStorage.getItem(INSPECT_WIDTH_KEY));
+    if (!Number.isFinite(raw)) return INSPECT_DEFAULT;
+    return clampInspectWidth(raw);
+  } catch {
+    return INSPECT_DEFAULT;
+  }
+}
+
+function writeInspectWidth(width: number): void {
+  try {
+    localStorage.setItem(INSPECT_WIDTH_KEY, String(clampInspectWidth(width)));
+  } catch {
+    // Ignore private mode / quota failures.
+  }
 }
 
 /** Caption buttons for the frameless window on Windows/Linux; macOS keeps its traffic lights. */
@@ -543,6 +611,9 @@ export function Thinking({
   label,
   startedAt,
   endedAt,
+  error,
+  errorTone = "strong",
+  onRetry,
 }: {
   text: string;
   work: WorkItem[];
@@ -551,10 +622,16 @@ export function Thinking({
   label?: string;
   startedAt?: number;
   endedAt?: number;
+  error?: string;
+  errorTone?: "strong" | "weak";
+  onRetry?(): void;
 }) {
   const { t, locale } = useI18n();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => Boolean(error && errorTone === "strong"));
   const [born] = useState(() => Date.now());
+  useEffect(() => {
+    if (error && errorTone === "strong") setOpen(true);
+  }, [error, errorTone]);
   const rows = useMemo(() => traceRows(work, tools, text), [work, tools, text, locale]);
   const start = startedAt ?? (live ? born : undefined);
   const summary = useMemo(
@@ -564,7 +641,7 @@ export function Thinking({
   const current = useMemo(() => liveStatus(tools), [tools, locale]);
   const header = live ? label ?? t("think.live") : t("think.done");
   const showLive = live && current !== header;
-  const hasBody = rows.length > 0 || showLive;
+  const hasBody = rows.length > 0 || showLive || Boolean(error);
   if (!hasBody && !live) return null;
   return (
     <div className={live ? (open ? "trace live open" : "trace live") : open ? "trace open" : "trace"}>
@@ -574,6 +651,11 @@ export function Thinking({
           {header}
         </span>
         {summary && <span className="trace-subtle">{summary}</span>}
+        {!open && error && (
+          <span className={errorTone === "weak" ? "trace-subtle trace-failed weak" : "trace-subtle trace-failed"}>
+            {t("trace.requestFailed")}
+          </span>
+        )}
         <Elapsed start={start} end={endedAt} live={live} />
         {hasBody ? <Icon className="chevron" path="M6 9l6 6 6-6" size={14} /> : null}
       </button>
@@ -583,6 +665,18 @@ export function Thinking({
           {showLive && (
             <div className="trace-row-live">
               <span className="shimmer">{current}</span>
+            </div>
+          )}
+          {error && (
+            <div className={errorTone === "weak" ? "trace-row-wrap weak-error" : "trace-row-wrap error"}>
+              <div className="trace-row">
+                <span className="trace-row-mark">
+                  <Icon className="trace-row-glyph" path="M18 6L6 18M6 6l12 12" size={13} />
+                </span>
+                <span className="trace-row-label">{t("trace.requestFailed")}</span>
+                <span className="trace-row-chip">{error}</span>
+                {onRetry && <button type="button" className="ghost" onClick={onRetry}>{t("common.continue")}</button>}
+              </div>
             </div>
           )}
         </div>
@@ -814,18 +908,24 @@ export function StreamingText({
 export function AssistantTurn({
   messages,
   onOpenFile,
+  errorRecovered = false,
   onRetry,
 }: {
   messages: ChatMessage[];
   onOpenFile?(file: FileChange): void;
+  errorRecovered?: boolean;
   onRetry?(): void;
 }) {
-  const { t } = useI18n();
   const thinking = collapseThinking(...messages.map((item) => item.thinking));
   const tools = [...new Map(messages.flatMap((item) => item.tools).map((tool) => [tool.id, tool])).values()];
   const work = turnWork(messages);
   const text = messages.map((item) => item.text).filter(Boolean).join("\n\n");
-  const error = messages.map((item) => item.error).find(Boolean);
+  const rawError = messages.map((item) => item.error).find(Boolean);
+  const recoverable = isRecoverableRequestError(rawError);
+  const errorTone = rawError
+    ? (recoverable ? (errorRecovered ? "hidden" : "weak") : "strong")
+    : "hidden";
+  const error = errorTone === "hidden" ? undefined : rawError;
   const live = messages.some((item) => item.streaming) || tools.some((item) => item.status === "running");
   const started = messages.find((item) => item.timestamp)?.timestamp ?? tools[0]?.startedAt;
   const ended = Math.max(0, ...messages.map((item) => item.timestamp ?? 0), ...tools.map((item) => item.endedAt ?? 0));
@@ -835,9 +935,19 @@ export function AssistantTurn({
     : work.filter((item) => item.type !== "text");
   return (
     <article className="turn" onCopy={copyMarkdownPlain}>
-      {(live || thinking || traceWork.length > 0 || tools.length > 0) && (
+      {(live || thinking || error || traceWork.length > 0 || tools.length > 0) && (
         <div className="turn-trace">
-          <Thinking text={thinking} work={traceWork} tools={tools} live={live} startedAt={started} endedAt={ended || undefined} />
+          <Thinking
+            text={thinking}
+            work={traceWork}
+            tools={tools}
+            live={live}
+            startedAt={started}
+            endedAt={ended || undefined}
+            error={error}
+            errorTone={errorTone === "weak" ? "weak" : "strong"}
+            onRetry={onRetry}
+          />
         </div>
       )}
       <ChangeSummary files={changes} onOpen={onOpenFile} />
@@ -845,12 +955,6 @@ export function AssistantTurn({
       {!live && text.trim() && (
         <div className="bubble-actions assistant">
           <CopyAction text={text} />
-        </div>
-      )}
-      {error && (
-        <div className="turn-error">
-          <p>{error}</p>
-          {onRetry && <button type="button" className="ghost" onClick={onRetry}>{t("common.continue")}</button>}
         </div>
       )}
     </article>
@@ -926,10 +1030,14 @@ export function InspectPanel({
   return (
     <aside className="inspect">
       {todos.length > 0 && (
-        <Fold title={t("inspect.progress")} open={progress} onToggle={() => setProgress((current) => !current)}>
+        <Fold
+          title={`${t("inspect.progress")} ${todos.filter((item) => item.done).length}/${todos.length}`}
+          open={progress}
+          onToggle={() => setProgress((current) => !current)}
+        >
           <ol className="inspect-todos">
             {todos.map((todo, index) => (
-              <li key={todo.id} className={todo.done ? "done" : ""}>
+              <li key={todo.id} className={todo.done ? "done" : todo.active ? "active" : ""}>
                 <i>{todo.done ? <Icon path="M5 12.5l4 4 10-10" size={11} /> : index + 1}</i>
                 <span>{todo.text}</span>
               </li>
