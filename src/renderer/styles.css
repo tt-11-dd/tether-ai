@@ -803,7 +803,7 @@ textarea::selection,
 }
 
 .context-ring-label strong {
-  font-size: 11.5px;
+  font-size: 10.5px;
   font-weight: 600;
   color: var(--ink);
 }
@@ -918,8 +918,9 @@ textarea::selection,
 
 .context-popover-foot {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   padding-top: 6px;
   border-top: 1px solid var(--line);
   font-size: 11px;
@@ -929,10 +930,24 @@ textarea::selection,
   display: flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
+}
+
+.context-foot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.context-foot-item-model {
+  width: 100%;
 }
 
 .context-foot-label {
   color: var(--ink-3);
+  flex: none;
 }
 
 .context-model-tag {
@@ -941,12 +956,29 @@ textarea::selection,
   background: var(--field);
   padding: 2px 5px;
   border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: none;
+  flex: 1;
+}
+
+.context-effort-val {
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 11.5px;
 }
 
 .context-cost-val {
   font: 12px/1.2 var(--mono);
   font-weight: 600;
   color: var(--ink);
+  white-space: nowrap;
+}
+
+.context-foot-item-cost {
+  margin-left: auto;
 }
 .chat-body {
   min-width: 0;
