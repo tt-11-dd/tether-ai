@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, approvalTitle, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, delegateProgress, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, isRecoverableRequestError, isTransientStreamError, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, sessionTerminals, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, terminalLabel, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative, type ChatMessage } from "./conversation";
+import { applyAgentEvent, approvalTitle, assistantReplyText, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, delegateProgress, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, isRecoverableRequestError, isTransientStreamError, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, sessionTerminals, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, terminalLabel, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative, type ChatMessage } from "./conversation";
 
 describe("conversation events", () => {
   it("calculates prompt cache hit rate from reported token usage", () => {
@@ -700,6 +700,20 @@ describe("conversation events", () => {
     expect(thoughtSteps(omitFinalReply(work, "改好了"), messages.flatMap((item) => item.tools)).map((step) => step.text)).toEqual([
       "先看 startTime 是怎么传的",
       "后端要 00:00:00 ~ 23:59:59",
+    ]);
+  });
+
+  it("reloaded turns only show the last text outside the thinking panel", () => {
+    const messages = normalizeMessages([
+      { role: "assistant", content: [{ type: "text", text: "先搜一下杭州发呆大赛" }, { type: "toolCall", id: "t1", name: "exec_command", arguments: { cmd: "curl bing" } }] },
+      { role: "assistant", content: [{ type: "text", text: "Bing 没找到，换搜狗" }, { type: "toolCall", id: "t2", name: "exec_command", arguments: { cmd: "curl sogou" } }] },
+      { role: "assistant", content: [{ type: "text", text: "冠军是刘子亭。" }] },
+    ]);
+    expect(assistantReplyText(messages)).toBe("冠军是刘子亭。");
+    const work = omitFinalReply(turnWork(messages), assistantReplyText(messages));
+    expect(thoughtSteps(work, messages.flatMap((item) => item.tools)).map((step) => step.text)).toEqual([
+      "先搜一下杭州发呆大赛",
+      "Bing 没找到，换搜狗",
     ]);
   });
 

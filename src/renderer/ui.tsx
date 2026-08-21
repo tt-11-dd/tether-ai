@@ -7,7 +7,7 @@ import { skillUserDisplay } from "../shared/skills";
 import { DEFAULT_VISION_CONFIG, DEEPSEEK_VISION_MODEL, visibleUserText, visionResultSections, visionToolChips, type VisionProvider } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, activeCustomProfile, defaultCustomProfile, type ChatKind, type CustomApiProfile } from "../shared/chat-profiles";
 import { effortLabelKey, pickEffortOptions, reasoningLevelsAvailable } from "../shared/thinking";
-import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, delegateProgress, delegateStatusLabel, filterMentionPaths, formatCommand, isRecoverableRequestError, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
+import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, delegateProgress, delegateStatusLabel, filterMentionPaths, formatCommand, isRecoverableRequestError, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, assistantReplyText, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
 import type { AgentSkillCommand } from "../shared/skills";
 import { PROJECT_SKILL_ROOTS, USER_SKILL_ROOTS, skillSlashCommand } from "../shared/skills";
@@ -1023,7 +1023,7 @@ export const AssistantTurn = memo(function AssistantTurn({
   const thinking = collapseThinking(...messages.map((item) => item.thinking));
   const tools = [...new Map(messages.flatMap((item) => item.tools).map((tool) => [tool.id, tool])).values()];
   const work = turnWork(messages);
-  const text = messages.map((item) => item.text).filter(Boolean).join("\n\n");
+  const text = assistantReplyText(messages);
   const rawError = messages.map((item) => item.error).find(Boolean);
   const recoverable = isRecoverableRequestError(rawError);
   const errorTone = rawError
@@ -1034,7 +1034,8 @@ export const AssistantTurn = memo(function AssistantTurn({
   const started = messages.find((item) => item.timestamp)?.timestamp ?? tools[0]?.startedAt;
   const ended = Math.max(0, ...messages.map((item) => item.timestamp ?? 0), ...tools.map((item) => item.endedAt ?? 0));
   const changes = collectFileChanges(tools);
-  const traceWork = thinking
+  // Keep inter-tool text inside the trace (same as a live merged turn); only the last reply is outside.
+  const traceWork = thinking || tools.length > 0
     ? omitFinalReply(work, text)
     : work.filter((item) => item.type !== "text");
   return (

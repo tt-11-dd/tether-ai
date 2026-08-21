@@ -135,6 +135,19 @@ export function turnWork(messages: ChatMessage[]): WorkItem[] {
   return [...slots.values()];
 }
 
+/**
+ * Live merge keeps only the latest non-empty assistant text (`incoming.text || previous`).
+ * Reloaded turns are several messages, so joining every text dumps inter-tool narration into
+ * the reply bubble — use the same last-wins rule for the visible answer.
+ */
+export function assistantReplyText(messages: ChatMessage[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const text = messages[index]!.text.trim();
+    if (text) return text;
+  }
+  return "";
+}
+
 export function dropLastTurn(messages: ChatMessage[]): ChatMessage[] {
   let end = messages.length;
   while (end > 0 && messages[end - 1]!.role === "assistant") end -= 1;
