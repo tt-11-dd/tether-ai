@@ -2044,13 +2044,50 @@ textarea::selection,
   background: var(--bg, #fff);
   border: 1px solid var(--line);
   color: var(--ink-2);
-  font: inherit;
-  font-size: 11.5px;
+  font-size: 11px;
   line-height: 1.45;
-  white-space: pre-wrap;
   word-break: break-word;
-  max-height: 220px;
+  max-height: 280px;
   overflow: auto;
+}
+.delegate-task-output.markdown h1,
+.delegate-task-output.markdown h2,
+.delegate-task-output.markdown h3,
+.delegate-task-output.markdown h4,
+.delegate-task-output.markdown h5,
+.delegate-task-output.markdown h6 {
+  margin: 0.55em 0 0.3em;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.35;
+}
+.delegate-task-output.markdown h1 { font-size: 13px; }
+.delegate-task-output.markdown h2 { font-size: 12.5px; }
+.delegate-task-output.markdown h3 { font-size: 12px; }
+.delegate-task-output.markdown h4,
+.delegate-task-output.markdown h5,
+.delegate-task-output.markdown h6 { font-size: 11.5px; }
+.delegate-task-output.markdown p,
+.delegate-task-output.markdown ul,
+.delegate-task-output.markdown ol {
+  margin: 0.35em 0;
+}
+.delegate-task-output.markdown li {
+  margin: 0.12em 0;
+}
+.delegate-task-output.markdown hr {
+  margin: 0.6em 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.delegate-task-output.markdown pre,
+.delegate-task-output.markdown pre code {
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.delegate-task-output.markdown :not(pre) > code {
+  font-size: 10.5px;
+  padding: 0.1em 0.3em;
 }
 .thought-tool-chip.running {
   color: var(--ink);

@@ -828,7 +828,11 @@ function DelegateTaskRow({
       {open && (
         <div className="delegate-task-body">
           {summary && <p className="delegate-task-text">{summary}</p>}
-          {output?.trim() && <pre className="delegate-task-output">{output.trim()}</pre>}
+          {output?.trim() && (
+            <div className="delegate-task-output markdown">
+              <Markdown>{output.trim()}</Markdown>
+            </div>
+          )}
         </div>
       )}
     </div>
