@@ -68,6 +68,8 @@ export interface AgentStartOptions {
   sandbox: SandboxMode;
   network?: boolean;
   sessionPath?: string;
+  /** Canonical partitioned transcript; used to repair a missing flat hard-link. */
+  storagePath?: string;
   resume?: boolean;
   extraModels?: string[];
 }
@@ -149,8 +151,8 @@ export interface DesktopApi {
     onChanged(listener: (root: string) => void): () => void;
   };
   vision: {
-    config(): Promise<{ endpoint: string; model: string; apiKey: string }>;
-    saveConfig(config: { endpoint: string; model: string; apiKey?: string }): Promise<void>;
+    config(): Promise<{ provider?: "deepseek" | "custom"; endpoint: string; model: string; apiKey: string; hasApiKey?: boolean }>;
+    saveConfig(config: { provider?: "deepseek" | "custom"; endpoint: string; model: string; apiKey?: string }): Promise<void>;
     stage(images: string[]): Promise<string[]>;
   };
   sessions: {

@@ -57,14 +57,19 @@ export default function visionExtension(pi: ExtensionAPI) {
     wanted = false;
     setVisionTool(pi, false);
   });
-  pi.on("before_agent_start", (event: { prompt?: string; images?: unknown[]; systemPrompt?: string }) => {
+  pi.on("before_agent_start", (
+    event: { prompt?: string; images?: unknown[]; systemPrompt?: string },
+    ctx?: { model?: { input?: string[] } },
+  ) => {
     lastPrompt = event.prompt ?? "";
+    const nativeVision = Boolean(ctx?.model?.input?.includes("image"));
     // Sticky for the session: images pasted in an earlier turn are still on disk, and taking the
     // tool away mid-session only makes the model fall back to shell OCR hacks (PIL, Swift Vision).
+    // When the chat model already accepts images, do not force the vision tool on for native parts.
     wanted = wanted
-      || Boolean(event.images?.length)
       || isVisionHandoff(lastPrompt)
-      || mentionsImageFile(lastPrompt);
+      || mentionsImageFile(lastPrompt)
+      || (!nativeVision && Boolean(event.images?.length));
     setVisionTool(pi, wanted);
     const base = event.systemPrompt ?? "";
     const next = `${base.replaceAll(NO_CAPTURE, "").replaceAll(LANG_ZH, "").replaceAll(LANG_EN, "").trimEnd()}\n\n${NO_CAPTURE}\n${langLine(lastPrompt)}`;
@@ -83,7 +88,7 @@ export default function visionExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "vision",
     label: "图片识别",
-    description: "Look at user-pasted image files with GLM-4V-Flash and MinerU OCR. Only call when this turn's user message attached images. Never call for HTML, CSS, or code edits.",
+    description: "Look at user-pasted image files with the configured vision model and MinerU OCR. Only call when this turn's user message attached images. Never call for HTML, CSS, or code edits.",
     promptSnippet: "vision: only when the user pasted images this turn",
     parameters: {
       type: "object",
@@ -130,21 +135,20 @@ export default function visionExtension(pi: ExtensionAPI) {
       const abort = signal instanceof AbortSignal ? AbortSignal.any([signal, timeout]) : timeout;
       try {
         const prompt = params.prompt ?? "";
-        const [glmParts, ocrParts] = await Promise.all([
-          hasGlmKey
-            ? Promise.all(images.map((image, index) =>
-                analyzeGlm(config, images.length > 1 ? `第 ${index + 1} 张。${prompt}` : prompt, [image], abort)))
-            : Promise.resolve([]),
-          Promise.all(buffers.map((buf) => mineruOcr(buf, abort).catch(() => ""))),
-        ]);
-        const glmText = glmParts.filter(Boolean).join("\n\n");
-        const ocrText = ocrParts.filter(Boolean).join("\n\n---\n\n");
-        const merged = mergeVisionResult(glmText, ocrText);
+        // With a vision key: one API call only. MinerU poll was the usual multi-second wait.
+        // Without a key: MinerU alone (free OCR fallback).
+        const glmText = hasGlmKey ? await analyzeGlm(config, prompt, images, abort) : "";
+        const ocrText = hasGlmKey
+          ? ""
+          : (await Promise.all(buffers.map((buf) => mineruOcr(buf, abort).catch(() => ""))))
+              .filter(Boolean)
+              .join("\n\n---\n\n");
+        const merged = mergeVisionResult(glmText, ocrText, config.model);
         if (!merged) {
           throw new Error(
             hasGlmKey
               ? "图片识别未能提取出有效内容"
-              : "内置 MinerU OCR 未能提取出文字，且未配置视觉模型 API Key。可在设置中填写智谱 GLM API Key 获取完整视觉分析能力。"
+              : "内置 MinerU OCR 未能提取出文字，且未配置视觉模型。可在设置 → 图片识别中选择 DeepSeek 或填写自定义 API。"
           );
         }
         const details = visionEngineDetails({

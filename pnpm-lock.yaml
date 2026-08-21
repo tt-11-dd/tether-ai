@@ -24,8 +24,8 @@ importers:
         specifier: ^4.0.1
         version: 4.0.1
       tether-agent-core:
-        specifier: 0.1.9
-        version: 0.1.9(ws@8.21.3)
+        specifier: 0.1.10
+        version: 0.1.10(ws@8.21.3)
     devDependencies:
       '@types/node':
         specifier: ^24.0.10
@@ -3025,8 +3025,8 @@ packages:
     resolution: {integrity: sha512-yYrrsWnrXMcdsnu/7YMYAofM1ktpL5By7vZhf15CrXijWWrEYZks5AXBudalfSWJLlnen/QUJUB5aoB0kqZUGA==}
     engines: {node: '>=6.0.0'}
 
-  tether-agent-core@0.1.9:
-    resolution: {integrity: sha512-NpvDp7iyXMdnadUvb9VQlANIWvb1GM2pEhsrTqbryJOOSKa6imMy9ICddBBOdZxs2VIkPEf4lmsEYY74i6zCTA==}
+  tether-agent-core@0.1.10:
+    resolution: {integrity: sha512-4AMFWcMK1DtyHO/AaOalKbfzXLJk+Bw7PR6ngWats4Pe6EuMnpngTGifEKa07LNqr7jQNFNankvp6ZK2Dm7wmw==}
     engines: {node: '>=22.19.0'}
 
   thenify-all@1.6.0:
@@ -6793,7 +6793,7 @@ snapshots:
       mkdirp: 0.5.6
       rimraf: 2.6.3
 
-  tether-agent-core@0.1.9(ws@8.21.3):
+  tether-agent-core@0.1.10(ws@8.21.3):
     dependencies:
       '@earendil-works/pi-agent-core': 0.83.0(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
       '@earendil-works/pi-ai': 0.83.0(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)

@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PREVIEW_HOST, PREVIEW_SCHEME, type AgentSessionStats, type ExtensionUiRequest, type PermissionMode } from "../shared/types";
 import { skillUserDisplay } from "../shared/skills";
-import { DEFAULT_VISION_CONFIG, visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
+import { DEFAULT_VISION_CONFIG, DEEPSEEK_VISION_MODEL, visibleUserText, visionResultSections, visionToolChips, type VisionProvider } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, activeCustomProfile, defaultCustomProfile, type ChatKind, type CustomApiProfile } from "../shared/chat-profiles";
 import { effortLabelKey, pickEffortOptions, reasoningLevelsAvailable } from "../shared/thinking";
 import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, delegateProgress, delegateStatusLabel, filterMentionPaths, formatCommand, isRecoverableRequestError, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
@@ -2662,10 +2662,11 @@ export function Login({
   const [deepseekModel, setDeepseekModel] = useState(DEEPSEEK_PRESET.model);
   const [customProfiles, setCustomProfiles] = useState<CustomApiProfile[]>([]);
   const [activeCustomId, setActiveCustomId] = useState("");
+  const [visionProvider, setVisionProvider] = useState<VisionProvider>("custom");
   const [visionEndpoint, setVisionEndpoint] = useState(DEFAULT_VISION_CONFIG.endpoint);
   const [visionModel, setVisionModel] = useState(DEFAULT_VISION_CONFIG.model);
-  const [visionKey, setVisionKey] = useState("");
-  const [visionHasKey, setVisionHasKey] = useState(false);
+  const [visionDeepSeekKey, setVisionDeepSeekKey] = useState("");
+  const [visionCustomKey, setVisionCustomKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [chatModels, setChatModels] = useState<string[]>([]);
   const [visionModels, setVisionModels] = useState<string[]>([]);
@@ -2678,6 +2679,8 @@ export function Login({
   const chatUrl = kind === "deepseek" ? DEEPSEEK_PRESET.url : activeCustom?.url ?? "";
   const chatKey = kind === "deepseek" ? deepseekKey : activeCustom?.apiKey ?? "";
   const chatModel = kind === "deepseek" ? deepseekModel : activeCustom?.model ?? "";
+  const visionKey = visionProvider === "deepseek" ? visionDeepSeekKey : visionCustomKey;
+  const setVisionKey = visionProvider === "deepseek" ? setVisionDeepSeekKey : setVisionCustomKey;
   const modKey = window.harness.platform === "darwin" ? "⌘" : "Ctrl";
 
   const updateActiveCustom = (fields: Partial<CustomApiProfile>) => {
@@ -2711,7 +2714,7 @@ export function Login({
 
   const listModels = async (target: "chat" | "vision") => {
     const base = target === "chat" ? chatUrl : visionEndpoint;
-    const secret = target === "chat" ? chatKey : visionKey;
+    const secret = target === "chat" ? chatKey : visionCustomKey;
     if (!base.trim() || !secret.trim()) {
       setTestStatus({ target, ok: false, message: t("settings.fillUrlKey") });
       return;
@@ -2751,10 +2754,17 @@ export function Login({
       setDeepseekModel(profiles.deepseek.model || DEEPSEEK_PRESET.model);
       setCustomProfiles(profiles.customProfiles);
       setActiveCustomId(profiles.activeCustomId);
+      setVisionProvider(config.provider === "deepseek" ? "deepseek" : "custom");
       setVisionEndpoint(config.endpoint);
       setVisionModel(config.model);
-      setVisionKey("");
-      setVisionHasKey(Boolean((config as { hasApiKey?: boolean }).hasApiKey));
+      const loadedKey = (config.apiKey ?? "").trim();
+      if (config.provider === "deepseek") {
+        setVisionDeepSeekKey(loadedKey || profiles.deepseek.apiKey.trim());
+        setVisionCustomKey("");
+      } else {
+        setVisionCustomKey(loadedKey);
+        setVisionDeepSeekKey(profiles.deepseek.apiKey.trim());
+      }
       if (ver) setAppVersion(ver);
       const url = profiles.kind === "custom" ? activeCustomProfile(profiles)?.url ?? "" : DEEPSEEK_PRESET.url;
       const key = profiles.kind === "custom" ? activeCustomProfile(profiles)?.apiKey ?? "" : profiles.deepseek.apiKey;
@@ -2793,9 +2803,10 @@ export function Login({
               });
             }
             await window.harness.vision.saveConfig({
+              provider: visionProvider,
               endpoint: visionEndpoint.trim(),
               model: visionModel.trim(),
-              ...(visionKey.trim() ? { apiKey: visionKey.trim() } : {}),
+              apiKey: visionKey.trim(),
             });
             await onSaved();
           } catch (error) {
@@ -3009,41 +3020,96 @@ export function Login({
 
             {pane === "vision" && (
               <>
-                <label>
-                  {t("settings.endpoint")}
-                  <input
-                    value={visionEndpoint}
-                    onChange={(event) => setVisionEndpoint(event.target.value)}
-                    placeholder={DEFAULT_VISION_CONFIG.endpoint}
-                  />
-                </label>
-                <SecretField
-                  value={visionKey}
-                  onChange={setVisionKey}
-                  placeholder={visionHasKey ? t("settings.keySaved") : t("settings.zhipuKey")}
-                />
-                <ModelField
-                  value={visionModel}
-                  onChange={setVisionModel}
-                  models={visionModels}
-                  listing={listing === "vision"}
-                  canList={Boolean(visionEndpoint.trim() && visionKey.trim())}
-                  onList={() => void listModels("vision")}
-                  placeholder={DEFAULT_VISION_CONFIG.model}
-                />
+                <div className="settings-seg">
+                  {([
+                    ["deepseek", t("settings.visionDeepSeek")],
+                    ["custom", t("settings.visionCustom")],
+                  ] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={visionProvider === id ? "on" : ""}
+                      onClick={() => {
+                        if (id === visionProvider) return;
+                        setVisionProvider(id);
+                        setTestStatus(null);
+                        if (id === "deepseek") {
+                          setVisionModel(DEEPSEEK_VISION_MODEL);
+                          if (!visionDeepSeekKey.trim() && deepseekKey.trim()) {
+                            setVisionDeepSeekKey(deepseekKey.trim());
+                          }
+                        } else {
+                          setVisionModel(DEFAULT_VISION_CONFIG.model);
+                          setVisionEndpoint(
+                            kind === "custom" && activeCustom?.url.trim()
+                              ? `${activeCustom.url.trim().replace(/\/+$/, "").replace(/\/chat\/completions$/i, "")}/chat/completions`
+                              : DEFAULT_VISION_CONFIG.endpoint,
+                          );
+                        }
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
 
-                {testStatus?.target === "vision" && (
-                  <div className={`settings-feedback ${testStatus.ok ? "ok" : "err"}`}>
-                    <Icon path={testStatus.ok ? "M5 12.5l4 4 10-10" : "M12 8v4m0 4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 22 0z"} size={14} />
-                    <span>{testStatus.message}</span>
-                  </div>
+                {visionProvider === "deepseek" ? (
+                  <>
+                    <p className="settings-hint">
+                      {kind === "custom" ? t("settings.visionDeepSeekWithCustomChatHint") : t("settings.visionDeepSeekHint")}
+                    </p>
+                    <label>
+                      {t("settings.model")}
+                      <input value={DEEPSEEK_VISION_MODEL} readOnly />
+                    </label>
+                    <SecretField
+                      value={visionKey}
+                      onChange={setVisionKey}
+                      placeholder={t("settings.visionDeepSeekKey")}
+                    />
+                    {!visionKey.trim() && (
+                      <div className="settings-feedback err">
+                        <Icon path="M12 8v4m0 4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 22 0z" size={14} />
+                        <span>{t("settings.visionDeepSeekNeedKey")}</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p className="settings-hint">{t("settings.visionHint")}</p>
+                    <label>
+                      {t("settings.endpoint")}
+                      <input
+                        value={visionEndpoint}
+                        onChange={(event) => setVisionEndpoint(event.target.value)}
+                        placeholder={DEFAULT_VISION_CONFIG.endpoint}
+                      />
+                    </label>
+                    <SecretField
+                      value={visionKey}
+                      onChange={setVisionKey}
+                      placeholder={t("settings.zhipuKey")}
+                    />
+                    <ModelField
+                      value={visionModel}
+                      onChange={setVisionModel}
+                      models={visionModels}
+                      listing={listing === "vision"}
+                      canList={Boolean(visionEndpoint.trim() && visionCustomKey.trim())}
+                      onList={() => void listModels("vision")}
+                      placeholder={DEFAULT_VISION_CONFIG.model}
+                    />
+
+                    {testStatus?.target === "vision" && (
+                      <div className={`settings-feedback ${testStatus.ok ? "ok" : "err"}`}>
+                        <Icon path={testStatus.ok ? "M5 12.5l4 4 10-10" : "M12 8v4m0 4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 22 0z"} size={14} />
+                        <span>{testStatus.message}</span>
+                      </div>
+                    )}
+                  </>
                 )}
 
-                <div className="settings-status">
-                  <span className="settings-status-dot" />
-                  <strong>{t("settings.mineruTitle")}</strong>
-                  <span className="settings-badge free">{t("settings.mineruBadge")}</span>
-                </div>
+                <p className="settings-hint">{t("settings.mineruHint")}</p>
               </>
             )}
 

@@ -18,7 +18,7 @@ import {
   readStoredEffort,
   writeStoredEffort,
 } from "../shared/thinking";
-import { visionAgentPrompt } from "../shared/vision-api";
+import { modelSupportsVision, toPromptImages, visionAgentPrompt } from "../shared/vision-api";
 import {
   applyAgentEvent,
   baseName,
@@ -412,6 +412,7 @@ export function App() {
   effortRef.current = effort;
   const agentModelIdsRef = useRef<string[]>([]);
   const agentModelsRef = useRef<AgentSnapshot["models"]>([]);
+  const startSeq = useRef(0);
 
   const applyThinkingForModel = useCallback((modelId: string) => {
     const levels = levelsForModel(modelId, agentModelsRef.current);
@@ -558,7 +559,9 @@ export function App() {
     resume = false,
     mode = permission,
     seedMessage?: ChatMessage,
+    storagePath?: string,
   ) => {
+    const seq = ++startSeq.current;
     setLoading(true);
     setUiRequest(undefined);
     let accounts: ProviderStatus[];
@@ -569,6 +572,7 @@ export function App() {
       setLoading(false);
       return false;
     }
+    if (seq !== startSeq.current) return false;
     setProviders(accounts);
     const chat = accounts.find((item) => item.id === "deepseek");
     if (!chat?.configured) {
@@ -580,12 +584,16 @@ export function App() {
     if (!seedMessage && !resume) {
       setQueued([]);
       holdQueue.current = false;
+      // Opening a thread: clear the pane so we don't keep showing the welcome/home shell.
+      if (sessionPath) {
+        setMessages([]);
+        setActiveSession(sessionPath);
+        sessionRef.current = sessionPath;
+      }
     }
     const modelId = modelRef.current.trim() || chat.defaultModel;
     const extraModels = [...new Set([modelId, ...chatModelsRef.current].filter(Boolean))];
     if (!resume) {
-      setActiveSession(sessionPath);
-      sessionRef.current = sessionPath;
       if (cwd) {
         setWorkspace(cwd);
         setOpenProjects((current) => ({ ...current, [cwd]: true }));
@@ -594,6 +602,7 @@ export function App() {
       }
     }
     const sandbox = await resolveSandbox(asProject, mode, cwd);
+    if (seq !== startSeq.current) return false;
     if (asProject && sandbox !== "danger-full-access" && window.harness.platform !== "darwin") {
       setLoading(false);
       setToast(t("toast.sandboxCancelled"));
@@ -611,9 +620,11 @@ export function App() {
         sandbox,
         ...(mode === "auto" || mode === "full" ? { network: true } : {}),
         ...(sessionPath ? { sessionPath } : {}),
+        ...(storagePath ? { storagePath } : {}),
         ...(resume ? { resume: true } : {}),
         ...(extraModels.length ? { extraModels } : {}),
       });
+      if (seq !== startSeq.current) return false;
       setAgentSkills(snapshot.skills ?? []);
       if (seedMessage) {
         setMessages([...normalizeMessages(snapshot.messages), seedMessage]);
@@ -621,6 +632,9 @@ export function App() {
         setRunning(true);
       } else {
         hydrate(snapshot);
+        if (sessionPath && normalizeMessages(snapshot.messages).length === 0) {
+          setToast(t("toast.sessionEmpty"));
+        }
       }
       live.current = true;
       agentCwd.current = snapshot.cwd ?? cwd ?? agentCwd.current;
@@ -633,6 +647,7 @@ export function App() {
       applyThinkingForModel(modelId);
       const nextEffort = effortRef.current;
       await window.harness.agent.command("set_thinking_level", { level: nextEffort }).catch(() => undefined);
+      if (seq !== startSeq.current) return false;
       const file = sessionFileOf(snapshot) ?? sessionPath;
       if (file) {
         sessionRef.current = file;
@@ -642,14 +657,26 @@ export function App() {
       void refreshAgentSkills();
       return true;
     } catch (error) {
+      if (seq !== startSeq.current) return false;
       const message = error instanceof Error ? error.message : String(error);
-      if (!/Agent session closed/.test(message)) setToast(friendlyAgentError(error));
+      // Session switch kills the previous agent; still tell the user when open failed.
+      if (sessionPath) {
+        setToast(t("toast.sessionOpenFailed", { error: friendlyAgentError(error) }));
+      } else if (!/Agent session closed/.test(message)) {
+        setToast(friendlyAgentError(error));
+      }
       if (/not configured|credential|login|api key/i.test(message)) setLoginOpen(true);
       return false;
     } finally {
-      setLoading(false);
+      if (seq === startSeq.current) setLoading(false);
     }
   }, [applyThinkingForModel, hydrate, permission, refreshAgentSkills, resolveSandbox, t]);
+
+  const openSession = useCallback((session: SessionSummary) => {
+    // Allow re-open when the row is highlighted but the transcript failed to load.
+    if (isSameSession(session, activeSession) && messages.length > 0 && !loading) return;
+    void startAgent(session.cwd, session.path, true, false, permission, undefined, session.storagePath);
+  }, [activeSession, loading, messages.length, permission, startAgent]);
 
   const ensureModelReady = useCallback(async (): Promise<boolean> => {
     if (!agentCwd.current) return true;
@@ -958,10 +985,27 @@ export function App() {
         return;
       }
 
-      const message = images?.length
-        ? visionAgentPrompt(question, await window.harness.vision.stage(images))
-        : question;
-      await window.harness.agent.command("prompt", { message });
+      if (!images?.length) {
+        await window.harness.agent.command("prompt", { message: question });
+      } else if (modelSupportsVision(modelRef.current)) {
+        try {
+          await window.harness.agent.command("prompt", {
+            message: question,
+            images: toPromptImages(images),
+          });
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          // Model declared vision but API rejected images — fall back to dedicated vision tool.
+          if (!/does not support image|image input|unsupported.*image|invalid.*image/i.test(detail)) {
+            throw error;
+          }
+          const message = visionAgentPrompt(question, await window.harness.vision.stage(images));
+          await window.harness.agent.command("prompt", { message });
+        }
+      } else {
+        const message = visionAgentPrompt(question, await window.harness.vision.stage(images));
+        await window.harness.agent.command("prompt", { message });
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       const optimisticId = optimistic?.id;
@@ -1078,7 +1122,7 @@ export function App() {
     };
   }, [workspace, running, workingFiles.length]);
 
-  const home = groups.length === 0;
+  const home = groups.length === 0 && !activeSession && !loading;
 
   useLayoutEffect(() => {
     const node = scroller.current;
@@ -1228,10 +1272,7 @@ export function App() {
                       key={session.id}
                       session={session}
                       active={isSameSession(session, activeSession)}
-                      onOpen={() => {
-                        if (isSameSession(session, activeSession)) return;
-                        void startAgent(session.cwd, session.path, true);
-                      }}
+                      onOpen={() => openSession(session)}
                       onPin={() => void pinSession(session)}
                       onRename={(title) => void renameSession(session, title)}
                       onRemove={() => void removeSession(session)}
@@ -1321,10 +1362,7 @@ export function App() {
                       key={session.id}
                       type="button"
                       className="home-recent"
-                      onClick={() => {
-                        if (isSameSession(session, activeSession)) return;
-                        void startAgent(session.cwd, session.path, true);
-                      }}
+                      onClick={() => openSession(session)}
                     >
                       <div className="home-recent-main">
                         <Icon path="M19 3H5a2 2 0 0 0-2 2v14l4-4h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z" size={14} />
@@ -1335,6 +1373,11 @@ export function App() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+          {!home && groups.length === 0 && (
+            <div className="empty session-empty">
+              <p className="task-empty">{loading ? t("chat.loadingSession") : t("chat.emptySession")}</p>
             </div>
           )}
           {groups.length > 0 && (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { listOpenAiModels, modelsUrl, parseOpenAiModels } from "./openai-models";
+import { apiBaseUrl, listOpenAiModels, modelsUrl, parseOpenAiModels } from "./openai-models";
 
 describe("modelsUrl", () => {
   it("appends /models to an OpenAI-compatible base", () => {
@@ -14,6 +14,13 @@ describe("modelsUrl", () => {
   it("strips chat/completions so vision endpoints still hit /models", () => {
     expect(modelsUrl("https://open.bigmodel.cn/api/paas/v4/chat/completions"))
       .toBe("https://open.bigmodel.cn/api/paas/v4/models");
+  });
+});
+
+describe("apiBaseUrl", () => {
+  it("strips pasted /chat/completions for OpenAI-compatible bases", () => {
+    expect(apiBaseUrl("http://192.168.0.229:8317/v1/chat/completions"))
+      .toBe("http://192.168.0.229:8317/v1");
   });
 });
 

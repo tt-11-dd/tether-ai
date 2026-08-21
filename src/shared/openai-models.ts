@@ -2,9 +2,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+/** OpenAI-compatible base：去掉末尾 `/` 和误粘贴的 `/chat/completions`。 */
+export function apiBaseUrl(base: string): string {
+  return base.trim().replace(/\/+$/, "").replace(/\/chat\/completions$/i, "").replace(/\/+$/, "");
+}
+
 /** `{base}/models`；base 若是 chat completions 地址则退回到同一前缀。 */
 export function modelsUrl(base: string): string {
-  const root = base.trim().replace(/\/+$/, "").replace(/\/chat\/completions$/i, "").replace(/\/+$/, "");
+  const root = apiBaseUrl(base);
   if (!root) throw new Error("先填写 API URL");
   return root.endsWith("/models") ? root : `${root}/models`;
 }

@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { isVisionHandoff, isVisionReadable, mergeVisionResult, mimeFromImagePath, mineruResult, mineruUpload, resolveVisionSettings, visibleUserText, visionAgentPrompt, visionEngineDetails, visionError, visionHandoffPaths, visionRequest, visionResultSections, visionText, visionTitle, visionToolChips, visionToolTitle, visionUploadUrl } from "./vision-api";
+import { isVisionHandoff, isVisionReadable, mergeVisionResult, mimeFromImagePath, mineruResult, mineruUpload, modelSupportsVision, resolveVisionSettings, toPromptImages, visibleUserText, visionAgentPrompt, visionEngineDetails, visionError, visionHandoffPaths, visionRequest, visionResultSections, visionText, visionTitle, visionToolChips, visionToolTitle, visionUploadUrl } from "./vision-api";
+
+describe("modelSupportsVision", () => {
+  it("accepts known vision models", () => {
+    expect(modelSupportsVision("deepseek-v4-flash-vision-exp")).toBe(true);
+    expect(modelSupportsVision("gpt-4o")).toBe(true);
+    expect(modelSupportsVision("claude-sonnet-4")).toBe(true);
+  });
+
+  it("rejects plain DeepSeek chat models", () => {
+    expect(modelSupportsVision("deepseek-v4-flash")).toBe(false);
+    expect(modelSupportsVision("deepseek-v4-pro")).toBe(false);
+  });
+});
+
+describe("toPromptImages", () => {
+  it("parses data URIs", () => {
+    expect(toPromptImages(["data:image/png;base64,AAA"])).toEqual([
+      { type: "image", mimeType: "image/png", data: "AAA" },
+    ]);
+  });
+});
 
 describe("visionRequest", () => {
   it("puts images and prompt into chat.completions content parts", () => {
@@ -33,9 +54,25 @@ describe("resolveVisionSettings", () => {
       endpoint: "https://apihub.agnes-ai.com/v1/chat/completions",
       model: "agnes-2.5-flash",
     })).toEqual({
+      provider: "custom",
       endpoint: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
       model: "glm-4v-flash",
     });
+  });
+
+  it("locks DeepSeek vision to the official model id", () => {
+    expect(resolveVisionSettings({ provider: "deepseek" })).toMatchObject({
+      provider: "deepseek",
+      model: "deepseek-v4-flash-vision-exp",
+      endpoint: "https://api.deepseek.com/chat/completions",
+    });
+  });
+
+  it("keeps an explicit DeepSeek completions URL when provided", () => {
+    expect(resolveVisionSettings({
+      provider: "deepseek",
+      endpoint: "https://api.deepseek.com/chat/completions",
+    }).endpoint).toBe("https://api.deepseek.com/chat/completions");
   });
 });
 
@@ -114,26 +151,26 @@ describe("visionToolTitle", () => {
       hasGlmKey: true,
       images: 1,
       pending: true,
-    }))).toEqual(["GLM-4V 识图 · glm-4v-flash", "MinerU OCR"]);
+    }))).toEqual(["识图 · glm-4v-flash"]);
     expect(visionToolTitle(visionEngineDetails({
       model: "glm-4v-flash",
       hasGlmKey: true,
       images: 1,
       glmText: "a browser",
       ocrText: "WeTab",
-    }))).toBe("GLM-4V 识图 · glm-4v-flash · MinerU OCR");
+    }))).toBe("识图 · glm-4v-flash · MinerU OCR");
     expect(visionToolChips(visionEngineDetails({
       model: "glm-4v-flash",
       hasGlmKey: true,
       images: 1,
       glmText: "a browser",
-    }))).toEqual(["GLM-4V 识图 · glm-4v-flash"]);
+    }))).toEqual(["识图 · glm-4v-flash"]);
     expect(visionToolChips()).toEqual(["图片识别"]);
   });
 
   it("splits merged vision output into labeled engine sections", () => {
-    expect(visionResultSections(mergeVisionResult("a browser tab", "WeTab\n搜索"))).toEqual([
-      { label: "GLM-4V 识图", text: "a browser tab" },
+    expect(visionResultSections(mergeVisionResult("a browser tab", "WeTab\n搜索", "glm-4v-flash"))).toEqual([
+      { label: "glm-4v-flash", text: "a browser tab" },
       { label: "MinerU OCR", text: "WeTab\n搜索" },
     ]);
     expect(visionResultSections(mergeVisionResult("", "only ocr"))).toEqual([

@@ -2,6 +2,8 @@ import { PREVIEW_SCHEME, UPLOADS_HOST } from "./types";
 
 export const VISION_ENDPOINT = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
 export const VISION_MODEL = "glm-4v-flash";
+export const DEEPSEEK_VISION_MODEL = "deepseek-v4-flash-vision-exp";
+export const DEEPSEEK_VISION_BASE = "https://api.deepseek.com";
 export const MAX_VISION_IMAGES = 4;
 export const MINERU_PARSE_FILE = "https://mineru.net/api/v1/agent/parse/file";
 export const MINERU_PARSE_TASK = "https://mineru.net/api/v1/agent/parse";
@@ -12,27 +14,67 @@ const STALE_VISION_ENDPOINTS = new Set([
 ]);
 const STALE_VISION_MODELS = new Set(["agnes-2.5-flash", "glm-4.6v-flash"]);
 
+export type VisionProvider = "deepseek" | "custom";
+
 export interface VisionConfig {
+  provider: VisionProvider;
   endpoint: string;
   model: string;
   apiKey: string;
 }
 
 export const DEFAULT_VISION_CONFIG: Omit<VisionConfig, "apiKey"> = {
+  provider: "custom",
   endpoint: VISION_ENDPOINT,
   model: VISION_MODEL,
 };
 
-export function resolveVisionSettings(raw?: Partial<Pick<VisionConfig, "endpoint" | "model">>) {
+/** `{base}/chat/completions` for DeepSeek official or OpenAI-compatible gateways. */
+export function deepseekVisionEndpoint(baseUrl = DEEPSEEK_VISION_BASE): string {
+  const root = baseUrl
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\/chat\/completions$/i, "")
+    .replace(/\/+$/, "");
+  return `${root || DEEPSEEK_VISION_BASE}/chat/completions`;
+}
+
+export function resolveVisionSettings(
+  raw?: Partial<Pick<VisionConfig, "provider" | "endpoint" | "model">>,
+) {
+  const provider: VisionProvider = raw?.provider === "deepseek" ? "deepseek" : "custom";
+  if (provider === "deepseek") {
+    const endpoint = raw?.endpoint?.trim();
+    return {
+      provider,
+      endpoint: deepseekVisionEndpoint(endpoint || DEEPSEEK_VISION_BASE),
+      model: DEEPSEEK_VISION_MODEL,
+    };
+  }
   const endpoint = raw?.endpoint?.trim() ?? "";
   const model = raw?.model?.trim() ?? "";
   return {
+    provider,
     endpoint: !endpoint || STALE_VISION_ENDPOINTS.has(endpoint) ? VISION_ENDPOINT : endpoint,
     model: !model || STALE_VISION_MODELS.has(model) ? VISION_MODEL : model,
   };
 }
 
-/** GLM-4V-Flash: OpenAI chat.completions with data-URI image_url. */
+/** Apply DeepSeek chat base URL + key when vision provider is deepseek. */
+export function resolveVisionRuntime(
+  config: VisionConfig,
+  deepseek?: { baseUrl?: string; apiKey?: string },
+): VisionConfig {
+  if (config.provider !== "deepseek") return config;
+  return {
+    provider: "deepseek",
+    endpoint: deepseekVisionEndpoint(deepseek?.baseUrl || DEEPSEEK_VISION_BASE),
+    model: DEEPSEEK_VISION_MODEL,
+    apiKey: deepseek?.apiKey?.trim() || config.apiKey,
+  };
+}
+
+/** OpenAI-compatible chat.completions with data-URI image_url. */
 export function visionRequest(prompt: string, images: string[], options?: { model?: string }) {
   const refs = images.filter(Boolean).slice(0, MAX_VISION_IMAGES);
   if (refs.length === 0) throw new Error("先上传至少一张图片");
@@ -63,15 +105,15 @@ export function visionText(payload: unknown): string {
   throw new Error("接口没有返回图片识别结果");
 }
 
-export function mergeVisionResult(glm: string, ocr?: string) {
+export function mergeVisionResult(visionBody: string, ocr?: string, engineLabel = "图片识别") {
   const text = ocr?.trim();
-  const vision = glm?.trim();
+  const vision = visionBody?.trim();
   if (!text) return vision || "";
   if (!vision) return `OCR 提取文字（MinerU）：\n${text}`;
-  return `图片识别（GLM-4V-Flash）：\n${vision}\n\nOCR（MinerU）：\n${text}`;
+  return `图片识别（${engineLabel}）：\n${vision}\n\nOCR（MinerU）：\n${text}`;
 }
 
-/** Chip labels so GLM 识图 and MinerU OCR never share one ambiguous badge. */
+/** Chip labels so vision model and MinerU OCR never share one ambiguous badge. */
 export function visionToolChips(details?: unknown): string[] {
   if (!details || typeof details !== "object") return ["图片识别"];
   const record = details as {
@@ -84,12 +126,12 @@ export function visionToolChips(details?: unknown): string[] {
     ? record.engines.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
     : [];
   const model = typeof record.model === "string" ? record.model.trim() : "";
-  const usedGlm = record.glm === true
+  const usedVision = record.glm === true
     || engines.some((item) => item !== "mineru-ocr")
     || (Boolean(model) && model !== "mineru-ocr");
   const usedOcr = record.ocr === true || engines.includes("mineru-ocr") || model === "mineru-ocr";
   const chips: string[] = [];
-  if (usedGlm) chips.push(`GLM-4V 识图 · ${model && model !== "mineru-ocr" ? model : "glm-4v-flash"}`);
+  if (usedVision) chips.push(`识图 · ${model && model !== "mineru-ocr" ? model : VISION_MODEL}`);
   if (usedOcr) chips.push("MinerU OCR");
   return chips.length > 0 ? chips : ["图片识别"];
 }
@@ -102,12 +144,13 @@ export function visionToolTitle(details?: unknown): string {
 export function visionResultSections(output?: string): Array<{ label: string; text: string }> {
   const text = output?.trim() ?? "";
   if (!text) return [];
-  const glm = text.match(/图片识别（GLM-4V-Flash）：\n([\s\S]*?)(?:\n\nOCR（MinerU）：\n|$)/)?.[1]?.trim();
+  const vision = text.match(/图片识别（[^）]+）：\n([\s\S]*?)(?:\n\nOCR（MinerU）：\n|$)/)?.[1]?.trim();
+  const label = text.match(/图片识别（([^）]+)）：/)?.[1]?.trim() || "识图";
   const ocr = text.match(/OCR 提取文字（MinerU）：\n([\s\S]+)$/)?.[1]?.trim()
     ?? text.match(/OCR（MinerU）：\n([\s\S]+)$/)?.[1]?.trim();
-  if (glm || ocr) {
+  if (vision || ocr) {
     return [
-      ...(glm ? [{ label: "GLM-4V 识图", text: glm }] : []),
+      ...(vision ? [{ label, text: vision }] : []),
       ...(ocr ? [{ label: "MinerU OCR", text: ocr }] : []),
     ];
   }
@@ -128,9 +171,9 @@ export function visionEngineDetails(options: {
   if (options.pending) {
     return {
       model: options.hasGlmKey ? options.model : "mineru-ocr",
-      engines: options.hasGlmKey ? [options.model, "mineru-ocr"] : ["mineru-ocr"],
+      engines: options.hasGlmKey ? [options.model] : ["mineru-ocr"],
       images: options.images,
-      ocr: true,
+      ocr: !options.hasGlmKey,
       glm: options.hasGlmKey,
     };
   }
@@ -166,6 +209,31 @@ export function mineruResult(payload: unknown): { state: string; markdownUrl?: s
     ...(data?.markdown_url ? { markdownUrl: data.markdown_url } : {}),
     ...(data?.err_msg ? { error: data.err_msg } : {}),
   };
+}
+
+/** Whether the chat model can take image parts natively (skip the vision tool). */
+export function modelSupportsVision(modelId: string): boolean {
+  const id = modelId.trim().toLowerCase();
+  if (!id) return false;
+  // DeepSeek: only the explicit vision experimental model.
+  if (/deepseek/.test(id)) return /vision/.test(id);
+  if (/(?:^|[-_/.])(vision|vl|4v)(?:$|[-_/.])/.test(id)) return true;
+  if (/gpt-4o|gpt-4\.1|gpt-5|chatgpt-4o|o[1-9].*vision|\bomni\b/.test(id)) return true;
+  if (/claude-3|claude-4|claude-sonnet|claude-opus|claude-haiku/.test(id)) return true;
+  if (/gemini|qwen-vl|qwen2\.5-vl|glm-4v|llava|pixtral|mistral-small.*vision/.test(id)) return true;
+  return false;
+}
+
+/** Convert pasted data-URIs into pi ImageContent for native multimodal prompt. */
+export function toPromptImages(images: string[]) {
+  return images.filter(Boolean).slice(0, MAX_VISION_IMAGES).map((item) => {
+    const match = item.match(/^data:([^;]+);base64,(.+)$/);
+    return {
+      type: "image" as const,
+      mimeType: match?.[1] ?? "image/png",
+      data: match?.[2] ?? item.replace(/^data:[^;]+;base64,/, ""),
+    };
+  });
 }
 
 /** Hidden prefix so the agent instruction is not rendered as a second user bubble. */

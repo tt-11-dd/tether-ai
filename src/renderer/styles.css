@@ -3597,6 +3597,10 @@ textarea::selection,
   font-weight: 500;
   box-shadow: var(--shadow-btn);
 }
+.settings-seg button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .settings-badge {
   font-size: 11px;
   padding: 2px 7px;
@@ -3610,7 +3614,6 @@ textarea::selection,
   color: var(--green);
 }
 .settings-status {
-  margin-top: auto;
   padding: 10px 12px;
   border-radius: 10px;
   background: var(--field);
