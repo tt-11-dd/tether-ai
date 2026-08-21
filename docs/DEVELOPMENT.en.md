@@ -22,7 +22,7 @@ Tether is a local-first AI coding desktop workbench built on Electron: model cal
 | Vite 7 | Renderer build + dev server |
 | tsup 8 | Main / preload / extension builds (ESM/CJS) |
 | Vitest 3 | Unit tests |
-| tether-agent-core 0.1.10 | Agent runtime (RPC worker, sandbox, sessions, checkpoints) |
+| tether-agent-core 0.1.11 | Agent runtime (RPC worker, sandbox, sessions, checkpoints) |
 | electron-builder 26 | Packaging dmg / nsis / dir |
 
 ### 1.1 Architecture Layers

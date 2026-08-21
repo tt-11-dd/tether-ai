@@ -103,6 +103,7 @@ export class AgentHost {
         ...(options.visionConfig ? { HARNESS_VISION_CONFIG: options.visionConfig } : {}),
         ...(options.visionUploads ? { HARNESS_VISION_UPLOADS: options.visionUploads } : {}),
       },
+      detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.child = child;
