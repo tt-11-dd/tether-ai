@@ -1630,6 +1630,17 @@ textarea::selection,
 .markdown li {
   margin: 0.2em 0;
 }
+.markdown li > p {
+  margin: 0;
+}
+.markdown li > p + p {
+  margin-top: 0.35em;
+}
+.markdown img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
 .markdown table {
   width: 100%;
   border-collapse: collapse;
@@ -1675,13 +1686,13 @@ textarea::selection,
   overflow: auto;
   max-height: 280px;
   margin: 0.85em 0;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-radius: 10px;
   background: var(--inset);
   box-shadow: var(--shadow-hairline);
   color: var(--ink-2);
   white-space: pre-wrap;
-  font: 12px/1.55 var(--mono);
+  font: 12px/1.4 var(--mono);
 }
 
 .trace {
@@ -1929,7 +1940,7 @@ textarea::selection,
   display: flex;
   flex-direction: column;
   color: var(--ink-2);
-  font: 11.5px/1.6 var(--mono);
+  font: 11.5px/1.4 var(--mono);
   white-space: pre;
   overflow-x: auto;
 }
@@ -4051,8 +4062,15 @@ kbd {
   overflow: hidden;
 }
 .drawer.wide {
-  left: 10px;
+  position: fixed;
+  inset: 0;
   width: auto;
+  border-radius: 0;
+  z-index: 50;
+  box-shadow: none;
+}
+.darwin:not(.fullscreen) .drawer.wide header {
+  padding-left: 78px;
 }
 .drawer header {
   display: flex;
@@ -4107,17 +4125,20 @@ kbd {
 }
 .drawer-btn,
 .drawer-close {
+  width: 32px;
   height: 32px;
   flex: none;
   display: grid;
   place-items: center;
-  padding: 0 8px;
+  padding: 0;
   border-radius: 8px;
   color: var(--ink-3);
   font-size: 12.5px;
 }
-.drawer-btn {
-  min-width: 32px;
+.drawer-btn svg,
+.drawer-close svg {
+  display: block;
+  flex: none;
 }
 .drawer-btn:hover,
 .drawer-close:hover {
@@ -4129,8 +4150,7 @@ kbd {
   color: var(--ink);
 }
 .drawer-close {
-  width: 32px;
-  padding: 0;
+  color: var(--ink-3);
 }
 .drawer pre {
   margin: 0;

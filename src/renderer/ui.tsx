@@ -775,7 +775,9 @@ function DelegateDetail({ tool }: { tool: ToolActivity }) {
           && typeof entry === "object"
           && (entry as { role?: string }).role === item.role
           && (entry as { task?: string }).task === item.task
-        )) as { output?: string; success?: boolean } | undefined;
+        )) as { output?: string; success?: boolean; diff?: string } | undefined;
+        const output = typeof result?.output === "string" ? result.output : undefined;
+        const diff = typeof result?.diff === "string" && result.diff.trim() ? result.diff.trim() : undefined;
         return (
           <DelegateTaskRow
             key={`${item.role}-${index}`}
@@ -783,7 +785,7 @@ function DelegateDetail({ tool }: { tool: ToolActivity }) {
             status={item.status}
             task={item.task}
             live={item.live}
-            output={typeof result?.output === "string" ? result.output : undefined}
+            output={diff ? [output, "```diff", diff, "```"].filter(Boolean).join("\n\n") : output}
           />
         );
       })}
@@ -939,7 +941,9 @@ function copyMarkdownPlain(event: { preventDefault(): void; clipboardData: DataT
 }
 
 function Markdown({ children, streaming }: { children: string; streaming?: boolean }) {
-  const source = stripEmptyMarkdown(repairMarkdownTables(streaming ? closeOpenFences(children) : children));
+  const source = compactFencedCode(
+    stripEmptyMarkdown(repairMarkdownTables(streaming ? closeOpenFences(children) : children)),
+  );
   if (!source) return null;
   return (
     <ReactMarkdown
@@ -960,6 +964,14 @@ function Markdown({ children, streaming }: { children: string; streaming?: boole
       {source}
     </ReactMarkdown>
   );
+}
+
+/** Drop blank lines inside fenced code so SVG/XML dumps don't look double-spaced. */
+function compactFencedCode(text: string): string {
+  return text.replace(/```([^\n`]*)\n([\s\S]*?)```/g, (_full, lang: string, body: string) => {
+    const tight = body.replace(/\n{2,}/g, "\n").replace(/^\n+|\n+$/g, "");
+    return `\`\`\`${lang}\n${tight}\n\`\`\``;
+  });
 }
 
 function closeOpenFences(text: string): string {
@@ -1359,18 +1371,32 @@ export function FileDrawer({ file, workspace, onClose }: { file: FileChange; wor
             aria-label={preview ? t("preview.source") : t("preview.preview")}
             onClick={() => setRendered((current) => !current)}
           >
-            <Icon path={preview ? "M16 18l6-6-6-6M8 6l-6 6 6 6" : "M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8M12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6"} size={16} />
+            <Icon
+              path={
+                preview
+                  ? "M15 7l5 5-5 5M9 17l-5-5 5-5"
+                  : "M3.5 12s3.2-6.5 8.5-6.5S20.5 12 20.5 12 17.3 18.5 12 18.5 3.5 12 3.5 12M12 9.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5"
+              }
+              size={15}
+            />
           </button>
         )}
-        <CopyButton text={body} className="drawer-btn" size={16} />
+        <CopyButton text={body} className="drawer-btn" size={15} />
         <button type="button" className="drawer-btn" aria-label={t("preview.open")} onClick={() => void window.harness.workspace.open(file.path, workspace)}>
-          <Icon path="M14 4h6v6M20 4l-8 8M10 4H5v16h14v-5" size={16} />
+          <Icon path="M13.5 5.5H18.5V10.5M18.5 5.5L11 13M10 5.5H6.5V18.5H18.5V14" size={15} />
         </button>
         <button type="button" className="drawer-btn" aria-label={wide ? t("preview.restore") : t("preview.expand")} onClick={() => setWide((current) => !current)}>
-          <Icon path={wide ? "M4 14h6v6M20 10h-6V4M14 20v-6h6M10 4v6H4" : "M15 3h6v6M9 21H3v-6M21 15v6h-6M3 9V3h6"} size={16} />
+          <Icon
+            path={
+              wide
+                ? "M5 13.5h5.5V19M19 10.5h-5.5V5M13.5 19v-5.5H19M10.5 5v5.5H5"
+                : "M14.5 5H19V9.5M9.5 19H5V14.5M19 14.5V19H14.5M5 9.5V5H9.5"
+            }
+            size={15}
+          />
         </button>
-        <button type="button" className="drawer-close" aria-label={t("common.close")} onClick={onClose}>
-          <Icon path="M6 6l12 12M18 6L6 18" size={16} />
+        <button type="button" className="drawer-btn drawer-close" aria-label={t("common.close")} onClick={onClose}>
+          <Icon path="M7 7l10 10M17 7L7 17" size={15} />
         </button>
       </header>
       {diff && (

@@ -306,6 +306,26 @@ describe("conversation events", () => {
     ]);
 
     messages = applyAgentEvent(messages, {
+      type: "tool_execution_update",
+      toolCallId: "d1",
+      toolName: "delegate",
+      args: { tasks },
+      partialResult: {
+        details: {
+          total: 3,
+          done: 1,
+          tasks: [
+            { role: "explorer", task: "read main", status: "completed" },
+            { role: "explorer", task: "read renderer", status: "running", live: "正在执行 pnpm test" },
+            { role: "reviewer", task: "check types", status: "pending" },
+          ],
+        },
+      },
+    });
+    expect(delegateProgress(messages[0]!.tools[0]!).tasks[1]?.live).toBe("正在执行 pnpm test");
+    expect((messages[0]!.tools[0]!.details as { results?: unknown[] }).results).toHaveLength(1);
+
+    messages = applyAgentEvent(messages, {
       type: "tool_execution_end",
       toolCallId: "d1",
       toolName: "delegate",

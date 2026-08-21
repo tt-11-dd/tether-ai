@@ -887,9 +887,20 @@ function mergeToolDetails(name: string, previous: unknown, incoming: unknown): u
   if (incoming === undefined) return previous;
   if (name !== "delegate") return incoming ?? previous;
   if (!isRecord(incoming)) return incoming ?? previous;
-  // New runtime sends cumulative { total, done, tasks, results }.
-  if (Array.isArray(incoming.tasks) && incoming.tasks.length > 0) return incoming;
   const prev = isRecord(previous) ? previous : {};
+  // New runtime sends cumulative { total, done, tasks, results }.
+  // Live ticks may omit `results` to keep payloads small — keep the previous ones.
+  if (Array.isArray(incoming.tasks) && incoming.tasks.length > 0) {
+    if (!("results" in incoming) && Array.isArray(prev.results)) {
+      return {
+        ...prev,
+        ...incoming,
+        results: prev.results,
+        done: typeof incoming.done === "number" ? incoming.done : prev.done,
+      };
+    }
+    return incoming;
+  }
   const prevResults = Array.isArray(prev.results) ? prev.results : [];
   const nextResults = Array.isArray(incoming.results) ? incoming.results : [];
   if (nextResults.length === 0) return { ...prev, ...incoming };

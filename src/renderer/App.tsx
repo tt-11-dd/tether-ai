@@ -1448,7 +1448,6 @@ export function App() {
             </div>
           )}
         </div>
-        {preview && <FileDrawer file={preview} workspace={workspace} onClose={() => setPreview(undefined)} />}
         {toast && (
           <button type="button" className="toast" onClick={() => setToast(undefined)}>
             <Icon path="M9 18h6M10 22h4M12 2a7 7 0 0 1 4 12c-.8.8-1 1.5-1 3H9c0-1.5-.2-2.2-1-3A7 7 0 0 1 12 2z" size={16} />
@@ -1456,6 +1455,7 @@ export function App() {
           </button>
         )}
       </Chat>
+      {preview && <FileDrawer file={preview} workspace={workspace} onClose={() => setPreview(undefined)} />}
 
       {sandboxAsk && (
         <div

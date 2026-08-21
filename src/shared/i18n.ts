@@ -248,8 +248,8 @@ const zh = {
   "preview.source": "查看源码",
   "preview.preview": "预览",
   "preview.open": "打开",
-  "preview.restore": "还原",
-  "preview.expand": "放大",
+  "preview.restore": "退出全屏",
+  "preview.expand": "全屏",
   "preview.title": "{path} 预览",
 
   "combo.filter": "筛选…",
@@ -647,8 +647,8 @@ const en: Record<MessageKey, string> = {
   "preview.source": "Source",
   "preview.preview": "Preview",
   "preview.open": "Open",
-  "preview.restore": "Restore",
-  "preview.expand": "Expand",
+  "preview.restore": "Exit full screen",
+  "preview.expand": "Full screen",
   "preview.title": "Preview {path}",
 
   "combo.filter": "Filter…",
