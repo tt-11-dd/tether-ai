@@ -37,13 +37,16 @@ export function friendlyAgentError(error: unknown): string {
   if (/\b502\b|\b503\b|bad gateway|service unavailable|fetch failed|network|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up/i.test(detail)) {
     return ct("toast.errorNetwork");
   }
+  if (/JSON error injected into SSE stream|injected into SSE|SSE stream/i.test(detail)) {
+    return ct("toast.errorStreamInterrupted");
+  }
   return detail || ct("error.modelFailed");
 }
 
 /** Intermittent network/provider hiccups that may recover next turn. */
 export function isRecoverableRequestError(error: string | undefined): boolean {
   if (!error) return false;
-  return /网络|连接模型服务失败|超时|model timed out|network|timed out|gateway|service unavailable|status code\s*5\d\d/i.test(error);
+  return /网络|连接模型服务失败|超时|model timed out|network|timed out|gateway|service unavailable|status code\s*5\d\d|SSE|stream interrupted|流中断|中断后重试/i.test(error);
 }
 
 export interface ToolActivity {
@@ -268,9 +271,7 @@ export function turnAnchors(groups: ConversationGroup[]): Array<{ id: string; la
 
 export function applyAgentEvent(messages: ChatMessage[], event: AgentEvent): ChatMessage[] {
   if (event.type === "agent_settled") {
-    return messages.map((message) =>
-      message.streaming || message.queued ? { ...message, streaming: false, queued: false } : message,
-    );
+    return finalizeInterruptedTurn(messages);
   }
 
   if (event.type === "agent_end" && event.willRetry !== true) {
@@ -718,6 +719,28 @@ function formatThinkBody(text: string): string {
     .replace(/([^\n])[ \t]+(?=(?:Key points to report|Files to check))/gi, "$1\n\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+/** Stop streaming and mark any still-running tools as interrupted when the turn ends abruptly. */
+export function finalizeInterruptedTurn(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((message, index) => {
+    const last = index === messages.length - 1 && message.role === "assistant";
+    const hadRunning = last && message.tools.some((tool) => tool.status === "running");
+    const tools = hadRunning
+      ? message.tools.map((tool) =>
+        tool.status === "running"
+          ? {
+            ...tool,
+            status: "error" as const,
+            endedAt: tool.endedAt ?? Date.now(),
+            output: tool.output?.trim() || ct("error.interrupted"),
+          }
+          : tool,
+      )
+      : message.tools;
+    if (!message.streaming && !message.queued && !hadRunning) return message;
+    return { ...message, streaming: false, queued: false, tools };
+  });
 }
 
 function mergeWork(current: WorkItem[], incoming: WorkItem[], tools: ToolActivity[]): WorkItem[] {

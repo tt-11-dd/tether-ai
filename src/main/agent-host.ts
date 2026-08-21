@@ -43,22 +43,46 @@ export class AgentHost {
   }
 
   async snapshot(): Promise<AgentSnapshot> {
-    const [state, messages, models, thinkingLevels, stats, commands] = await Promise.all([
+    const [state, messages] = await Promise.all([
       this.request<Record<string, unknown>>("get_state"),
       this.request<{ messages: unknown[] }>("get_messages"),
-      this.request<{ models: AgentSnapshot["models"] }>("get_available_models"),
-      this.request<{ levels: string[] }>("get_available_thinking_levels"),
-      this.request<AgentSessionStats>("get_session_stats").catch(() => undefined),
-      this.request<{ commands: Array<{ name: string; description?: string; source?: string; sourceInfo?: { path?: string; baseDir?: string } }> }>("get_commands").catch(() => ({ commands: [] })),
     ]);
+    void this.emitSnapshotMeta();
     return {
       state,
       messages: messages.messages,
-      models: models.models,
-      thinkingLevels: thinkingLevels.levels,
-      skills: parseSkillCommands(commands.commands),
-      ...(stats ? { stats } : {}),
+      models: [],
+      thinkingLevels: [],
+      skills: [],
     };
+  }
+
+  /** Non-blocking follow-up for models/skills/stats after first paint. */
+  private async emitSnapshotMeta(): Promise<void> {
+    try {
+      const [models, thinkingLevels, stats, commands] = await Promise.all([
+        this.request<{ models: AgentSnapshot["models"] }>("get_available_models"),
+        this.request<{ levels: string[] }>("get_available_thinking_levels"),
+        this.request<AgentSessionStats>("get_session_stats").catch(() => undefined),
+        this.request<{
+          commands: Array<{
+            name: string;
+            description?: string;
+            source?: string;
+            sourceInfo?: { path?: string; baseDir?: string };
+          }>;
+        }>("get_commands").catch(() => ({ commands: [] })),
+      ]);
+      this.emitEvent({
+        type: "desktop_snapshot_meta",
+        models: models.models,
+        thinkingLevels: thinkingLevels.levels,
+        skills: parseSkillCommands(commands.commands),
+        ...(stats ? { stats } : {}),
+      });
+    } catch {
+      // First paint already succeeded; meta is best-effort.
+    }
   }
 
   async start(options: AgentStartOptions & {
@@ -120,11 +144,14 @@ export class AgentHost {
     child.once("error", (error) => {
       if (this.child !== child) return;
       this.child = undefined;
+      if (child.pid !== undefined) killProcessTree(child.pid, "SIGTERM");
       this.handleExit(error);
     });
     child.once("exit", (code, signal) => {
       if (this.child !== child) return;
       this.child = undefined;
+      // Worker may die before its own wipe; reap leftover shells/delegates.
+      if (child.pid !== undefined) killProcessTree(child.pid, "SIGTERM");
       this.handleExit(new Error(`Agent stopped (code ${code ?? "unknown"}${signal ? `, ${signal}` : ""})`));
     });
 

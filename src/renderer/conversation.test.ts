@@ -114,8 +114,10 @@ describe("conversation events", () => {
   it("marks intermittent network/timeouts as recoverable", () => {
     expect(isRecoverableRequestError("连接模型服务失败，请检查网络和 Base URL 后重试")).toBe(true);
     expect(isRecoverableRequestError("模型响应超时，请稍后重试")).toBe(true);
+    expect(isRecoverableRequestError("模型流中断了（常见于停止委派后立刻继续）。点「继续」再试一次，或换个更稳的模型。")).toBe(true);
     expect(isRecoverableRequestError("接口地址不可用，请检查 Base URL 是否包含正确的 API 路径")).toBe(false);
     expect(isRecoverableRequestError("当前模型不可用，请切换模型或检查模型名称")).toBe(false);
+    expect(friendlyAgentError("JSON error injected into SSE stream")).toMatch(/流中断|Continue|stream/i);
   });
 
   it("keeps the command title when the end event has no args", () => {
@@ -342,6 +344,20 @@ describe("conversation events", () => {
     });
     expect(messages[0]?.tools[0]).toMatchObject({ status: "complete", title: "委托 3/3" });
     expect(traceRows(messages[0]!.work, messages[0]!.tools)[0]?.chip).toBe("3/3 · explorer · read main");
+  });
+
+  it("marks running tools as interrupted when the turn settles early", () => {
+    let messages = applyAgentEvent([], {
+      type: "tool_execution_start",
+      toolCallId: "x1",
+      toolName: "exec_command",
+      args: { cmd: "sleep 10" },
+    });
+    expect(messages[0]?.tools[0]?.status).toBe("running");
+    messages = applyAgentEvent(messages, { type: "agent_settled" });
+    expect(messages[0]?.streaming).toBe(false);
+    expect(messages[0]?.tools[0]?.status).toBe("error");
+    expect(messages[0]?.tools[0]?.output).toMatch(/中断|Interrupted/);
   });
 
   it("does not treat delegate args.command as a shell row", () => {

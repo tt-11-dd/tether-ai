@@ -386,7 +386,7 @@ export function ContextStats({
       <button
         type="button"
         className={`stats-toggle${open ? " on" : ""}${
-          percent !== undefined && percent >= 90 ? " hot" : percent !== undefined && percent >= 75 ? " warm" : ""
+          percent !== undefined && percent >= 90 ? " hot" : percent !== undefined && percent >= 80 ? " warm" : ""
         }`}
         aria-label={t("context.monitor")}
         title={t("context.monitor")}
@@ -438,7 +438,7 @@ export function ContextStats({
                         cy="24"
                         r="20"
                         fill="none"
-                        stroke={percent >= 90 ? "var(--red)" : percent >= 75 ? "var(--accent)" : "var(--green)"}
+                        stroke={percent >= 90 ? "var(--red)" : percent >= 80 ? "var(--accent)" : "var(--green)"}
                         strokeWidth="4"
                         strokeDasharray={125.66}
                         strokeDashoffset={125.66 - (Math.min(100, Math.max(0, percent)) / 100) * 125.66}

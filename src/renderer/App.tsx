@@ -25,6 +25,7 @@ import {
   collectTodos,
   collectWorkingFiles,
   dropLastTurn,
+  finalizeInterruptedTurn,
   friendlyAgentError,
   isTransientStreamError,
   isRecoverableRequestError,
@@ -493,13 +494,6 @@ export function App() {
     return [...byPath.values()];
   }, [sessions, workspaces]);
 
-  const hydrate = useCallback((snapshot: AgentSnapshot) => {
-    setMessages(normalizeMessages(snapshot.messages));
-    setStats(snapshot.stats);
-    setRunning(Boolean(snapshot.state.isStreaming));
-    setAgentSkills(snapshot.skills ?? []);
-  }, []);
-
   const refreshAgentSkills = useCallback(async () => {
     const loadDisk = () => window.harness.app.listSkills().catch(() => [] as AgentSkillCommand[]);
     if (!agentCwd.current) {
@@ -626,14 +620,21 @@ export function App() {
         ...(extraModels.length ? { extraModels } : {}),
       });
       if (seq !== startSeq.current) return false;
-      setAgentSkills(snapshot.skills ?? []);
       if (seedMessage) {
         setMessages([...normalizeMessages(snapshot.messages), seedMessage]);
         setStats(snapshot.stats);
+        setAgentSkills(snapshot.skills ?? []);
         setRunning(true);
       } else {
-        hydrate(snapshot);
-        if (sessionPath && normalizeMessages(snapshot.messages).length === 0) {
+        const raw = normalizeMessages(snapshot.messages);
+        const hadRunning = Boolean(raw.at(-1)?.tools.some((tool) => tool.status === "running"));
+        const next = resume ? finalizeInterruptedTurn(raw) : raw;
+        setMessages(next);
+        setStats(snapshot.stats);
+        setRunning(Boolean(snapshot.state.isStreaming) && !hadRunning);
+        setAgentSkills(snapshot.skills ?? []);
+        if (resume && hadRunning) setToast(t("toast.sessionInterrupted"));
+        if (sessionPath && next.length === 0) {
           setToast(t("toast.sessionEmpty"));
         }
       }
@@ -671,7 +672,7 @@ export function App() {
     } finally {
       if (seq === startSeq.current) setLoading(false);
     }
-  }, [applyThinkingForModel, hydrate, permission, refreshAgentSkills, resolveSandbox, t]);
+  }, [applyThinkingForModel, permission, refreshAgentSkills, resolveSandbox, t]);
 
   const openSession = useCallback((session: SessionSummary) => {
     // Allow re-open when the row is highlighted but the transcript failed to load.
@@ -1052,6 +1053,14 @@ export function App() {
     const offEvent = window.harness.agent.onEvent((event) => {
       if (!live.current) return;
       if (event.type === "agent_start") setRunning(true);
+      if (event.type === "desktop_snapshot_meta") {
+        if (Array.isArray(event.models)) {
+          agentModelsRef.current = event.models as typeof agentModelsRef.current;
+          agentModelIdsRef.current = agentModelsRef.current.map((item) => item.id).filter(Boolean);
+        }
+        if (Array.isArray(event.skills)) setAgentSkills(event.skills as AgentSkillCommand[]);
+        if (event.stats && typeof event.stats === "object") setStats(event.stats as AgentSessionStats);
+      }
       if (event.type === "agent_settled") {
         setRunning(false);
         setUiRequest(undefined);
@@ -1085,6 +1094,7 @@ export function App() {
       if (!live.current) return;
       if (/Agent session closed/.test(message) || isTransientStreamError(message)) return;
       setRunning(false);
+      setMessages((current) => finalizeInterruptedTurn(current));
       const text = friendlyAgentError(message);
       if (text) setToast(text);
     });
@@ -1155,7 +1165,13 @@ export function App() {
       onSubmit={(text, images) => void sendMessage(text, images)}
       onStop={() => {
         holdQueue.current = true;
-        void window.harness.agent.command("abort").catch(() => undefined);
+        setToast(t("toast.stopping"));
+        void window.harness.agent.command("abort")
+          .catch(() => undefined)
+          .finally(() => {
+            // abort RPC already waits for idle; clear sticky running if settle was missed.
+            setRunning(false);
+          });
       }}
       queued={queued}
       onEditQueue={(id) => {
@@ -1409,6 +1425,9 @@ export function App() {
                     messages={group.messages}
                     errorRecovered={recovered}
                     onOpenFile={setPreview}
+                    onRetry={() => {
+                      void sendMessage(t("composer.retryContinue"));
+                    }}
                   />
                 );
               })}

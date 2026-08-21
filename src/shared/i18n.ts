@@ -105,6 +105,7 @@ const zh = {
   "toast.noActiveSession": "没有活动会话",
   "toast.sessionOpenFailed": "会话打开失败：{error}",
   "toast.sessionEmpty": "会话已打开，但没有可读到的消息",
+  "toast.sessionInterrupted": "上次任务已中断，可继续对话",
   "chat.loadingSession": "正在加载对话…",
   "chat.emptySession": "这个会话里还没有消息",
   "toast.nothingToUndo": "这一轮没有可撤回的文件改动",
@@ -131,6 +132,9 @@ const zh = {
   "toast.errorQuota": "请求过于频繁或额度不足，请稍后重试并检查账户额度",
   "toast.errorNetwork": "连接模型服务失败，请检查网络和 Base URL 后重试",
   "toast.errorTimeout": "模型响应超时，请稍后重试",
+  "toast.errorStreamInterrupted": "模型流中断了（常见于停止委派后立刻继续）。点「继续」再试一次，或换个更稳的模型。",
+  "toast.stopping": "正在停止…",
+  "composer.retryContinue": "请从中断处继续，不要重复已完成的步骤。",
   "toast.errorEndpoint":
     "接口地址不可用，请检查 Base URL 是否包含正确的 API 路径",
   "toast.errorModel": "当前模型不可用，请切换模型或检查模型名称",
@@ -173,9 +177,9 @@ const zh = {
   "effort.xhigh": "极高",
   "perm.planDesc": "只读分析与规划；诊断命令可在只读沙箱中运行，不修改文件。",
   "perm.ask": "编辑时询问",
-  "perm.askDesc": "编辑外部文件或使用互联网时始终询问。",
+  "perm.askDesc": "除只读探查外，执行命令或改文件前都会询问。",
   "perm.auto": "工作区权限",
-  "perm.autoDesc": "仅对检测到的风险操作请求批准。",
+  "perm.autoDesc": "工作区内可自动执行；危险命令与外部 MCP 会询问。",
   "perm.full": "完全访问",
   "perm.fullDesc": "可不受限制地访问互联网和这台电脑上的任何文件。",
 
@@ -401,6 +405,7 @@ const zh = {
   "tool.delegateIdle": "委托",
   "error.modelFailed": "模型请求失败",
   "error.toolFailed": "{title}失败，没有返回详情",
+  "error.interrupted": "已中断",
   "undo.confirm": "撤回上一轮改动？",
   "undo.confirmNamed": "撤回「{label}」？",
 } as const;
@@ -491,6 +496,7 @@ const en: Record<MessageKey, string> = {
   "toast.noActiveSession": "No active session",
   "toast.sessionOpenFailed": "Could not open session: {error}",
   "toast.sessionEmpty": "Session opened, but no messages were readable",
+  "toast.sessionInterrupted": "Previous turn was interrupted — you can continue",
   "chat.loadingSession": "Loading conversation…",
   "chat.emptySession": "This session has no messages yet",
   "toast.nothingToUndo": "Nothing to undo in this turn",
@@ -522,6 +528,10 @@ const en: Record<MessageKey, string> = {
   "toast.errorNetwork":
     "Could not reach the model service. Check your network and Base URL, then retry.",
   "toast.errorTimeout": "The model timed out. Please try again.",
+  "toast.errorStreamInterrupted":
+    "The model stream broke (common after stopping a delegate). Click Continue, or switch to a more stable model.",
+  "toast.stopping": "Stopping…",
+  "composer.retryContinue": "Continue from where we left off. Do not redo completed steps.",
   "toast.errorEndpoint":
     "The endpoint is unavailable. Check that the Base URL includes the correct API path.",
   "toast.errorModel":
@@ -570,9 +580,9 @@ const en: Record<MessageKey, string> = {
     "Read-only analysis and planning; diagnostic commands may run in a read-only sandbox.",
   "perm.ask": "Ask before edits",
   "perm.askDesc":
-    "Always ask before editing outside files or using the network.",
+    "Ask before commands or edits, except read-only exploration.",
   "perm.auto": "Workspace access",
-  "perm.autoDesc": "Ask only for detected risky actions.",
+  "perm.autoDesc": "Auto-run in the workspace; ask for risky commands and external MCP.",
   "perm.full": "Full access",
   "perm.fullDesc":
     "Unrestricted internet and filesystem access on this machine.",
@@ -801,6 +811,7 @@ const en: Record<MessageKey, string> = {
   "tool.delegateIdle": "Delegate",
   "error.modelFailed": "Model request failed",
   "error.toolFailed": "{title} failed with no details",
+  "error.interrupted": "Interrupted",
   "undo.confirm": "Undo the last turn?",
   "undo.confirmNamed": 'Undo "{label}"?',
 };
