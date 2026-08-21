@@ -47,6 +47,7 @@ import {
   ApprovalCard,
   AssistantTurn,
   Chat,
+  Dots,
   FileDrawer,
   Icon,
   InspectPanel,
@@ -1376,8 +1377,15 @@ export function App() {
             </div>
           )}
           {!home && groups.length === 0 && (
-            <div className="empty session-empty">
-              <p className="task-empty">{loading ? t("chat.loadingSession") : t("chat.emptySession")}</p>
+            <div className={loading ? "session-pane loading" : "session-pane"}>
+              {loading ? (
+                <div className="session-loading" role="status" aria-live="polite">
+                  <Dots />
+                  <span className="shimmer">{t("chat.loadingSession")}</span>
+                </div>
+              ) : (
+                <p className="session-pane-empty">{t("chat.emptySession")}</p>
+              )}
             </div>
           )}
           {groups.length > 0 && (

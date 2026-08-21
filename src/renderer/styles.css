@@ -1134,6 +1134,43 @@ textarea::selection,
   font-size: 12px;
 }
 
+.session-pane {
+  width: var(--col);
+  margin: 0 auto;
+  padding: 36px 28px 48px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+.session-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.session-loading .shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--ink-2) 35%,
+    var(--ink) 50%,
+    var(--ink-2) 65%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 1.6s linear infinite;
+}
+.session-pane-empty {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 13.5px;
+  letter-spacing: -0.01em;
+}
+
 .loading-state {
   display: flex;
   align-items: center;
