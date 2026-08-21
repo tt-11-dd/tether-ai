@@ -802,6 +802,8 @@ export interface DelegateTaskState {
   role: string;
   task: string;
   status: DelegateTaskStatus;
+  /** Latest step while the child agent is running (e.g. "正在读取 …"). */
+  live?: string;
 }
 
 export interface DelegateProgress {
@@ -873,11 +875,12 @@ function normalizeDelegateTask(value: unknown): DelegateTaskState | undefined {
   if (!isRecord(value)) return undefined;
   const role = typeof value.role === "string" ? value.role : "";
   const task = typeof value.task === "string" ? value.task : "";
+  const live = typeof value.live === "string" && value.live.trim() ? value.live.trim() : undefined;
   const status = value.status;
   if (status !== "pending" && status !== "running" && status !== "completed" && status !== "failed") {
-    return role || task ? { role: role || "agent", task, status: "pending" } : undefined;
+    return role || task ? { role: role || "agent", task, status: "pending", ...(live ? { live } : {}) } : undefined;
   }
-  return { role: role || "agent", task, status };
+  return { role: role || "agent", task, status, ...(live ? { live } : {}) };
 }
 
 function mergeToolDetails(name: string, previous: unknown, incoming: unknown): unknown {

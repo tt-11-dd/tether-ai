@@ -2074,6 +2074,12 @@ textarea::selection,
   word-break: break-word;
   line-height: 1.5;
 }
+.delegate-task-live {
+  margin: 0;
+  color: var(--accent, #3b82f6);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
 .delegate-task-output {
   margin: 0;
   padding: 0;

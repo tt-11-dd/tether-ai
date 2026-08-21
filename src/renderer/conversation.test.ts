@@ -290,7 +290,7 @@ describe("conversation events", () => {
           done: 1,
           tasks: [
             { role: "explorer", task: "read main", status: "completed" },
-            { role: "explorer", task: "read renderer", status: "running" },
+            { role: "explorer", task: "read renderer", status: "running", live: "正在读取 src/renderer/ui.tsx" },
             { role: "reviewer", task: "check types", status: "pending" },
           ],
           results: [{ role: "explorer", task: "read main", success: true, output: "ok" }],
@@ -299,10 +299,10 @@ describe("conversation events", () => {
     });
     expect(messages[0]?.tools[0]?.title).toBe("委托 1/3");
     expect(liveStatus(messages[0]!.tools)).toBe("委托中 1/3");
-    expect(delegateProgress(messages[0]!.tools[0]!).tasks.map((item) => item.status)).toEqual([
-      "completed",
-      "running",
-      "pending",
+    expect(delegateProgress(messages[0]!.tools[0]!).tasks.map((item) => [item.status, item.live ?? ""])).toEqual([
+      ["completed", ""],
+      ["running", "正在读取 src/renderer/ui.tsx"],
+      ["pending", ""],
     ]);
 
     messages = applyAgentEvent(messages, {

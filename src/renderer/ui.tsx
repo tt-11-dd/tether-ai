@@ -782,8 +782,8 @@ function DelegateDetail({ tool }: { tool: ToolActivity }) {
             role={item.role}
             status={item.status}
             task={item.task}
+            live={item.live}
             output={typeof result?.output === "string" ? result.output : undefined}
-            defaultOpen={item.status === "running" || progress.tasks.length === 1}
           />
         );
       })}
@@ -795,12 +795,14 @@ function DelegateTaskRow({
   role,
   status,
   task,
+  live,
   output,
   defaultOpen = false,
 }: {
   role: string;
   status: string;
   task: string;
+  live?: string;
   output?: string;
   defaultOpen?: boolean;
 }) {
@@ -809,7 +811,8 @@ function DelegateTaskRow({
   useEffect(() => {
     if (defaultOpen) setOpen(true);
   }, [defaultOpen]);
-  const body = [summary, output?.trim()].filter(Boolean).join("\n\n");
+  const showLive = status === "running" && Boolean(live?.trim());
+  const body = [summary, showLive ? live : undefined, output?.trim()].filter(Boolean).join("\n\n");
   const canOpen = body.length > 0;
   return (
     <div className={`delegate-task ${status}${open ? " open" : ""}`}>
@@ -822,12 +825,15 @@ function DelegateTaskRow({
       >
         <span className="delegate-role">{role}</span>
         <span className="delegate-status">{delegateStatusLabel(status as "pending" | "running" | "completed" | "failed")}</span>
-        {!open && summary && <span className="delegate-summary">{summary}</span>}
+        {!open && (showLive ? live : summary) && (
+          <span className="delegate-summary">{showLive ? live : summary}</span>
+        )}
         {canOpen && <Icon className="delegate-chevron chevron" path="M6 9l6 6 6-6" size={12} />}
       </button>
       {open && (
         <div className="delegate-task-body">
           {summary && <p className="delegate-task-text">{summary}</p>}
+          {showLive && <p className="delegate-task-live">{live}</p>}
           {output?.trim() && (
             <div className="delegate-task-output markdown">
               <Markdown>{output.trim()}</Markdown>
