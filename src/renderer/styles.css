@@ -2076,16 +2076,11 @@ textarea::selection,
 }
 .delegate-task-output {
   margin: 0;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: var(--bg, #fff);
-  border: 1px solid var(--line);
+  padding: 0;
   color: var(--ink-2);
   font-size: 11px;
   line-height: 1.45;
   word-break: break-word;
-  max-height: 280px;
-  overflow: auto;
 }
 .delegate-task-output.markdown h1,
 .delegate-task-output.markdown h2,
@@ -2119,12 +2114,22 @@ textarea::selection,
 }
 .delegate-task-output.markdown pre,
 .delegate-task-output.markdown pre code {
+  margin: 0.4em 0;
+  padding: 0;
+  max-height: none;
+  overflow: visible;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
   font-size: 10.5px;
   line-height: 1.4;
 }
 .delegate-task-output.markdown :not(pre) > code {
   font-size: 10.5px;
-  padding: 0.1em 0.3em;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border-radius: 0;
 }
 .thought-tool-chip.running {
   color: var(--ink);
