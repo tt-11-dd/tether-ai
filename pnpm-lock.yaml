@@ -24,8 +24,8 @@ importers:
         specifier: ^4.0.1
         version: 4.0.1
       tether-agent-core:
-        specifier: 0.1.7
-        version: 0.1.7(ws@8.21.3)
+        specifier: 0.1.8
+        version: 0.1.8(ws@8.21.3)
     devDependencies:
       '@types/node':
         specifier: ^24.0.10
@@ -1958,9 +1958,13 @@ packages:
     resolution: {integrity: sha512-Wjlyrolmm8uDpm/ogGyXZXb1Z+Ca2B8NbJwqBVg0axK9GbBeoS7yGV6vjXnYdGm6X53iehEuxxbyiKp8QmN4Vw==}
     engines: {node: 18 || 20 || >=22}
 
+  glob@7.2.0:
+    resolution: {integrity: sha512-lmLf6gtyrPq8tTjSmrO94wBeQbFR3HbLHbuyD69wuyQkImp2hWqMGB47OX65FBkPffO641IP9jWa1z4ivqG26Q==}
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+
   glob@7.2.3:
     resolution: {integrity: sha512-nFR0zLpU2YCaRxwoCJvL6UvCH2JFyFVIvwTLsIf21AuHlMskA1hhTdk+LlYJtOlYt9v6dvszD2BGRqBL+iQK9Q==}
-    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+    deprecated: Glob versions prior to v9 are no longer supported
 
   global-agent@3.0.0:
     resolution: {integrity: sha512-PT6XReJ+D07JvGoxQMkT6qji/jVNfX/h364XHZOWeRzy64sSFr+xJ5OX7LI3b4MPQzdL4H8Y8M0xzPpsVMwA8Q==}
@@ -1977,6 +1981,10 @@ packages:
   google-logging-utils@1.1.3:
     resolution: {integrity: sha512-eAmLkjDjAFCVXg7A1unxHsLf961m6y17QFqXqAXGj/gVkKFrEICfStRfwUlGNfeCEjNRa32JEWOUTlYXPyyKvA==}
     engines: {node: '>=14'}
+
+  google-logging-utils@1.2.0:
+    resolution: {integrity: sha512-WE9av4wKDZgRjBwgVUabocx8T6/7o3Ca1Fat46FXDhXVAFibzNadedcOXrdgd1Kzmk8tsk/9ZH89Wyf/SqeZ3A==}
+    engines: {node: '>=18'}
 
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
@@ -3017,8 +3025,8 @@ packages:
     resolution: {integrity: sha512-yYrrsWnrXMcdsnu/7YMYAofM1ktpL5By7vZhf15CrXijWWrEYZks5AXBudalfSWJLlnen/QUJUB5aoB0kqZUGA==}
     engines: {node: '>=6.0.0'}
 
-  tether-agent-core@0.1.7:
-    resolution: {integrity: sha512-/VnwcHSCN5S3rWDeUfhBVWpQGccTjsmuVk0wGML4vzwM1KQPsCbyNuDDie3synbdpbxdZLUQwifZCED0D9tA/A==}
+  tether-agent-core@0.1.8:
+    resolution: {integrity: sha512-CZeavbLABCgW6y3gldrrPEGMrggRQoBw4qRisQ6mMeFQfmzCeoI7h2DX/DAowELskNP5diazhfXmkkZZfVGYQQ==}
     engines: {node: '>=22.19.0'}
 
   thenify-all@1.6.0:
@@ -3424,7 +3432,7 @@ snapshots:
       '@aws-sdk/types': 3.974.4
       '@smithy/core': 3.33.2
       '@smithy/fetch-http-handler': 5.7.2
-      '@smithy/node-http-handler': 4.7.3
+      '@smithy/node-http-handler': 4.11.2
       '@smithy/types': 4.17.2
       tslib: 2.8.1
 
@@ -5399,7 +5407,7 @@ snapshots:
   gcp-metadata@8.1.2:
     dependencies:
       gaxios: 7.3.1
-      google-logging-utils: 1.1.3
+      google-logging-utils: 1.2.0
       json-bigint: 1.0.0
     transitivePeerDependencies:
       - supports-color
@@ -5442,6 +5450,15 @@ snapshots:
       minipass: 7.1.3
       path-scurry: 2.0.2
 
+  glob@7.2.0:
+    dependencies:
+      fs.realpath: 1.0.0
+      inflight: 1.0.6
+      inherits: 2.0.4
+      minimatch: 3.1.5
+      once: 1.4.0
+      path-is-absolute: 1.0.1
+
   glob@7.2.3:
     dependencies:
       fs.realpath: 1.0.0
@@ -5479,6 +5496,8 @@ snapshots:
       - supports-color
 
   google-logging-utils@1.1.3: {}
+
+  google-logging-utils@1.2.0: {}
 
   gopd@1.2.0: {}
 
@@ -6514,7 +6533,7 @@ snapshots:
 
   rimraf@2.6.3:
     dependencies:
-      glob: 7.2.3
+      glob: 7.2.0
 
   roarr@2.15.4:
     dependencies:
@@ -6774,7 +6793,7 @@ snapshots:
       mkdirp: 0.5.6
       rimraf: 2.6.3
 
-  tether-agent-core@0.1.7(ws@8.21.3):
+  tether-agent-core@0.1.8(ws@8.21.3):
     dependencies:
       '@earendil-works/pi-agent-core': 0.83.0(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)
       '@earendil-works/pi-ai': 0.83.0(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(ws@8.21.3)(zod@4.4.3)

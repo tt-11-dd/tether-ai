@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { getTetherRpcEntryPath } from "tether-agent-core";
 import type { AgentEvent, AgentSessionStats, AgentSnapshot, AgentStartOptions } from "../shared/types";
 import { parseSkillCommands } from "../shared/skills";
+import { killProcessTree } from "./process-tree";
 import { drainUtf8Lines } from "./rpc-lines";
 
 interface PendingRequest {
@@ -30,6 +31,7 @@ export class AgentHost {
   private stderr = "";
   private requestId = 0;
   private pending = new Map<string, PendingRequest>();
+  private static readonly STDERR_CAP = 200_000;
 
   constructor(
     private readonly emitEvent: (event: AgentEvent) => void,
@@ -106,7 +108,13 @@ export class AgentHost {
     this.child = child;
     child.stdout.on("data", (chunk: Buffer) => this.handleChunk(chunk));
     child.stderr.on("data", (chunk: Buffer) => {
-      this.stderr += chunk.toString();
+      this.stderr = `${this.stderr}${chunk.toString()}`.slice(-AgentHost.STDERR_CAP);
+    });
+    child.stdin.on("error", (error) => {
+      // EPIPE when the RPC worker exits mid-write must not crash the Electron main process.
+      if (this.child !== child) return;
+      const detail = error instanceof Error ? error.message : String(error);
+      if (!/EPIPE|ECONNRESET|broken pipe/i.test(detail)) this.emitError(detail);
     });
     child.once("error", (error) => {
       if (this.child !== child) return;
@@ -131,13 +139,17 @@ export class AgentHost {
       pending.reject(new Error("Agent session closed"));
     }
     this.pending.clear();
-    if (child.exitCode !== null) return;
-    child.kill("SIGTERM");
+    if (child.exitCode !== null || child.pid === undefined) return;
+    // Kill the whole RPC tree (delegate explorers, shells, sandboxes) before the
+    // desktop process exits — a plain child.kill() leaves detached orphans.
+    killProcessTree(child.pid, "SIGTERM");
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
-        if (child.exitCode === null) child.kill("SIGKILL");
+        if (child.exitCode === null && child.pid !== undefined) {
+          killProcessTree(child.pid, "SIGKILL");
+        }
         resolve();
-      }, 900);
+      }, 2_000);
       child.once("exit", () => {
         clearTimeout(timer);
         resolve();
@@ -160,14 +172,24 @@ export class AgentHost {
         reject,
         timeout,
       });
-      child.stdin.write(`${JSON.stringify(command)}\n`);
+      try {
+        child.stdin.write(`${JSON.stringify(command)}\n`);
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   }
 
   async respondToUi(id: string, response: Record<string, unknown>): Promise<void> {
     const child = this.child;
     if (!child || child.stdin.destroyed) throw new Error("No workspace session is active");
-    child.stdin.write(`${JSON.stringify({ type: "extension_ui_response", id, ...response })}\n`);
+    try {
+      child.stdin.write(`${JSON.stringify({ type: "extension_ui_response", id, ...response })}\n`);
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(String(error));
+    }
   }
 
   private handleChunk(chunk: Buffer): void {

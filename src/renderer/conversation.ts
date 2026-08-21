@@ -344,6 +344,7 @@ export function applyAgentEvent(messages: ChatMessage[], event: AgentEvent): Cha
     activity.output = stringifyToolResult(event.partialResult);
     activity.details = toolDetails(event.partialResult) ?? toolDetails(event);
     if (activity.name === "vision") activity.title = visionToolTitle(activity.details);
+    if (activity.name === "delegate") activity.title = delegateToolTitle(activity);
     return upsertLastAssistantTool(messages, activity);
   }
   if (event.type === "tool_execution_end") {
@@ -353,6 +354,7 @@ export function applyAgentEvent(messages: ChatMessage[], event: AgentEvent): Cha
       ?? stringifyToolResult(event.message);
     activity.details = toolDetails(event.result) ?? toolDetails(event);
     if (activity.name === "vision") activity.title = visionToolTitle(activity.details);
+    if (activity.name === "delegate") activity.title = delegateToolTitle(activity);
     return upsertLastAssistantTool(messages, activity);
   }
   return messages;
@@ -549,6 +551,18 @@ function toolTitle(name: string, args: unknown): string {
   if (name.includes("edit") || name.includes("patch")) return file ? ct("tool.edited", { file }) : ct("tool.editedEmpty");
   if (name.includes("search")) return ct("tool.search");
   if (name === "vision") return ct("tool.vision");
+  if (name === "delegate") {
+    const progress = delegateProgress({
+      id: "preview",
+      name: "delegate",
+      title: "",
+      status: "running",
+      args,
+    });
+    return progress.total > 0
+      ? ct("tool.delegate", { done: progress.done, total: progress.total })
+      : ct("tool.delegateIdle");
+  }
   return name.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
 }
 
@@ -634,7 +648,7 @@ function upsertLastAssistantTool(messages: ChatMessage[], activity: ToolActivity
         title: preferToolTitle(activity.title, tool.title),
         args: activity.args ?? tool.args,
         output: activity.output ?? tool.output,
-        details: activity.details ?? tool.details,
+        details: mergeToolDetails(tool.name || activity.name, tool.details, activity.details),
       } : tool);
     const hasWorkItem = message.work.some((item) => item.type === "tool" && item.toolId === activity.id);
     const work = hasWorkItem
@@ -780,6 +794,120 @@ function toolDetails(value: unknown): unknown {
   if (!isRecord(value)) return undefined;
   if (value.details !== undefined) return value.details;
   if (Array.isArray(value.files)) return value;
+}
+
+export type DelegateTaskStatus = "pending" | "running" | "completed" | "failed";
+
+export interface DelegateTaskState {
+  role: string;
+  task: string;
+  status: DelegateTaskStatus;
+}
+
+export interface DelegateProgress {
+  total: number;
+  done: number;
+  tasks: DelegateTaskState[];
+}
+
+export function delegateProgress(tool: ToolActivity): DelegateProgress {
+  const args = isRecord(tool.args) ? tool.args : {};
+  const details = isRecord(tool.details) ? tool.details : {};
+  const detailTasks = Array.isArray(details.tasks)
+    ? details.tasks.map(normalizeDelegateTask).filter(Boolean) as DelegateTaskState[]
+    : [];
+  if (detailTasks.length > 0) {
+    const done = typeof details.done === "number"
+      ? details.done
+      : detailTasks.filter((item) => item.status === "completed" || item.status === "failed").length;
+    return {
+      total: typeof details.total === "number" ? details.total : detailTasks.length,
+      done,
+      tasks: detailTasks,
+    };
+  }
+  const argTasks = Array.isArray(args.tasks) ? args.tasks : [];
+  const results = Array.isArray(details.results) ? details.results : [];
+  const tasks = argTasks.map((item, index) => {
+    const role = isRecord(item) && typeof item.role === "string" ? item.role : "agent";
+    const task = isRecord(item) && typeof item.task === "string" ? item.task : "";
+    const result = results[index];
+    let status: DelegateTaskStatus = tool.status === "running" ? "pending" : "completed";
+    if (isRecord(result)) status = result.success === false ? "failed" : "completed";
+    else if (tool.status === "running" && index < results.length) status = "completed";
+    else if (tool.status === "running" && index === results.length) status = "running";
+    return { role, task, status };
+  });
+  const done = typeof details.done === "number"
+    ? details.done
+    : tasks.filter((item) => item.status === "completed" || item.status === "failed").length;
+  return {
+    total: typeof details.total === "number" ? details.total : tasks.length,
+    done,
+    tasks,
+  };
+}
+
+export function delegateToolTitle(tool: Pick<ToolActivity, "args" | "details" | "status">): string {
+  const progress = delegateProgress({
+    id: "delegate",
+    name: "delegate",
+    title: "",
+    status: tool.status ?? "running",
+    args: tool.args,
+    details: tool.details,
+  });
+  return progress.total > 0
+    ? ct("tool.delegate", { done: progress.done, total: progress.total })
+    : ct("tool.delegateIdle");
+}
+
+export function delegateStatusLabel(status: DelegateTaskStatus): string {
+  if (status === "running") return ct("trace.delegateRunning");
+  if (status === "pending") return ct("trace.delegatePending");
+  if (status === "failed") return ct("trace.delegateFailed");
+  return ct("trace.delegateDone");
+}
+
+function normalizeDelegateTask(value: unknown): DelegateTaskState | undefined {
+  if (!isRecord(value)) return undefined;
+  const role = typeof value.role === "string" ? value.role : "";
+  const task = typeof value.task === "string" ? value.task : "";
+  const status = value.status;
+  if (status !== "pending" && status !== "running" && status !== "completed" && status !== "failed") {
+    return role || task ? { role: role || "agent", task, status: "pending" } : undefined;
+  }
+  return { role: role || "agent", task, status };
+}
+
+function mergeToolDetails(name: string, previous: unknown, incoming: unknown): unknown {
+  if (incoming === undefined) return previous;
+  if (name !== "delegate") return incoming ?? previous;
+  if (!isRecord(incoming)) return incoming ?? previous;
+  // New runtime sends cumulative { total, done, tasks, results }.
+  if (Array.isArray(incoming.tasks) && incoming.tasks.length > 0) return incoming;
+  const prev = isRecord(previous) ? previous : {};
+  const prevResults = Array.isArray(prev.results) ? prev.results : [];
+  const nextResults = Array.isArray(incoming.results) ? incoming.results : [];
+  if (nextResults.length === 0) return { ...prev, ...incoming };
+  const merged = [...prevResults];
+  for (const result of nextResults) {
+    if (!merged.some((item) => sameDelegateResult(item, result))) merged.push(result);
+  }
+  return {
+    ...prev,
+    ...incoming,
+    results: merged,
+    done: typeof incoming.done === "number" ? incoming.done : merged.length,
+    total: typeof incoming.total === "number"
+      ? incoming.total
+      : typeof prev.total === "number" ? prev.total : merged.length,
+  };
+}
+
+function sameDelegateResult(left: unknown, right: unknown): boolean {
+  if (!isRecord(left) || !isRecord(right)) return left === right;
+  return left.role === right.role && left.task === right.task && left.output === right.output;
 }
 
 export interface FileChange {
@@ -952,6 +1080,10 @@ export function liveStatus(tools: ToolActivity[]): string {
     return file ? ct("live.reading", { file }) : ct("live.readingFile");
   }
   if (/exec|bash|command/i.test(running.name)) return ct("live.running");
+  if (running.name === "delegate") {
+    const progress = delegateProgress(running);
+    if (progress.total > 0) return ct("live.delegating", { done: progress.done, total: progress.total });
+  }
   return ct("live.thinking");
 }
 
@@ -1035,6 +1167,21 @@ export function traceRows(work: WorkItem[], tools: ToolActivity[], fallback = ""
 
 function toolRow(tool: ToolActivity, index: number): TraceRow {
   const base = { id: `row-${index}-${tool.id}`, status: tool.status, tool, mono: true };
+  const name = tool.name.toLowerCase();
+  if (name === "delegate") {
+    const progress = delegateProgress(tool);
+    const active = progress.tasks.find((item) => item.status === "running")
+      ?? progress.tasks.find((item) => item.status === "pending")
+      ?? progress.tasks[0];
+    const summary = active?.task.replace(/\s+/g, " ").trim() ?? "";
+    const short = summary.length > 48 ? `${summary.slice(0, 48)}…` : summary;
+    const chip = [
+      progress.total > 0 ? ct("trace.delegateProgress", { done: progress.done, total: progress.total }) : "",
+      active?.role,
+      short,
+    ].filter(Boolean).join(" · ");
+    return { ...base, kind: "tool", label: ct("trace.delegate"), chip, mono: false };
+  }
   const command = formatCommand(toolCommand(tool));
   if (command) {
     const lines = command.split("\n").filter(Boolean);
@@ -1048,7 +1195,6 @@ function toolRow(tool: ToolActivity, index: number): TraceRow {
   if (tool.name === "vision") return { ...base, kind: "look", label: ct("trace.look"), chip: "", mono: false };
   const args = isRecord(tool.args) ? tool.args : {};
   const file = toolPath(tool) || patchTarget(stringField(args, "input"))?.path || "";
-  const name = tool.name.toLowerCase();
   if (/write|edit|patch/.test(name)) {
     const lines = writtenLines(tool);
     return {

@@ -1954,6 +1954,104 @@ textarea::selection,
   white-space: pre-wrap;
   word-break: break-word;
 }
+.delegate-tool {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.delegate-task {
+  border-radius: 8px;
+  background: var(--inset);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow: hidden;
+}
+.delegate-task-head {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.delegate-task-head:disabled {
+  cursor: default;
+}
+.delegate-task-head:not(:disabled):hover {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+.delegate-role {
+  font-weight: 600;
+  color: var(--ink);
+}
+.delegate-status {
+  color: var(--ink-3);
+}
+.delegate-task.running .delegate-status {
+  color: var(--brand);
+}
+.delegate-task.failed .delegate-status {
+  color: var(--red);
+}
+.delegate-task.completed .delegate-status {
+  color: var(--ink-3);
+}
+.delegate-summary {
+  min-width: 0;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.delegate-task.pending .delegate-summary {
+  color: var(--ink-3);
+}
+.delegate-task.running .delegate-summary {
+  color: var(--ink);
+}
+.delegate-chevron {
+  color: var(--ink-3);
+  transition: transform 0.15s ease;
+}
+.delegate-task.open .delegate-chevron {
+  transform: rotate(180deg);
+}
+.delegate-task-body {
+  padding: 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.delegate-task-text {
+  margin: 0;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+.delegate-task-output {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg, #fff);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
 .thought-tool-chip.running {
   color: var(--ink);
   border-color: var(--ink-3);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, approvalTitle, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, isRecoverableRequestError, isTransientStreamError, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, sessionTerminals, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, terminalLabel, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative, type ChatMessage } from "./conversation";
+import { applyAgentEvent, approvalTitle, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, delegateProgress, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, isRecoverableRequestError, isTransientStreamError, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, sessionTerminals, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, terminalLabel, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative, type ChatMessage } from "./conversation";
 
 describe("conversation events", () => {
   it("calculates prompt cache hit rate from reported token usage", () => {
@@ -259,6 +259,121 @@ describe("conversation events", () => {
       },
     });
     expect(messages[0]?.tools[0]?.title).toBe("GLM-4V 识图 · glm-4v-flash · MinerU OCR");
+  });
+
+  it("tracks delegate progress from start through cumulative updates", () => {
+    const tasks = [
+      { role: "explorer", task: "read main" },
+      { role: "explorer", task: "read renderer" },
+      { role: "reviewer", task: "check types" },
+    ];
+    let messages = applyAgentEvent([], {
+      type: "tool_execution_start",
+      toolCallId: "d1",
+      toolName: "delegate",
+      args: { tasks },
+    });
+    expect(messages[0]?.tools[0]?.title).toBe("委托 0/3");
+    expect(liveStatus(messages[0]!.tools)).toBe("委托中 0/3");
+    expect(traceRows(messages[0]!.work, messages[0]!.tools).map((row) => [row.label, row.chip])).toEqual([
+      ["委托", "0/3 · explorer · read main"],
+    ]);
+
+    messages = applyAgentEvent(messages, {
+      type: "tool_execution_update",
+      toolCallId: "d1",
+      toolName: "delegate",
+      args: { tasks },
+      partialResult: {
+        details: {
+          total: 3,
+          done: 1,
+          tasks: [
+            { role: "explorer", task: "read main", status: "completed" },
+            { role: "explorer", task: "read renderer", status: "running" },
+            { role: "reviewer", task: "check types", status: "pending" },
+          ],
+          results: [{ role: "explorer", task: "read main", success: true, output: "ok" }],
+        },
+      },
+    });
+    expect(messages[0]?.tools[0]?.title).toBe("委托 1/3");
+    expect(liveStatus(messages[0]!.tools)).toBe("委托中 1/3");
+    expect(delegateProgress(messages[0]!.tools[0]!).tasks.map((item) => item.status)).toEqual([
+      "completed",
+      "running",
+      "pending",
+    ]);
+
+    messages = applyAgentEvent(messages, {
+      type: "tool_execution_end",
+      toolCallId: "d1",
+      toolName: "delegate",
+      args: { tasks },
+      result: {
+        content: [{ type: "text", text: "all done" }],
+        details: {
+          total: 3,
+          done: 3,
+          tasks: tasks.map((task) => ({ ...task, status: "completed" })),
+          results: tasks.map((task) => ({ ...task, success: true, output: "ok" })),
+        },
+      },
+    });
+    expect(messages[0]?.tools[0]).toMatchObject({ status: "complete", title: "委托 3/3" });
+    expect(traceRows(messages[0]!.work, messages[0]!.tools)[0]?.chip).toBe("3/3 · explorer · read main");
+  });
+
+  it("does not treat delegate args.command as a shell row", () => {
+    const messages = applyAgentEvent([], {
+      type: "tool_execution_start",
+      toolCallId: "d3",
+      toolName: "delegate",
+      args: {
+        command: "cat src/shared/types.ts",
+        tasks: [
+          { role: "explorer", task: "精读主进程与 preload" },
+          { role: "explorer", task: "精读渲染层" },
+        ],
+      },
+    });
+    expect(traceRows(messages[0]!.work, messages[0]!.tools).map((row) => [row.kind, row.label, row.chip])).toEqual([
+      ["tool", "委托", "0/2 · explorer · 精读主进程与 preload"],
+    ]);
+  });
+
+  it("accumulates legacy single-result delegate updates", () => {
+    const tasks = [
+      { role: "explorer", task: "a" },
+      { role: "explorer", task: "b" },
+    ];
+    let messages = applyAgentEvent([], {
+      type: "tool_execution_start",
+      toolCallId: "d2",
+      toolName: "delegate",
+      args: { tasks },
+    });
+    messages = applyAgentEvent(messages, {
+      type: "tool_execution_update",
+      toolCallId: "d2",
+      toolName: "delegate",
+      args: { tasks },
+      partialResult: {
+        details: { results: [{ role: "explorer", task: "a", success: true, output: "1" }] },
+      },
+    });
+    messages = applyAgentEvent(messages, {
+      type: "tool_execution_update",
+      toolCallId: "d2",
+      toolName: "delegate",
+      args: { tasks },
+      partialResult: {
+        details: { results: [{ role: "explorer", task: "b", success: true, output: "2" }] },
+      },
+    });
+    const details = messages[0]?.tools[0]?.details as { results?: unknown[] };
+    expect(details.results).toHaveLength(2);
+    expect(delegateProgress(messages[0]!.tools[0]!).done).toBe(2);
   });
 
   it("normalizes stored assistant tool calls", () => {

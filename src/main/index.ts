@@ -21,6 +21,7 @@ import {
   type SupportedProviderId,
 } from "tether-agent-core";
 import { AgentHost } from "./agent-host";
+import { isPathInsideRoot } from "./workspace-path";
 import { listLocalSkills, revealSkillPath } from "./skills-fs";
 import { listOpenAiModels } from "../shared/openai-models";
 import { activeChat, activeCustomProfile, mergeChatProfiles, migrateChatProfiles, parseChatProfiles, type ChatProfiles } from "../shared/chat-profiles";
@@ -204,6 +205,8 @@ function createWindow(): void {
   mainWindow.webContents.on("did-finish-load", reportFullscreen);
   mainWindow.on("closed", () => {
     mainWindow = undefined;
+    // macOS keeps the app alive after the window closes; still reap the RPC tree
+    // so sandbox shells don't keep burning RAM in the background.
     void agentHost?.stop();
   });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -347,7 +350,13 @@ function registerIpc(): void {
   });
   ipcMain.handle("vision:config", async () => {
     const config = await loadVisionConfig();
-    return { endpoint: config.endpoint, model: config.model, apiKey: config.apiKey };
+    // Never ship the raw key to the renderer; saveConfig already keeps the previous value when blank.
+    return {
+      endpoint: config.endpoint,
+      model: config.model,
+      apiKey: "",
+      hasApiKey: Boolean(config.apiKey.trim()),
+    };
   });
   ipcMain.handle("vision:save-config", async (_event, next: { endpoint?: string; model?: string; apiKey?: string }) => {
     const previous = await loadVisionConfig();
@@ -691,9 +700,39 @@ async function resolveInWorkspace(relativePath: string, workspacePath?: string):
     || (await recentWorkspaces.list()).some((item) => path.resolve(item.path) === root);
   if (!allowed) throw new Error("Folder is not an opened project");
   const resolved = path.resolve(root, relativePath);
-  const prefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
-  if (resolved !== root && !resolved.startsWith(prefix)) throw new Error("Path outside workspace");
+  if (!isPathInsideRoot(root, resolved)) throw new Error("Path outside workspace");
+  // Lexical check alone loses to symlinks (e.g. workspace/link → ~/.ssh). Re-check after realpath.
+  let realRoot: string;
+  try {
+    realRoot = await fsp.realpath(root);
+  } catch {
+    throw new Error("Workspace path is not accessible");
+  }
+  const realPath = await realpathExistingOrJoin(resolved);
+  if (!isPathInsideRoot(realRoot, realPath)) throw new Error("Path outside workspace");
   return resolved;
+}
+
+/** realpath(target), or realpath(nearest existing ancestor) + remaining segments for create paths. */
+async function realpathExistingOrJoin(target: string): Promise<string> {
+  try {
+    return await fsp.realpath(target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("Path outside workspace");
+  }
+  const parts: string[] = [];
+  let cursor = target;
+  while (true) {
+    parts.unshift(path.basename(cursor));
+    const parent = path.dirname(cursor);
+    if (parent === cursor) throw new Error("Path outside workspace");
+    try {
+      return path.join(await fsp.realpath(parent), ...parts);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("Path outside workspace");
+      cursor = parent;
+    }
+  }
 }
 
 function sessionFileOf(snapshot: AgentSnapshot): string | undefined {
@@ -751,6 +790,11 @@ function watchWorkspace(root: string): void {
       watchTimer = setTimeout(() => {
         mainWindow?.webContents.send("workspace:changed", root);
       }, 200);
+    });
+    workspaceWatcher.on("error", () => {
+      workspaceWatcher?.close();
+      workspaceWatcher = undefined;
+      watchedWorkspace = "";
     });
   } catch {
     watchedWorkspace = "";
@@ -848,7 +892,15 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
+let quitting = false;
+app.on("before-quit", (event) => {
+  if (quitting) return;
+  // Always wait for stop on quit (Cmd+Q / Dock → Quit). macOS Seatbelt shells
+  // are detached; skipping this leaves orphan `sh -lc` / find / rg processes.
+  event.preventDefault();
+  quitting = true;
   workspaceWatcher?.close();
-  void agentHost?.stop();
+  void Promise.resolve(agentHost?.stop())
+    .catch(() => undefined)
+    .finally(() => app.exit(0));
 });

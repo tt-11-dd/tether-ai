@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode, type Ref } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -7,7 +7,7 @@ import { skillUserDisplay } from "../shared/skills";
 import { DEFAULT_VISION_CONFIG, visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, activeCustomProfile, defaultCustomProfile, type ChatKind, type CustomApiProfile } from "../shared/chat-profiles";
 import { effortLabelKey, pickEffortOptions, reasoningLevelsAvailable } from "../shared/thinking";
-import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, filterMentionPaths, formatCommand, isRecoverableRequestError, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
+import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, delegateProgress, delegateStatusLabel, filterMentionPaths, formatCommand, isRecoverableRequestError, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
 import type { AgentSkillCommand } from "../shared/skills";
 import { PROJECT_SKILL_ROOTS, USER_SKILL_ROOTS, skillSlashCommand } from "../shared/skills";
@@ -697,7 +697,11 @@ const TRACE_GLYPHS: Record<TraceRow["kind"], string> = {
 };
 
 function TraceRowView({ row }: { row: TraceRow }) {
-  const [open, setOpen] = useState(false);
+  const isDelegate = row.tool?.name === "delegate";
+  const [open, setOpen] = useState(() => isDelegate && row.status === "running");
+  useEffect(() => {
+    if (isDelegate && row.status === "running") setOpen(true);
+  }, [isDelegate, row.status]);
   const detail = traceDetail(row);
   const chip = row.tool?.name === "vision" ? visionToolChips(row.tool.details).join(" · ") : row.chip;
   return (
@@ -727,6 +731,9 @@ function traceDetail(row: TraceRow): ReactNode {
   }
   const tool = row.tool;
   if (!tool) return null;
+  if (tool.name === "delegate") {
+    return <DelegateDetail tool={tool} />;
+  }
   const command = formatCommand(toolCommand(tool));
   if (command) return <TerminalBlock command={command} tool={tool} />;
   if (tool.name === "vision") {
@@ -752,6 +759,79 @@ function traceDetail(row: TraceRow): ReactNode {
         <span key={index} className={line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : ""}>{line}</span>
       ))}
     </pre>
+  );
+}
+
+function DelegateDetail({ tool }: { tool: ToolActivity }) {
+  const progress = delegateProgress(tool);
+  const details = tool.details && typeof tool.details === "object" ? tool.details as Record<string, unknown> : {};
+  const results = Array.isArray(details.results) ? details.results : [];
+  if (progress.tasks.length === 0) return null;
+  return (
+    <div className="delegate-tool">
+      {progress.tasks.map((item, index) => {
+        const result = results.find((entry) => (
+          entry
+          && typeof entry === "object"
+          && (entry as { role?: string }).role === item.role
+          && (entry as { task?: string }).task === item.task
+        )) as { output?: string; success?: boolean } | undefined;
+        return (
+          <DelegateTaskRow
+            key={`${item.role}-${index}`}
+            role={item.role}
+            status={item.status}
+            task={item.task}
+            output={typeof result?.output === "string" ? result.output : undefined}
+            defaultOpen={item.status === "running" || progress.tasks.length === 1}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function DelegateTaskRow({
+  role,
+  status,
+  task,
+  output,
+  defaultOpen = false,
+}: {
+  role: string;
+  status: string;
+  task: string;
+  output?: string;
+  defaultOpen?: boolean;
+}) {
+  const summary = task.replace(/\s+/g, " ").trim();
+  const [open, setOpen] = useState(defaultOpen);
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
+  const body = [summary, output?.trim()].filter(Boolean).join("\n\n");
+  const canOpen = body.length > 0;
+  return (
+    <div className={`delegate-task ${status}${open ? " open" : ""}`}>
+      <button
+        type="button"
+        className="delegate-task-head"
+        aria-expanded={open}
+        disabled={!canOpen}
+        onClick={() => canOpen && setOpen((was) => !was)}
+      >
+        <span className="delegate-role">{role}</span>
+        <span className="delegate-status">{delegateStatusLabel(status as "pending" | "running" | "completed" | "failed")}</span>
+        {!open && summary && <span className="delegate-summary">{summary}</span>}
+        {canOpen && <Icon className="delegate-chevron chevron" path="M6 9l6 6 6-6" size={12} />}
+      </button>
+      {open && (
+        <div className="delegate-task-body">
+          {summary && <p className="delegate-task-text">{summary}</p>}
+          {output?.trim() && <pre className="delegate-task-output">{output.trim()}</pre>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -907,7 +987,7 @@ export function StreamingText({
   );
 }
 
-export function AssistantTurn({
+export const AssistantTurn = memo(function AssistantTurn({
   messages,
   onOpenFile,
   errorRecovered = false,
@@ -961,7 +1041,7 @@ export function AssistantTurn({
       )}
     </article>
   );
-}
+});
 
 function fileGlyph(path: string) {
   return /\.(tsx?|jsx?|mjs|cjs|css|json|ya?ml)$/i.test(path) ? "M8 8l-4 4 4 4M16 8l4 4-4 4" : "M6 3h9l5 5v13H6z";
@@ -1536,8 +1616,8 @@ function isPromptEmpty(root: HTMLElement): boolean {
 }
 
 export function PromptBar({
-  value,
-  onChange,
+  fillText,
+  fillToken = 0,
   onSubmit,
   onStop,
   queued,
@@ -1562,8 +1642,9 @@ export function PromptBar({
   skillCommands = [],
   placement = "dock",
 }: {
-  value: string;
-  onChange(value: string): void;
+  /** Parent bumps fillToken when it wants to inject/clear the composer (edit queue, restore, reset). */
+  fillText?: string;
+  fillToken?: number;
   onSubmit(text?: string, images?: string[]): void;
   onStop(): void;
   queued?: Array<{ id: string; text: string }>;
@@ -1589,18 +1670,23 @@ export function PromptBar({
   placement?: "dock" | "hero";
 }) {
   const { t } = useI18n();
-  const [cursor, setCursor] = useState(value.length);
+  const [value, setValue] = useState("");
+  const [cursor, setCursor] = useState(0);
   const [files, setFiles] = useState<string[]>([]);
   const [listing, setListing] = useState(false);
   const [picked, setPicked] = useState(0);
   const [dropOver, setDropOver] = useState(false);
-  const [blank, setBlank] = useState(!value);
+  const [blank, setBlank] = useState(true);
   const skipHydrate = useRef(false);
   const area = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const mention = workspace ? mentionAt(value, cursor) : undefined;
   const matches = mention ? filterMentionPaths(files, mention.query) : [];
+
+  useEffect(() => {
+    setValue(fillText ?? "");
+  }, [fillToken]);
 
   useEffect(() => {
     const root = area.current;
@@ -1629,7 +1715,7 @@ export function PromptBar({
     setBlank(isPromptEmpty(root));
     setCursor(caretOffset(root));
     skipHydrate.current = true;
-    if (next !== value) onChange(next);
+    if (next !== value) setValue(next);
     return next;
   };
 
@@ -1705,7 +1791,7 @@ export function PromptBar({
     if (seal) {
       const next = `${value.slice(0, mention.start)}@${file} ${value.slice(cursor)}`;
       const caret = mention.start + file.length + 2;
-      onChange(next);
+      setValue(next);
       setCursor(caret);
       requestAnimationFrame(() => {
         root.focus();
@@ -1714,7 +1800,7 @@ export function PromptBar({
       return;
     }
     const next = `${value.slice(0, mention.start)}@${file}${value.slice(cursor)}`;
-    onChange(next);
+    setValue(next);
     const caret = mention.start + file.length + 1;
     setCursor(caret);
     requestAnimationFrame(() => {
@@ -1730,7 +1816,7 @@ export function PromptBar({
 
   const insertSkillCommand = (command: string) => {
     const next = `${command} `;
-    onChange(next);
+    setValue(next);
     const caret = next.length;
     setCursor(caret);
     setPicked(0);
@@ -1748,7 +1834,7 @@ export function PromptBar({
     if (!text && refs.length === 0) return;
     root.replaceChildren();
     setBlank(true);
-    onChange("");
+    setValue("");
     onSubmit(text, refs.length ? refs : undefined);
   };
 
@@ -1775,7 +1861,7 @@ export function PromptBar({
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        onChange("");
+        setValue("");
         return;
       }
     }
@@ -1798,10 +1884,10 @@ export function PromptBar({
       if (event.key === "Escape") {
         event.preventDefault();
         if (mention?.query) {
-          onChange(`${value.slice(0, cursor)} ${value.slice(cursor)}`);
+          setValue(`${value.slice(0, cursor)} ${value.slice(cursor)}`);
           setCursor(cursor + 1);
         } else {
-          onChange(`${value.slice(0, mention?.start ?? cursor)}${value.slice(cursor)}`);
+          setValue(`${value.slice(0, mention?.start ?? cursor)}${value.slice(cursor)}`);
         }
         return;
       }
@@ -1850,7 +1936,7 @@ export function PromptBar({
       next = inserted.next;
       caret = inserted.caret;
     }
-    onChange(next);
+    setValue(next);
     setCursor(caret);
     requestAnimationFrame(() => {
       const node = area.current;
@@ -2575,6 +2661,7 @@ export function Login({
   const [visionEndpoint, setVisionEndpoint] = useState(DEFAULT_VISION_CONFIG.endpoint);
   const [visionModel, setVisionModel] = useState(DEFAULT_VISION_CONFIG.model);
   const [visionKey, setVisionKey] = useState("");
+  const [visionHasKey, setVisionHasKey] = useState(false);
   const [busy, setBusy] = useState(false);
   const [chatModels, setChatModels] = useState<string[]>([]);
   const [visionModels, setVisionModels] = useState<string[]>([]);
@@ -2662,7 +2749,8 @@ export function Login({
       setActiveCustomId(profiles.activeCustomId);
       setVisionEndpoint(config.endpoint);
       setVisionModel(config.model);
-      if (config.apiKey) setVisionKey(config.apiKey);
+      setVisionKey("");
+      setVisionHasKey(Boolean((config as { hasApiKey?: boolean }).hasApiKey));
       if (ver) setAppVersion(ver);
       const url = profiles.kind === "custom" ? activeCustomProfile(profiles)?.url ?? "" : DEEPSEEK_PRESET.url;
       const key = profiles.kind === "custom" ? activeCustomProfile(profiles)?.apiKey ?? "" : profiles.deepseek.apiKey;
@@ -2925,7 +3013,11 @@ export function Login({
                     placeholder={DEFAULT_VISION_CONFIG.endpoint}
                   />
                 </label>
-                <SecretField value={visionKey} onChange={setVisionKey} placeholder={t("settings.zhipuKey")} />
+                <SecretField
+                  value={visionKey}
+                  onChange={setVisionKey}
+                  placeholder={visionHasKey ? t("settings.keySaved") : t("settings.zhipuKey")}
+                />
                 <ModelField
                   value={visionModel}
                   onChange={setVisionModel}

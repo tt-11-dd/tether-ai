@@ -368,7 +368,10 @@ export function App() {
   const [permission, setPermission] = useState<PermissionMode>("auto");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [stats, setStats] = useState<AgentSessionStats>();
-  const [draft, setDraft] = useState("");
+  const [promptFill, setPromptFill] = useState({ text: "", token: 0 });
+  const fillPrompt = useCallback((text: string) => {
+    setPromptFill((current) => ({ text, token: current.token + 1 }));
+  }, []);
   const [queued, setQueued] = useState<Array<{ id: string; text: string; images?: string[] }>>([]);
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -689,7 +692,7 @@ export function App() {
     setOpenProjects((current) => ({ ...current, [cwd]: true }));
     setMessages([]);
     setStats(undefined);
-    setDraft("");
+    fillPrompt("");
     setQueued([]);
     setActiveSession(undefined);
     sessionRef.current = undefined;
@@ -702,7 +705,7 @@ export function App() {
     agentCwd.current = undefined;
     if (!running) await window.harness.agent.stop().catch(() => undefined);
     return true;
-  }, [running, t]);
+  }, [fillPrompt, running, t]);
   const openFolder = useCallback(async () => {
     const selected = await window.harness.workspace.choose();
     if (!selected) return;
@@ -716,7 +719,7 @@ export function App() {
     setWorkspace(undefined);
     setMessages([]);
     setStats(undefined);
-    setDraft("");
+    fillPrompt("");
     setQueued([]);
     setRunning(false);
     setUiRequest(undefined);
@@ -729,23 +732,25 @@ export function App() {
     agentCwd.current = undefined;
     await window.harness.agent.command("abort").catch(() => undefined);
     await window.harness.agent.stop().catch(() => undefined);
-  }, []);
+  }, [fillPrompt]);
 
   const removeSession = useCallback(async (session: SessionSummary) => {
     if (isSameSession(session, activeSession)) {
+      live.current = false;
+      // Abort + stop the RPC tree so Seatbelt shells / background jobs die with the thread.
       if (agentCwd.current) {
-        try {
-          await window.harness.agent.command("new_session");
-        } catch (error) {
-          setToast(error instanceof Error ? error.message : String(error));
-        }
+        await window.harness.agent.command("abort").catch(() => undefined);
+        await window.harness.agent.stop().catch(() => undefined);
+        agentCwd.current = undefined;
       }
       setMessages([]);
       setStats(undefined);
       setQueued([]);
       setActiveSession(undefined);
+      sessionRef.current = undefined;
       setRunning(false);
       setUiRequest(undefined);
+      setStoppedJobs([]);
     }
     try {
       await window.harness.sessions.remove(session.id);
@@ -891,10 +896,10 @@ export function App() {
   }, [locale, running, startAgent, t, workspace]);
 
   const sendMessage = useCallback(async (preset?: string, images?: string[]) => {
-    const text = (preset ?? draft).trim();
+    const text = (preset ?? "").trim();
     if (text === "/undo") {
       if (running) return;
-      setDraft("");
+      fillPrompt("");
       void undoLastTurn();
       return;
     }
@@ -911,7 +916,7 @@ export function App() {
         text: text || t("toast.defaultImagePrompt"),
         images,
       }]);
-      setDraft("");
+      fillPrompt("");
       return;
     }
     sending.current = true;
@@ -934,7 +939,7 @@ export function App() {
 
       // Paint the user turn immediately so first-send doesn't sit on the home screen.
       optimistic = optimisticUserMessage(question, false, thumbs);
-      setDraft("");
+      fillPrompt("");
       setMessages((current) => [...current, optimistic!]);
       setRunning(true);
 
@@ -942,13 +947,13 @@ export function App() {
         const started = await startAgent(cwd, undefined, true, false, permission, optimistic);
         if (!started) {
           setMessages((current) => current.filter((item) => item.id !== optimistic!.id));
-          setDraft(text);
+          fillPrompt(text);
           setRunning(false);
           return;
         }
       } else if (!(await ensureModelReady())) {
         setMessages((current) => current.filter((item) => item.id !== optimistic!.id));
-        setDraft(text);
+        fillPrompt(text);
         setRunning(false);
         return;
       }
@@ -961,13 +966,13 @@ export function App() {
       const detail = error instanceof Error ? error.message : String(error);
       const optimisticId = optimistic?.id;
       if (optimisticId) setMessages((current) => current.filter((item) => item.id !== optimisticId));
-      setDraft(text);
+      fillPrompt(text);
       setRunning(false);
       if (!/Agent session closed/.test(detail)) setToast(friendlyAgentError(error));
     } finally {
       sending.current = false;
     }
-  }, [draft, ensureModelReady, loading, openFolder, permission, running, startAgent, t, undoLastTurn, workspace]);
+  }, [ensureModelReady, fillPrompt, loading, openFolder, permission, running, startAgent, t, undoLastTurn, workspace]);
 
   useEffect(() => {
     if (holdQueue.current || running || loading || queued.length === 0 || sending.current) return;
@@ -1057,18 +1062,21 @@ export function App() {
       return;
     }
     let gone = false;
-    void window.harness.workspace.read(".agents/features.json", workspace).then(
-      (result) => {
-        if (!gone) setFeatureTodos(result.binary ? [] : parseFeaturesJson(result.content));
-      },
-      () => {
-        if (!gone) setFeatureTodos([]);
-      },
-    );
+    const timer = window.setTimeout(() => {
+      void window.harness.workspace.read(".agents/features.json", workspace).then(
+        (result) => {
+          if (!gone) setFeatureTodos(result.binary ? [] : parseFeaturesJson(result.content));
+        },
+        () => {
+          if (!gone) setFeatureTodos([]);
+        },
+      );
+    }, running ? 800 : 0);
     return () => {
       gone = true;
+      window.clearTimeout(timer);
     };
-  }, [workspace, running, workingFiles]);
+  }, [workspace, running, workingFiles.length]);
 
   const home = groups.length === 0;
 
@@ -1097,8 +1105,8 @@ export function App() {
   ).slice(0, 5);
   const composer = (
     <PromptBar
-      value={draft}
-      onChange={setDraft}
+      fillText={promptFill.text}
+      fillToken={promptFill.token}
       onSubmit={(text, images) => void sendMessage(text, images)}
       onStop={() => {
         holdQueue.current = true;
@@ -1108,7 +1116,7 @@ export function App() {
       onEditQueue={(id) => {
         const item = queued.find((entry) => entry.id === id);
         if (!item) return;
-        setDraft(item.text);
+        fillPrompt(item.text);
         setQueued((current) => current.filter((entry) => entry.id !== id));
       }}
       onDropQueue={(id) => setQueued((current) => current.filter((entry) => entry.id !== id))}
