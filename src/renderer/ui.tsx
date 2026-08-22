@@ -6,6 +6,7 @@ import { PREVIEW_HOST, PREVIEW_SCHEME, type AgentSessionStats, type ExtensionUiR
 import { skillUserDisplay } from "../shared/skills";
 import { DEFAULT_VISION_CONFIG, DEEPSEEK_VISION_MODEL, visibleUserText, visionResultSections, visionToolChips, type VisionProvider } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, activeCustomProfile, defaultCustomProfile, type ChatKind, type CustomApiProfile } from "../shared/chat-profiles";
+import { applyTheme, readStoredTheme, THEMES, type ThemeId } from "../shared/theme";
 import { effortLabelKey, pickEffortOptions, reasoningLevelsAvailable } from "../shared/thinking";
 import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, delegateProgress, delegateStatusLabel, filterMentionPaths, formatCommand, isRecoverableRequestError, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, assistantReplyText, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
@@ -46,7 +47,7 @@ function beginTreeDrag(event: DragEvent<HTMLElement>, path: string, label: strin
 export function Icon({ path, size = 16, className }: { path: string; size?: number; className?: string }) {
   return (
     <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d={path} />
+      {path.split("\n").map((d) => <path key={d} d={d} />)}
     </svg>
   );
 }
@@ -354,12 +355,18 @@ export function ContextStats({
   effort,
   effortLevels,
   up,
+  running = false,
+  busy = false,
+  onCompact,
 }: {
   stats?: AgentSessionStats;
   model?: string;
   effort?: string;
   effortLevels?: string[];
   up?: boolean;
+  running?: boolean;
+  busy?: boolean;
+  onCompact?(): void;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -380,6 +387,8 @@ export function ContextStats({
   const contextTokens = stats?.contextUsage?.tokens ?? (stats?.tokens?.total ? stats.tokens.total : undefined);
   const contextWindow = stats?.contextUsage?.contextWindow ?? 128_000;
   const rate = cacheHitRate(stats?.tokens);
+  const canCompact = Boolean(onCompact) && !running && !busy;
+  const showCompact = Boolean(onCompact) && percent !== undefined;
 
   return (
     <div ref={box} className={`context-stats-wrap${open ? " open" : ""}${up ? " up" : ""}`}>
@@ -415,9 +424,7 @@ export function ContextStats({
       {open && (
         <div className="context-popover" role="dialog">
           <div className="context-popover-head">
-            <div className="context-popover-title">
-              <span>{t("context.title")}</span>
-            </div>
+            <span className="context-popover-title">{t("context.title")}</span>
             {rate !== undefined && (
               <span className="context-badge-hit">
                 <i /> {t("context.cacheRate", { rate: rate.toFixed(0) })}
@@ -425,112 +432,112 @@ export function ContextStats({
             )}
           </div>
 
-          <div className="context-popover-body">
-            {/* 上下文容量 */}
-            <div className="context-card">
-              <div className="context-capacity">
-                <div className="context-ring-wrap">
-                  <svg width="48" height="48" viewBox="0 0 48 48" className="context-ring-svg">
-                    <circle cx="24" cy="24" r="20" fill="none" stroke="var(--hover-2)" strokeWidth="4" />
-                    {percent !== undefined && (
-                      <circle
-                        cx="24"
-                        cy="24"
-                        r="20"
-                        fill="none"
-                        stroke={percent >= 90 ? "var(--red)" : percent >= 80 ? "var(--accent)" : "var(--green)"}
-                        strokeWidth="4"
-                        strokeDasharray={125.66}
-                        strokeDashoffset={125.66 - (Math.min(100, Math.max(0, percent)) / 100) * 125.66}
-                        strokeLinecap="round"
-                        transform="rotate(-90 24 24)"
-                      />
-                    )}
-                  </svg>
-                  <div className="context-ring-label">
-                    <strong>{percent !== undefined ? `${percent}%` : "—"}</strong>
-                    <small>{percent !== undefined ? t("context.used") : t("context.untracked")}</small>
-                  </div>
-                </div>
-                <div className="context-capacity-info">
-                  <span className="context-label">{t("context.capacity")}</span>
-                  <span className="context-ratio">
-                    {contextTokens !== undefined ? formatCompactNumber(contextTokens) : "—"} / {formatCompactNumber(contextWindow)}
-                  </span>
-                  <small className={`context-hint ${percent && percent >= 80 ? "warn" : ""}`}>
-                    {percent === undefined
-                      ? t("context.waitFirst")
-                      : percent >= 90
-                        ? t("context.critical")
-                        : percent >= 75
-                          ? t("context.high")
-                          : t("context.ok")}
-                  </small>
-                </div>
-              </div>
-            </div>
-
-            {/* Token 总量 */}
-            <div className="context-card">
-              <div className="context-section-head">
-                <span>{t("context.tokenTotal")}</span>
-                {stats?.tokens?.total ? (
-                  <span className="context-token-sum">{t("context.tokenSum", { n: formatCompactNumber(stats.tokens.total) })}</span>
-                ) : null}
-              </div>
-              <div className="context-token-grid">
-                <div className="context-token-box">
-                  <span className="context-token-sub">{t("context.input")}</span>
-                  <strong>{stats?.tokens?.input !== undefined ? formatCompactNumber(stats.tokens.input) : "—"}</strong>
-                </div>
-                <div className="context-token-box">
-                  <span className="context-token-sub">{t("context.output")}</span>
-                  <strong>{stats?.tokens?.output !== undefined ? formatCompactNumber(stats.tokens.output) : "—"}</strong>
-                </div>
-              </div>
-            </div>
-
-            {/* 缓存率 */}
-            <div className="context-card">
-              <div className="context-section-head">
-                <span>{t("context.cacheTitle")}</span>
-                <strong className="context-rate-text">{rate !== undefined ? `${rate.toFixed(1)}%` : "—"}</strong>
-              </div>
-              <div className="context-bar-track">
-                <div
-                  className="context-bar-fill"
-                  style={{ width: `${Math.min(100, Math.max(0, rate ?? 0))}%` }}
-                />
-              </div>
-              <div className="context-cache-meta">
-                <span>{t("context.cacheHit")} <b>{stats?.tokens?.cacheRead ? formatCompactNumber(stats.tokens.cacheRead) : "0"}</b></span>
-                {Boolean(stats?.tokens?.cacheWrite) ? (
-                  <span>{t("context.cacheWrite")} <b>{formatCompactNumber(stats!.tokens.cacheWrite)}</b></span>
-                ) : (
-                  <span>{t("context.cacheMiss")} <b>{stats?.tokens?.input !== undefined ? formatCompactNumber(stats.tokens.input) : "—"}</b></span>
+          <div className="context-section context-capacity">
+            <div className="context-ring-wrap">
+              <svg width="48" height="48" viewBox="0 0 48 48" className="context-ring-svg" aria-hidden="true">
+                <circle cx="24" cy="24" r="20" fill="none" stroke="var(--line)" strokeWidth="3" />
+                {percent !== undefined && (
+                  <circle
+                    cx="24"
+                    cy="24"
+                    r="20"
+                    fill="none"
+                    stroke={percent >= 90 ? "var(--red)" : percent >= 80 ? "var(--accent)" : "var(--green)"}
+                    strokeWidth="3"
+                    strokeDasharray={125.66}
+                    strokeDashoffset={125.66 - (Math.min(100, Math.max(0, percent)) / 100) * 125.66}
+                    strokeLinecap="round"
+                    transform="rotate(-90 24 24)"
+                  />
                 )}
+              </svg>
+              <div className="context-ring-label">
+                <strong>{percent !== undefined ? `${percent}%` : "—"}</strong>
+                <small>{percent !== undefined ? t("context.used") : t("context.untracked")}</small>
               </div>
             </div>
+            <div className="context-capacity-info">
+              <span className="context-label">{t("context.capacity")}</span>
+              <span className="context-ratio">
+                {contextTokens !== undefined ? formatCompactNumber(contextTokens) : "—"} / {formatCompactNumber(contextWindow)}
+              </span>
+              <small className={`context-hint ${percent && percent >= 80 ? "warn" : ""}`}>
+                {percent === undefined
+                  ? t("context.waitFirst")
+                  : percent >= 90
+                    ? t("context.critical")
+                    : percent >= 75
+                      ? t("context.high")
+                      : t("context.ok")}
+              </small>
+            </div>
+            {showCompact && (
+              <button
+                type="button"
+                className="context-compact-btn"
+                disabled={!canCompact}
+                title={running ? t("toast.waitBeforeCompact") : undefined}
+                onClick={() => {
+                  if (!canCompact) return;
+                  onCompact?.();
+                }}
+              >
+                {busy ? t("context.compacting") : t("context.compact")}
+              </button>
+            )}
+          </div>
 
-            {/* 底部模型与费用 */}
-            <div className="context-popover-foot">
-              <div className="context-foot-item context-foot-item-model">
-                <span className="context-foot-label">{t("common.model")}</span>
-                <code className="context-model-tag">{model || t("context.defaultModel")}</code>
-              </div>
-              <div className="context-foot-row">
-                {reasoningLevelsAvailable(effortLevels ?? []) && effort && (
-                  <div className="context-foot-item">
-                    <span className="context-foot-label">{t("composer.effort")}</span>
-                    <span className="context-effort-val">{t(effortLabelKey(effort))}</span>
-                  </div>
-                )}
-                <div className="context-foot-item context-foot-item-cost">
-                  <span className="context-foot-label">{t("context.cost")}</span>
-                  <span className="context-cost-val">
-                    {stats?.cost ? `$${stats.cost.toFixed(4)}` : "—"}
-                  </span>
+          <div className="context-section">
+            <div className="context-section-head">
+              <span>{t("context.tokenTotal")}</span>
+              {stats?.tokens?.total ? (
+                <span className="context-token-sum">{t("context.tokenSum", { n: formatCompactNumber(stats.tokens.total) })}</span>
+              ) : null}
+            </div>
+            <div className="context-stat-row">
+              <span>{t("context.input")} <b>{stats?.tokens?.input !== undefined ? formatCompactNumber(stats.tokens.input) : "—"}</b></span>
+              <span>{t("context.output")} <b>{stats?.tokens?.output !== undefined ? formatCompactNumber(stats.tokens.output) : "—"}</b></span>
+            </div>
+          </div>
+
+          <div className="context-section">
+            <div className="context-section-head">
+              <span>{t("context.cacheTitle")}</span>
+              <strong className="context-rate-text">{rate !== undefined ? `${rate.toFixed(1)}%` : "—"}</strong>
+            </div>
+            <div className="context-bar-track">
+              <div
+                className="context-bar-fill"
+                style={{ width: `${Math.min(100, Math.max(0, rate ?? 0))}%` }}
+              />
+            </div>
+            <div className="context-cache-meta">
+              <span>{t("context.cacheHit")} <b>{stats?.tokens?.cacheRead ? formatCompactNumber(stats.tokens.cacheRead) : "0"}</b></span>
+              {Boolean(stats?.tokens?.cacheWrite) ? (
+                <span>{t("context.cacheWrite")} <b>{formatCompactNumber(stats!.tokens.cacheWrite)}</b></span>
+              ) : (
+                <span>{t("context.cacheMiss")} <b>{stats?.tokens?.input !== undefined ? formatCompactNumber(stats.tokens.input) : "—"}</b></span>
+              )}
+            </div>
+          </div>
+
+          <div className="context-popover-foot">
+            <div className="context-foot-item context-foot-item-model">
+              <span className="context-foot-label">{t("common.model")}</span>
+              <code className="context-model-tag">{model || t("context.defaultModel")}</code>
+            </div>
+            <div className="context-foot-row">
+              {reasoningLevelsAvailable(effortLevels ?? []) && effort && (
+                <div className="context-foot-item">
+                  <span className="context-foot-label">{t("composer.effort")}</span>
+                  <span className="context-effort-val">{t(effortLabelKey(effort))}</span>
                 </div>
+              )}
+              <div className="context-foot-item context-foot-item-cost">
+                <span className="context-foot-label">{t("context.cost")}</span>
+                <span className="context-cost-val">
+                  {stats?.cost ? `$${stats.cost.toFixed(4)}` : "—"}
+                </span>
               </div>
             </div>
           </div>
@@ -630,10 +637,20 @@ export function Thinking({
 }) {
   const { t, locale } = useI18n();
   const [open, setOpen] = useState(() => Boolean(error && errorTone === "strong"));
+  const [dismissedError, setDismissedError] = useState(false);
   const [born] = useState(() => Date.now());
   useEffect(() => {
     if (error && errorTone === "strong") setOpen(true);
   }, [error, errorTone]);
+  useEffect(() => {
+    setDismissedError(false);
+  }, [error]);
+  useEffect(() => {
+    if (!error || errorTone !== "weak" || live || dismissedError) return;
+    const timer = window.setTimeout(() => setDismissedError(true), 4000);
+    return () => window.clearTimeout(timer);
+  }, [error, errorTone, live, dismissedError]);
+  const showError = error && !dismissedError;
   const rows = useMemo(() => traceRows(work, tools, text), [work, tools, text, locale]);
   const start = startedAt ?? (live ? born : undefined);
   const summary = useMemo(
@@ -643,7 +660,7 @@ export function Thinking({
   const current = useMemo(() => liveStatus(tools), [tools, locale]);
   const header = live ? label ?? t("think.live") : t("think.done");
   const showLive = live && current !== header;
-  const hasBody = rows.length > 0 || showLive || Boolean(error);
+  const hasBody = rows.length > 0 || showLive || Boolean(showError);
   const expandable = live || hasBody;
   if (!expandable && !live) return null;
   return (
@@ -654,7 +671,7 @@ export function Thinking({
           {header}
         </span>
         {summary && <span className="trace-subtle">{summary}</span>}
-        {!open && error && (
+        {!open && showError && (
           <span className={errorTone === "weak" ? "trace-subtle trace-failed weak" : "trace-subtle trace-failed"}>
             {t("trace.requestFailed")}
           </span>
@@ -670,12 +687,17 @@ export function Thinking({
               <span className="shimmer">{rows.length === 0 ? header : current}</span>
             </div>
           )}
-          {error && (
+          {showError && (
             <div className={errorTone === "weak" ? "trace-row-wrap weak-error" : "trace-row-wrap error"}>
               <div className="trace-row">
-                <span className="trace-row-mark">
+                <button
+                  type="button"
+                  className="trace-row-dismiss"
+                  aria-label={t("common.close")}
+                  onClick={() => setDismissedError(true)}
+                >
                   <Icon className="trace-row-glyph" path="M18 6L6 18M6 6l12 12" size={13} />
-                </span>
+                </button>
                 <span className="trace-row-label">{t("trace.requestFailed")}</span>
                 <span className="trace-row-chip">{error}</span>
                 {onRetry && errorTone === "weak" && (
@@ -701,10 +723,7 @@ const TRACE_GLYPHS: Record<TraceRow["kind"], string> = {
 
 function TraceRowView({ row }: { row: TraceRow }) {
   const isDelegate = row.tool?.name === "delegate";
-  const [open, setOpen] = useState(() => isDelegate && row.status === "running");
-  useEffect(() => {
-    if (isDelegate && row.status === "running") setOpen(true);
-  }, [isDelegate, row.status]);
+  const [open, setOpen] = useState(false);
   const detail = traceDetail(row);
   const chip = row.tool?.name === "vision" ? visionToolChips(row.tool.details).join(" · ") : row.chip;
   return (
@@ -718,10 +737,10 @@ function TraceRowView({ row }: { row: TraceRow }) {
       >
         <span className="trace-row-mark">
           <Icon className="trace-row-glyph" path={TRACE_GLYPHS[row.kind]} size={13} />
-          <Icon className="trace-row-chevron chevron" path="M6 9l6 6 6-6" size={12} />
         </span>
         <span className="trace-row-label">{row.label}</span>
         {chip && <span className={row.mono ? "trace-row-chip mono" : "trace-row-chip"}>{chip}</span>}
+        {detail ? <Icon className="trace-row-chevron chevron" path="M6 9l6 6 6-6" size={12} /> : null}
       </button>
       {open && detail && <div className="trace-row-detail">{detail}</div>}
     </div>
@@ -788,6 +807,7 @@ function DelegateDetail({ tool }: { tool: ToolActivity }) {
             status={item.status}
             task={item.task}
             live={item.live}
+            startedAt={tool.startedAt}
             output={diff ? [output, "```diff", diff, "```"].filter(Boolean).join("\n\n") : output}
           />
         );
@@ -802,6 +822,7 @@ function DelegateTaskRow({
   task,
   live,
   output,
+  startedAt,
   defaultOpen = false,
 }: {
   role: string;
@@ -809,18 +830,38 @@ function DelegateTaskRow({
   task: string;
   live?: string;
   output?: string;
+  startedAt?: number;
   defaultOpen?: boolean;
 }) {
+  const { t } = useI18n();
   const summary = task.replace(/\s+/g, " ").trim();
   const [open, setOpen] = useState(defaultOpen);
+  const [stale, setStale] = useState(false);
+  const lastActivity = useRef(Date.now());
   useEffect(() => {
     if (defaultOpen) setOpen(true);
   }, [defaultOpen]);
+  useEffect(() => {
+    if (status === "running") lastActivity.current = Date.now();
+    else setStale(false);
+  }, [status]);
+  useEffect(() => {
+    if (live?.trim()) lastActivity.current = Date.now();
+  }, [live]);
+  useEffect(() => {
+    if (status !== "running") return;
+    const timer = setInterval(() => {
+      const anchor = startedAt ?? lastActivity.current;
+      const quietFor = Date.now() - Math.max(anchor, lastActivity.current);
+      setStale(quietFor >= 120_000);
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [startedAt, status]);
   const showLive = status === "running" && Boolean(live?.trim());
   const body = [summary, showLive ? live : undefined, output?.trim()].filter(Boolean).join("\n\n");
   const canOpen = body.length > 0;
   return (
-    <div className={`delegate-task ${status}${open ? " open" : ""}`}>
+    <div className={`delegate-task ${status}${stale ? " stale" : ""}${open ? " open" : ""}`}>
       <button
         type="button"
         className="delegate-task-head"
@@ -829,7 +870,9 @@ function DelegateTaskRow({
         onClick={() => canOpen && setOpen((was) => !was)}
       >
         <span className="delegate-role">{role}</span>
-        <span className="delegate-status">{delegateStatusLabel(status as "pending" | "running" | "completed" | "failed")}</span>
+        <span className="delegate-status">
+          {stale ? t("trace.delegateStale") : delegateStatusLabel(status as "pending" | "running" | "completed" | "failed")}
+        </span>
         {!open && (showLive ? live : summary) && (
           <span className="delegate-summary">{showLive ? live : summary}</span>
         )}
@@ -887,7 +930,6 @@ function TerminalBlock({ command, tool }: { command: string; tool: ToolActivity 
               {showOutput ? t("terminal.hideOutput") : t("terminal.output")}
             </button>
           )}
-          <CopyButton text={command} className="terminal-copy-btn" size={12} label={t("terminal.copyCommand")} />
         </div>
       </div>
       <div className="terminal-body">
@@ -1016,11 +1058,13 @@ export const AssistantTurn = memo(function AssistantTurn({
   messages,
   onOpenFile,
   errorRecovered = false,
+  recoverableFailStreak = 0,
   onRetry,
 }: {
   messages: ChatMessage[];
   onOpenFile?(file: FileChange): void;
   errorRecovered?: boolean;
+  recoverableFailStreak?: number;
   onRetry?(): void;
 }) {
   const thinking = collapseThinking(...messages.map((item) => item.thinking));
@@ -1030,7 +1074,9 @@ export const AssistantTurn = memo(function AssistantTurn({
   const rawError = messages.map((item) => item.error).find(Boolean);
   const recoverable = isRecoverableRequestError(rawError);
   const errorTone = rawError
-    ? (recoverable ? (errorRecovered ? "hidden" : "weak") : "strong")
+    ? (recoverable
+      ? (errorRecovered ? "hidden" : recoverableFailStreak >= 2 ? "strong" : "weak")
+      : "strong")
     : "hidden";
   const error = errorTone === "hidden" ? undefined : rawError;
   const live = messages.some((item) => item.streaming) || tools.some((item) => item.status === "running");
@@ -1085,6 +1131,9 @@ export function InspectPanel({
   workspace,
   refresh,
   running,
+  planApproval = false,
+  onApprovePlan,
+  onRefinePlan,
   onOpen,
   onUndo,
   onStopTerminal,
@@ -1097,6 +1146,9 @@ export function InspectPanel({
   workspace?: string;
   refresh?: number | boolean;
   running?: boolean;
+  planApproval?: boolean;
+  onApprovePlan?(): void;
+  onRefinePlan?(text: string): void;
   onOpen(file: FileChange): void;
   onUndo?(): void;
   onStopTerminal?(id: string): void;
@@ -1104,6 +1156,8 @@ export function InspectPanel({
 }) {
   const { t } = useI18n();
   const [progress, setProgress] = useState(true);
+  const [refineOpen, setRefineOpen] = useState(false);
+  const [refineText, setRefineText] = useState("");
   const [changesOpen, setChangesOpen] = useState(true);
   const [termsOpen, setTermsOpen] = useState(false);
   const [openTerm, setOpenTerm] = useState<string>();
@@ -1134,9 +1188,48 @@ export function InspectPanel({
     };
   }, [workspace, refresh, tick]);
   const visible = filterMentionPaths(entries, prefix).filter((file) => file !== prefix);
-  if (!workspace && todos.length === 0) return null;
+  if (!workspace && todos.length === 0 && !planApproval) return null;
   return (
     <aside className="inspect">
+      {planApproval && onApprovePlan && (
+        <div className="plan-approval">
+          <p>{t("plan.approvalHint")}</p>
+          <div className="plan-approval-actions">
+            <button type="button" className="primary" onClick={onApprovePlan}>{t("plan.approve")}</button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => setRefineOpen((current) => !current)}
+            >
+              {t("plan.refine")}
+            </button>
+          </div>
+          {refineOpen && onRefinePlan && (
+            <div className="plan-refine">
+              <textarea
+                value={refineText}
+                onChange={(event) => setRefineText(event.target.value)}
+                placeholder={t("plan.refinePlaceholder")}
+                rows={3}
+              />
+              <button
+                type="button"
+                className="ghost"
+                disabled={!refineText.trim()}
+                onClick={() => {
+                  const text = refineText.trim();
+                  if (!text) return;
+                  onRefinePlan(text);
+                  setRefineText("");
+                  setRefineOpen(false);
+                }}
+              >
+                {t("plan.refineSubmit")}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {todos.length > 0 && (
         <Fold
           title={`${t("inspect.progress")} ${todos.filter((item) => item.done).length}/${todos.length}`}
@@ -1660,10 +1753,7 @@ export function PromptBar({
   fillToken = 0,
   onSubmit,
   onStop,
-  queued,
-  onEditQueue,
-  onDropQueue,
-  onSendQueue,
+  steering,
   rootRef,
   running,
   disabled,
@@ -1679,6 +1769,7 @@ export function PromptBar({
   onPermission,
   onCommand,
   stats,
+  onCompact,
   skillCommands = [],
   placement = "dock",
 }: {
@@ -1687,10 +1778,7 @@ export function PromptBar({
   fillToken?: number;
   onSubmit(text?: string, images?: string[]): void;
   onStop(): void;
-  queued?: Array<{ id: string; text: string }>;
-  onEditQueue?(id: string): void;
-  onDropQueue?(id: string): void;
-  onSendQueue?(id: string): void;
+  steering?: string[];
   rootRef?: Ref<HTMLDivElement>;
   running: boolean;
   disabled?: boolean;
@@ -1706,6 +1794,7 @@ export function PromptBar({
   onPermission(value: string): void;
   onCommand(command: string): void;
   stats?: AgentSessionStats;
+  onCompact?(): void;
   skillCommands?: AgentSkillCommand[];
   placement?: "dock" | "hero";
 }) {
@@ -1940,6 +2029,7 @@ export function PromptBar({
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       sendNow();
+      return;
     }
   };
 
@@ -2002,39 +2092,18 @@ export function PromptBar({
               <Icon path="M3 7h6l2 2h10v10H3z" size={13} />
               <span>{folder ?? t("composer.selectProject")}</span>
             </button>
-            {queued && queued.length > 0 && (
+            {steering && steering.length > 0 && (
               <div className="prompt-queue-meta">
-                <span className="prompt-queue-count">{t("composer.queued", { n: queued.length })}</span>
-                {!running && (
-                  <button type="button" className="prompt-queue-flush" onClick={() => onSendQueue?.(queued[0]!.id)}>
-                    {t("composer.sendQueue")}
-                  </button>
-                )}
+                <span className="prompt-steer-count">{t("composer.steering", { n: steering.length })}</span>
               </div>
             )}
           </div>
-          {queued && queued.length > 0 && (
-            <div className="prompt-queue">
-              {queued.map((item, index) => (
-                <div key={item.id} className="prompt-queue-row">
-                  <span className="prompt-queue-index">{index + 1}</span>
-                  <p className="prompt-queue-text">{item.text}</p>
-                  <div className="prompt-queue-actions">
-                    <button
-                      type="button"
-                      className="bubble-action"
-                      aria-label={running ? t("composer.bumpQueue") : t("composer.sendQueue")}
-                      onClick={() => onSendQueue?.(item.id)}
-                    >
-                      <Icon path="M12 19V5M5 12l7-7 7 7" size={13} />
-                    </button>
-                    <button type="button" className="bubble-action" aria-label={t("composer.editQueue")} onClick={() => onEditQueue?.(item.id)}>
-                      <Icon path="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" size={13} />
-                    </button>
-                    <button type="button" className="bubble-action" aria-label={t("composer.dropQueue")} onClick={() => onDropQueue?.(item.id)}>
-                      <Icon path="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" size={13} />
-                    </button>
-                  </div>
+          {steering && steering.length > 0 && (
+            <div className="prompt-steer">
+              {steering.map((item, index) => (
+                <div key={`${index}-${item}`} className="prompt-steer-row">
+                  <Icon path="M12 19V5M5 12l7-7 7 7" size={12} />
+                  <p className="prompt-steer-text">{item}</p>
                 </div>
               ))}
             </div>
@@ -2163,7 +2232,18 @@ export function PromptBar({
             <EffortPicker value={effort} levels={effortLevels} down={hero} onChange={onEffort} />
           )}
           <PermissionPicker value={permission} down={hero} onChange={onPermission} />
-          {!hero && <ContextStats stats={stats} model={model} effort={effort} effortLevels={effortLevels} up />}
+          {!hero && (
+            <ContextStats
+              stats={stats}
+              model={model}
+              effort={effort}
+              effortLevels={effortLevels}
+              up
+              running={running}
+              busy={disabled}
+              onCompact={onCompact}
+            />
+          )}
           {running ? (
             <button type="button" className="send stop" onClick={onStop} aria-label={t("composer.abort")}>
               <i />
@@ -2557,6 +2637,9 @@ export function ApprovalCard({
 }
 
 function accessChoiceLabel(option: string, t: (key: MessageKey) => string): string {
+  if (option === "Execute the plan") return t("plan.approve");
+  if (option === "Stay in plan mode") return t("perm.plan");
+  if (option === "Refine the plan") return t("plan.refine");
   if (option === "Allow once") return t("approval.allowOnce");
   if (option === "Allow for this conversation" || option === "Allow this command for this session") {
     return t("approval.allowConversation");
@@ -2640,15 +2723,33 @@ function SecretField({
   );
 }
 
-type SettingsPane = "chat" | "vision" | "shortcuts" | "skills" | "about";
+type SettingsPane = "chat" | "vision" | "appearance" | "shortcuts" | "skills" | "about";
+
+const THEME_LABEL: Record<ThemeId, MessageKey> = {
+  white: "settings.themeWhite",
+  paper: "settings.themePaper",
+  dark: "settings.themeDark",
+};
+
+const THEME_DESC: Record<ThemeId, MessageKey> = {
+  white: "settings.themeWhiteDesc",
+  paper: "settings.themePaperDesc",
+  dark: "settings.themeDarkDesc",
+};
 
 function settingsNav(t: ReturnType<typeof useI18n>["t"]): Array<{ label: string; items: Array<{ id: SettingsPane; label: string; icon: string }> }> {
   return [
   {
     label: t("settings.groupModels"),
     items: [
-      { id: "chat", label: t("settings.chat"), icon: "M4 6h16v10H8l-4 4V6z" },
-      { id: "vision", label: t("settings.vision"), icon: "M4 6h16v12H4zM8 14l3-3 2 2 3-4 4 5" },
+      { id: "chat", label: t("settings.chat"), icon: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" },
+      { id: "vision", label: t("settings.vision"), icon: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z\nM11 9a2 2 0 1 1-4 0 2 2 0 0 1 4 0\nm21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" },
+    ],
+  },
+  {
+    label: t("settings.groupAppearance"),
+    items: [
+      { id: "appearance", label: t("settings.appearance"), icon: "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" },
     ],
   },
   {
@@ -2657,17 +2758,17 @@ function settingsNav(t: ReturnType<typeof useI18n>["t"]): Array<{ label: string;
       {
         id: "skills",
         label: t("settings.skills"),
-        icon: "M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z",
+        icon: "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z",
       },
       {
         id: "shortcuts",
         label: t("settings.shortcuts"),
-        icon: "M2 5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5zm3 3h2v2H5V8zm4 0h2v2H9V8zm4 0h2v2h-2V8zm4 0h2v2h-2V8zm-12 4h2v2H5v-2zm4 0h6v2H9v-2zm8 0h2v2h-2v-2z",
+        icon: "M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z\nM6 8h.01\nM10 8h.01\nM14 8h.01\nM18 8h.01\nM8 12h.01\nM12 12h.01\nM16 12h.01\nM7 16h10",
       },
       {
         id: "about",
         label: t("settings.about"),
-        icon: "M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 14a1.2 1.2 0 1 1 1.2-1.2A1.2 1.2 0 0 1 12 16zm1.2-5.5h-2.4V7h2.4z",
+        icon: "M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20z\nM12 16v-4\nM12 8h.01",
       },
     ],
   },
@@ -2693,6 +2794,7 @@ export function Login({
 }) {
   const { t } = useI18n();
   const [pane, setPane] = useState<SettingsPane>("chat");
+  const [theme, setTheme] = useState<ThemeId>(readStoredTheme);
   const [kind, setKind] = useState<ChatKind>("deepseek");
   const [deepseekKey, setDeepseekKey] = useState("");
   const [deepseekModel, setDeepseekModel] = useState(DEEPSEEK_PRESET.model);
@@ -2877,11 +2979,13 @@ export function Login({
                 ? t("settings.chat")
                 : pane === "vision"
                   ? t("settings.vision")
-                  : pane === "skills"
-                    ? t("settings.skills")
-                    : pane === "shortcuts"
-                      ? t("settings.shortcuts")
-                      : t("settings.about")}
+                  : pane === "appearance"
+                    ? t("settings.appearance")
+                    : pane === "skills"
+                      ? t("settings.skills")
+                      : pane === "shortcuts"
+                        ? t("settings.shortcuts")
+                        : t("settings.about")}
             </h2>
             <button type="button" className="settings-close" aria-label={t("common.close")} onClick={onClose}>
               <Icon path="M6 6l12 12M18 6L6 18" />
@@ -3147,6 +3251,50 @@ export function Login({
 
                 <p className="settings-hint">{t("settings.mineruHint")}</p>
               </>
+            )}
+
+            {pane === "appearance" && (
+              <div className="theme-page">
+                <p className="settings-hint">{t("settings.themeHint")}</p>
+                <div className="theme-picks">
+                  {THEMES.map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`theme-pick theme-pick-${id}${theme === id ? " on" : ""}`}
+                      onClick={() => setTheme(applyTheme(id))}
+                    >
+                      <span className="theme-pick-preview" aria-hidden>
+                        <span className="theme-pick-side" />
+                        <span className="theme-pick-main">
+                          <span className="theme-pick-bar" />
+                          <span className="theme-pick-bubble user" />
+                          <span className="theme-pick-bubble" />
+                        </span>
+                      </span>
+                      <span className="theme-pick-meta">
+                        <b>{t(THEME_LABEL[id])}</b>
+                        <small>{t(THEME_DESC[id])}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <div className="theme-live">
+                  <div className="theme-live-label">{t("settings.themePreview")}</div>
+                  <div className="theme-live-frame">
+                    <aside>
+                      <i /><i /><i />
+                    </aside>
+                    <main>
+                      <div className="user-turn">
+                        <article className="user">{t("settings.themePreviewUser")}</article>
+                      </div>
+                      <article className="turn">{t("settings.themePreviewBot")}</article>
+                      <div className="theme-live-input">{t("settings.themePreviewInput")}</div>
+                    </main>
+                  </div>
+                </div>
+              </div>
             )}
 
             {pane === "skills" && (

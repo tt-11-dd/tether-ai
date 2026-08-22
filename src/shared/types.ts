@@ -72,6 +72,8 @@ export interface AgentStartOptions {
   storagePath?: string;
   resume?: boolean;
   extraModels?: string[];
+  /** Extra host paths merged into workspace-write sandbox (absolute). */
+  writableRoots?: string[];
 }
 
 export interface AgentSessionStats {

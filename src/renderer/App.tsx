@@ -28,13 +28,18 @@ import {
   finalizeInterruptedTurn,
   friendlyAgentError,
   isTransientStreamError,
-  isRecoverableRequestError,
+  assistantErrorRecovered,
+  assistantGroupHasRecoverableError,
+  assistantGroupSucceeded,
+  assistantReplyText,
   groupConversation,
+  recoverableFailStreaks,
   lastTurnRestoreFiles,
   mentionedFiles,
   normalizeMessages,
   optimisticUserMessage,
   parseFeaturesJson,
+  planAwaitingApproval,
   sessionTools,
   sessionTerminals,
   turnAnchorId,
@@ -64,14 +69,6 @@ import { useI18n } from "./i18n";
 import type { MessageKey } from "../shared/i18n";
 
 const PERMISSIONS: PermissionMode[] = ["plan", "ask", "auto", "full"];
-
-function assistantGroupSucceeded(messages: ChatMessage[]): boolean {
-  return messages.some((item) => item.text.trim() && !item.error);
-}
-
-function assistantGroupHasRecoverableError(messages: ChatMessage[]): boolean {
-  return messages.some((item) => isRecoverableRequestError(item.error));
-}
 
 function relativeTime(iso: string, t: (key: MessageKey, vars?: Record<string, string | number>) => string) {
   const delta = Date.now() - Date.parse(iso);
@@ -374,7 +371,7 @@ export function App() {
   const fillPrompt = useCallback((text: string) => {
     setPromptFill((current) => ({ text, token: current.token + 1 }));
   }, []);
-  const [queued, setQueued] = useState<Array<{ id: string; text: string; images?: string[] }>>([]);
+  const [steering, setSteering] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -397,9 +394,6 @@ export function App() {
   const agentCwd = useRef<string | undefined>(undefined);
   const sessionRef = useRef<string | undefined>(undefined);
   const sending = useRef(false);
-  const holdQueue = useRef(false);
-  const queuedRef = useRef(queued);
-  queuedRef.current = queued;
   const stick = useRef(true);
   const dock = useRef<HTMLDivElement>(null);
   const live = useRef(false);
@@ -415,6 +409,7 @@ export function App() {
   const agentModelIdsRef = useRef<string[]>([]);
   const agentModelsRef = useRef<AgentSnapshot["models"]>([]);
   const startSeq = useRef(0);
+  const permissionBeforePlan = useRef<Exclude<PermissionMode, "plan">>("auto");
 
   const applyThinkingForModel = useCallback((modelId: string) => {
     const levels = levelsForModel(modelId, agentModelsRef.current);
@@ -459,6 +454,7 @@ export function App() {
   }, []);
 
   const groups = useMemo(() => groupConversation(messages), [messages]);
+  const recoverableStreaks = useMemo(() => recoverableFailStreaks(groups), [groups]);
   const anchors = useMemo(() => turnAnchors(groups), [groups]);
   const tools = useMemo(() => sessionTools(messages), [messages]);
   const terminals = useMemo(
@@ -468,6 +464,7 @@ export function App() {
   const workingFiles = useMemo(() => collectWorkingFiles(tools, mentionedFiles(messages)), [messages, tools]);
   const chatTodos = useMemo(() => collectTodos(messages), [messages]);
   const todos = chatTodos.length ? chatTodos : featureTodos;
+  const planApproval = planAwaitingApproval(permission, running, todos);
   const darwin = window.harness.platform === "darwin";
   const connected = providers.find((item) => item.id === "deepseek");
   const waiting = running && (groups.length === 0 || groups.at(-1)?.type === "user");
@@ -577,8 +574,7 @@ export function App() {
       return false;
     }
     if (!seedMessage && !resume) {
-      setQueued([]);
-      holdQueue.current = false;
+      setSteering([]);
       // Opening a thread: clear the pane so we don't keep showing the welcome/home shell.
       if (sessionPath) {
         setMessages([]);
@@ -649,6 +645,7 @@ export function App() {
       applyThinkingForModel(modelId);
       const nextEffort = effortRef.current;
       await window.harness.agent.command("set_thinking_level", { level: nextEffort }).catch(() => undefined);
+      await window.harness.agent.command("set_auto_compaction", { enabled: true }).catch(() => undefined);
       if (seq !== startSeq.current) return false;
       const file = sessionFileOf(snapshot) ?? sessionPath;
       if (file) {
@@ -722,7 +719,7 @@ export function App() {
     setMessages([]);
     setStats(undefined);
     fillPrompt("");
-    setQueued([]);
+    setSteering([]);
     setActiveSession(undefined);
     sessionRef.current = undefined;
     setRunning(false);
@@ -749,7 +746,7 @@ export function App() {
     setMessages([]);
     setStats(undefined);
     fillPrompt("");
-    setQueued([]);
+    setSteering([]);
     setRunning(false);
     setUiRequest(undefined);
     setPreview(undefined);
@@ -774,7 +771,7 @@ export function App() {
       }
       setMessages([]);
       setStats(undefined);
-      setQueued([]);
+      setSteering([]);
       setActiveSession(undefined);
       sessionRef.current = undefined;
       setRunning(false);
@@ -820,7 +817,7 @@ export function App() {
     setWorkspace(undefined);
     setMessages([]);
     setStats(undefined);
-    setQueued([]);
+    setSteering([]);
     setActiveSession(undefined);
     setRunning(false);
     setUiRequest(undefined);
@@ -924,6 +921,36 @@ export function App() {
     }
   }, [locale, running, startAgent, t, workspace]);
 
+  const approvePlan = useCallback(async () => {
+    if (loading || running) return;
+    const target = permissionBeforePlan.current;
+    setLoading(true);
+    try {
+      await window.harness.agent.command("prompt", { message: "/plan execute" });
+      setPermission(target);
+      setToast(t("plan.approved"));
+    } catch (error) {
+      setToast(friendlyAgentError(error));
+    } finally {
+      setLoading(false);
+    }
+  }, [loading, running, t]);
+
+  const refinePlan = useCallback(async (changes: string) => {
+    const text = changes.trim();
+    if (!text || loading || running) return;
+    setLoading(true);
+    try {
+      await window.harness.agent.command("prompt", {
+        message: `Refine the current plan using update_plan. Requested changes:\n${text}`,
+      });
+    } catch (error) {
+      setToast(friendlyAgentError(error));
+    } finally {
+      setLoading(false);
+    }
+  }, [loading, running]);
+
   const sendMessage = useCallback(async (preset?: string, images?: string[]) => {
     const text = (preset ?? "").trim();
     if (text === "/undo") {
@@ -933,19 +960,20 @@ export function App() {
       return;
     }
     if ((!text && !images?.length) || loading || sending.current) return;
-    holdQueue.current = false;
     if (running) {
       if (text.startsWith("/")) return;
-      if (queuedRef.current.length >= 5) {
-        setToast(t("composer.queueFull"));
-        return;
-      }
-      setQueued((current) => [...current, {
-        id: `q-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        text: text || t("toast.defaultImagePrompt"),
-        images,
-      }]);
+      const followup = text || t("toast.defaultImagePrompt");
       fillPrompt("");
+      try {
+        const payload: Record<string, unknown> = { message: followup };
+        if (images?.length) payload.images = toPromptImages(images);
+        await window.harness.agent.command("steer", payload);
+        setSteering((current) => (current.includes(followup) ? current : [...current, followup]));
+        setToast(t("toast.steered"));
+      } catch (error) {
+        fillPrompt(text);
+        setToast(friendlyAgentError(error));
+      }
       return;
     }
     sending.current = true;
@@ -1021,14 +1049,6 @@ export function App() {
   }, [ensureModelReady, fillPrompt, loading, openFolder, permission, running, startAgent, t, undoLastTurn, workspace]);
 
   useEffect(() => {
-    if (holdQueue.current || running || loading || queued.length === 0 || sending.current) return;
-    const [job, ...rest] = queued;
-    if (!job) return;
-    setQueued(rest);
-    void sendMessage(job.text, job.images);
-  }, [loading, queued, running, sendMessage]);
-
-  useEffect(() => {
     void refresh().then((status) => {
       const current = status.find((item) => item.id === "deepseek");
       if (current?.configured) setModel(current.defaultModel);
@@ -1072,6 +1092,12 @@ export function App() {
           setActiveSession(nextStats.sessionFile);
         }).catch(() => undefined);
         void window.harness.sessions.list().then(setSessions);
+      }
+      if (event.type === "queue_update") {
+        const nextSteering = Array.isArray(event.steering)
+          ? event.steering.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+          : [];
+        setSteering(nextSteering);
       }
       if (event.type === "extension_error" && typeof event.error === "string" && !isTransientStreamError(event.error)) {
         const text = friendlyAgentError(event.error);
@@ -1151,7 +1177,7 @@ export function App() {
     if (dock.current) ro.observe(dock.current);
     pin();
     return () => ro.disconnect();
-  }, [home, queued.length]);
+  }, [home, steering.length]);
 
   const homeRecents = (
     workspace
@@ -1164,34 +1190,14 @@ export function App() {
       fillToken={promptFill.token}
       onSubmit={(text, images) => void sendMessage(text, images)}
       onStop={() => {
-        holdQueue.current = true;
         setToast(t("toast.stopping"));
         void window.harness.agent.command("abort")
           .catch(() => undefined)
           .finally(() => {
-            // abort RPC already waits for idle; clear sticky running if settle was missed.
             setRunning(false);
           });
       }}
-      queued={queued}
-      onEditQueue={(id) => {
-        const item = queued.find((entry) => entry.id === id);
-        if (!item) return;
-        fillPrompt(item.text);
-        setQueued((current) => current.filter((entry) => entry.id !== id));
-      }}
-      onDropQueue={(id) => setQueued((current) => current.filter((entry) => entry.id !== id))}
-      onSendQueue={(id) => {
-        const item = queued.find((entry) => entry.id === id);
-        if (!item) return;
-        if (running || sending.current) {
-          setQueued((current) => [item, ...current.filter((entry) => entry.id !== id)]);
-          return;
-        }
-        holdQueue.current = false;
-        setQueued((current) => current.filter((entry) => entry.id !== id));
-        void sendMessage(item.text, item.images);
-      }}
+      steering={steering}
       rootRef={dock}
       running={running}
       disabled={loading}
@@ -1206,12 +1212,18 @@ export function App() {
       permission={permission}
       onPermission={(next) => {
         const mode = next as PermissionMode;
+        if (mode === "plan" && permission !== "plan") {
+          permissionBeforePlan.current = permission;
+        }
         setPermission(mode);
         if (!agentCwd.current) return;
         void (async () => {
-          await window.harness.agent.stop().catch(() => undefined);
-          const ok = await startAgent(workspace, sessionRef.current, Boolean(workspace), true, mode);
-          if (ok) setToast(mode === "full" ? t("toast.sandboxOff") : t("toast.sessionRestarted"));
+          try {
+            await window.harness.agent.command("prompt", { message: `/permissions ${mode}` });
+            setToast(mode === "full" ? t("toast.sandboxOff") : t("toast.permissionChanged"));
+          } catch (error) {
+            setToast(friendlyAgentError(error));
+          }
         })();
       }}
       onCommand={(command) => {
@@ -1223,6 +1235,7 @@ export function App() {
       }}
       skillCommands={agentSkills}
       stats={stats}
+      onCompact={() => void compactContext()}
       placement={home ? "hero" : "dock"}
     />
   );
@@ -1316,6 +1329,9 @@ export function App() {
             workspace={workspace}
             refresh={running}
             running={running}
+            planApproval={planApproval}
+            onApprovePlan={() => void approvePlan()}
+            onRefinePlan={(text) => void refinePlan(text)}
             onOpen={setPreview}
             onUndo={() => void undoLastTurn()}
             onStopTerminal={(id) => {
@@ -1417,16 +1433,20 @@ export function App() {
                     />
                   );
                 }
-                const recovered = assistantGroupHasRecoverableError(group.messages)
-                  && groups.slice(index + 1).some((next) => next.type === "assistant" && assistantGroupSucceeded(next.messages));
+                const recovered = assistantErrorRecovered(group.messages, groups, index);
                 const isLastGroup = index === groups.length - 1;
+                const showRetry = !running && isLastGroup
+                  && assistantGroupHasRecoverableError(group.messages)
+                  && !recovered
+                  && !assistantGroupSucceeded(group.messages);
                 return (
                   <AssistantTurn
                     key={group.id}
                     messages={group.messages}
                     errorRecovered={recovered}
+                    recoverableFailStreak={recoverableStreaks[index] ?? 0}
                     onOpenFile={setPreview}
-                    onRetry={!running && isLastGroup ? () => {
+                    onRetry={showRetry ? () => {
                       void sendMessage(t("composer.retryContinue"));
                     } : undefined}
                   />

@@ -88,6 +88,7 @@ const ALLOWED_AGENT_COMMANDS = new Set([
   "get_commands",
   "fork",
   "compact",
+  "set_auto_compaction",
 ]);
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));

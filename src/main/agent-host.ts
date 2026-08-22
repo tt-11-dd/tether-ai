@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import path from "node:path";
 import { getTetherRpcEntryPath } from "tether-agent-core";
 import type { AgentEvent, AgentSessionStats, AgentSnapshot, AgentStartOptions } from "../shared/types";
 import { parseSkillCommands } from "../shared/skills";
@@ -96,6 +97,8 @@ export class AgentHost {
       getTetherRpcEntryPath(),
       "--mode",
       "rpc",
+      "--harness",
+      "safe",
       "--provider",
       options.provider,
       "--permission",
@@ -126,6 +129,9 @@ export class AgentHost {
           : {}),
         ...(options.visionConfig ? { HARNESS_VISION_CONFIG: options.visionConfig } : {}),
         ...(options.visionUploads ? { HARNESS_VISION_UPLOADS: options.visionUploads } : {}),
+        ...(options.writableRoots?.length
+          ? { TETHER_WRITABLE_ROOTS: options.writableRoots.join(path.delimiter) }
+          : {}),
       },
       detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"],

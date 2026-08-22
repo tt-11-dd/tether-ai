@@ -25,7 +25,7 @@ Tether is an Electron desktop agent for real codebases. It brings model calls, w
 - **Permission boundaries** — Plan, Ask, Workspace, and Full Access modes.
 - **Recoverable edits** — patch checkpoints let `/undo` restore the previous turn's file changes.
 - **Local-first state** — settings, credentials, and sessions live under `~/.tether`; no telemetry or Tether-hosted model proxy.
-- **Desktop workflow** — project threads, `@` file mentions, follow-up queue while generating, image input, diff previews, and Chinese/English UI.
+- **Desktop workflow** — project threads, `@` file mentions, steer-while-generating, image input, themes (white / paper / dark), diff previews, and Chinese/English UI.
 
 ## What Tether uses from Pi
 
@@ -75,7 +75,7 @@ The desktop app currently focuses on DeepSeek and custom OpenAI-compatible Base 
 
 For pasted images:
 
-- Optional GLM-4V visual understanding requires a user-provided API key.
+- Vision can use official DeepSeek Vision, or a compatible endpoint such as GLM-4V.
 - MinerU performs OCR by sending the image to the MinerU service; it is not offline local OCR.
 
 ## Permission modes
@@ -117,9 +117,9 @@ Then:
 2. Configure a DeepSeek API key or compatible endpoint.
 3. Describe a task, review tool activity and diffs, and use `/undo` when needed.
 
-### Follow-up queue
+### Steer while generating
 
-While a reply is generating, you can still type the next prompt and press Enter. It lands in a queue above the composer (max 5) and sends in order when the current turn finishes. Stop aborts the turn and **keeps** the queue; use **Send now** or the up arrow on a row to send. During generation, the up arrow only moves that item to the front. Slash commands are not queued. Switching thread, starting a new chat, or changing project clears the queue (it is not stored in the session file).
+While a reply is generating, you can still type and press Enter. That text is steered into the current turn immediately (shown above the composer), not queued for later. Slash commands are not steered. Switching thread, starting a new chat, or changing project clears the on-screen steer list.
 
 The current macOS package uses development signing. If Gatekeeper blocks it, right-click the app and choose **Open**, or run:
 

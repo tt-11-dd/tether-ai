@@ -1,4 +1,4 @@
-import type { AgentEvent } from "../shared/types";
+import type { AgentEvent, PermissionMode } from "../shared/types";
 import { sameUserSkillTurn } from "../shared/skills";
 import { DEFAULT_LOCALE, t, type Locale, type MessageKey } from "../shared/i18n";
 import { isVisionHandoff, mimeFromImagePath, visibleUserText, visionHandoffPaths, visionToolTitle, visionUploadUrl } from "../shared/vision-api";
@@ -149,6 +149,45 @@ export function assistantReplyText(messages: ChatMessage[]): string {
     if (text) return text;
   }
   return "";
+}
+
+export function assistantGroupSucceeded(messages: ChatMessage[]): boolean {
+  return Boolean(assistantReplyText(messages));
+}
+
+export function assistantGroupHasRecoverableError(messages: ChatMessage[]): boolean {
+  return messages.some((item) => isRecoverableRequestError(item.error));
+}
+
+/** Same turn or a later assistant turn already delivered a reply. */
+export function assistantErrorRecovered(
+  messages: ChatMessage[],
+  groups: ConversationGroup[],
+  groupIndex: number,
+): boolean {
+  if (!assistantGroupHasRecoverableError(messages)) return false;
+  if (assistantGroupSucceeded(messages)) return true;
+  return groups.slice(groupIndex + 1).some(
+    (next) => next.type === "assistant" && assistantGroupSucceeded(next.messages),
+  );
+}
+
+/** Consecutive recoverable failures since the last user message (2+ → strong error). */
+export function recoverableFailStreaks(groups: ConversationGroup[]): number[] {
+  const streaks: number[] = [];
+  let streak = 0;
+  for (const group of groups) {
+    if (group.type === "user") {
+      streak = 0;
+      streaks.push(0);
+      continue;
+    }
+    const rawError = group.messages.map((item) => item.error).find(Boolean);
+    const failed = isRecoverableRequestError(rawError) && !assistantGroupSucceeded(group.messages);
+    streak = failed ? streak + 1 : 0;
+    streaks.push(streak);
+  }
+  return streaks;
 }
 
 export function dropLastTurn(messages: ChatMessage[]): ChatMessage[] {
@@ -684,7 +723,7 @@ function mergeAssistant(message: ChatMessage, incoming: ChatMessage, streaming: 
     timestamp: message.timestamp ?? incoming.timestamp,
     images: incoming.images.length > 0 ? incoming.images : message.images,
     work: mergeWork(message.work, incoming.work, message.tools),
-    ...(incoming.error ? { error: incoming.error } : {}),
+    ...(incoming.error ? { error: incoming.error } : incoming.text.trim() ? { error: undefined } : {}),
   };
 }
 
@@ -1135,6 +1174,8 @@ export function liveStatus(tools: ToolActivity[]): string {
   if (/exec|bash|command/i.test(running.name)) return ct("live.running");
   if (running.name === "delegate") {
     const progress = delegateProgress(running);
+    const active = progress.tasks.find((item) => item.status === "running");
+    if (active?.live?.trim()) return active.live.trim();
     if (progress.total > 0) return ct("live.delegating", { done: progress.done, total: progress.total });
   }
   return ct("live.thinking");
@@ -1228,10 +1269,10 @@ function toolRow(tool: ToolActivity, index: number): TraceRow {
       ?? progress.tasks[0];
     const summary = active?.task.replace(/\s+/g, " ").trim() ?? "";
     const short = summary.length > 48 ? `${summary.slice(0, 48)}…` : summary;
+    const live = active?.status === "running" ? active.live?.trim() : undefined;
     const chip = [
       progress.total > 0 ? ct("trace.delegateProgress", { done: progress.done, total: progress.total }) : "",
-      active?.role,
-      short,
+      live || [active?.role, short].filter(Boolean).join(" · "),
     ].filter(Boolean).join(" · ");
     return { ...base, kind: "tool", label: ct("trace.delegate"), chip, mono: false };
   }
@@ -1480,6 +1521,16 @@ export function collectTodos(messages: ChatMessage[]): SessionTodo[] {
   }
   if (checks.length) return checks;
   return [];
+}
+
+/** Plan mode finished a turn with an incomplete structured plan — show approval UI. */
+export function planAwaitingApproval(
+  permission: PermissionMode,
+  running: boolean,
+  todos: SessionTodo[],
+): boolean {
+  if (permission !== "plan" || running || todos.length === 0) return false;
+  return todos.some((item) => !item.done);
 }
 
 function todosFromPlanTool(tool: ToolActivity): SessionTodo[] | undefined {

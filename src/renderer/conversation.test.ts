@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, approvalTitle, assistantReplyText, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, delegateProgress, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, isRecoverableRequestError, isTransientStreamError, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, repairMarkdownTables, sessionTerminals, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, terminalLabel, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative, type ChatMessage } from "./conversation";
+import { applyAgentEvent, approvalTitle, assistantErrorRecovered, assistantGroupSucceeded, assistantReplyText, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, delegateProgress, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, isRecoverableRequestError, isTransientStreamError, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, planAwaitingApproval, recoverableFailStreaks, repairMarkdownTables, sessionTerminals, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, terminalLabel, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative, type ChatMessage } from "./conversation";
 
 describe("conversation events", () => {
   it("calculates prompt cache hit rate from reported token usage", () => {
@@ -120,6 +120,49 @@ describe("conversation events", () => {
     expect(isRecoverableRequestError("接口地址不可用，请检查 Base URL 是否包含正确的 API 路径")).toBe(false);
     expect(isRecoverableRequestError("当前模型不可用，请切换模型或检查模型名称")).toBe(false);
     expect(friendlyAgentError("JSON error injected into SSE stream")).toMatch(/流中断|Continue|stream/i);
+  });
+
+  it("treats a turn with reply text as succeeded even if an earlier chunk had an error", () => {
+    const groups = groupConversation([
+      { id: "u1", role: "user", text: "hi", images: [], tools: [], work: [] },
+      { id: "a1", role: "assistant", text: "", images: [], tools: [], work: [], error: "连接模型服务失败，请检查网络和 Base URL 后重试" },
+      { id: "a2", role: "assistant", text: "done", images: [], tools: [], work: [] },
+    ]);
+    const assistant = groups[1]!;
+    expect(assistant.type).toBe("assistant");
+    if (assistant.type !== "assistant") return;
+    expect(assistantGroupSucceeded(assistant.messages)).toBe(true);
+    expect(assistantErrorRecovered(assistant.messages, groups, 1)).toBe(true);
+  });
+
+  it("counts consecutive recoverable failures and clears error after retry text arrives", () => {
+    const groups = groupConversation([
+      { id: "u1", role: "user", text: "one", images: [], tools: [], work: [] },
+      { id: "a1", role: "assistant", text: "", images: [], tools: [], work: [], error: "模型响应超时，请稍后重试" },
+      { id: "u2", role: "user", text: "continue", images: [], tools: [], work: [] },
+      { id: "a2", role: "assistant", text: "", images: [], tools: [], work: [], error: "模型响应超时，请稍后重试" },
+    ]);
+    expect(recoverableFailStreaks(groups)).toEqual([0, 1, 0, 1]);
+
+    let messages = applyAgentEvent([
+      { id: "a1", role: "assistant", text: "", images: [], tools: [], work: [], error: "模型响应超时，请稍后重试", streaming: false },
+    ], {
+      type: "message_update",
+      message: { role: "assistant", content: [{ type: "text", text: "ok" }] },
+    });
+    expect(messages[0]?.error).toBeUndefined();
+    expect(assistantReplyText(messages)).toBe("ok");
+  });
+
+  it("shows plan approval when plan mode has incomplete steps and the agent is idle", () => {
+    const todos = [
+      { id: "1", text: "读代码", done: true },
+      { id: "2", text: "改 UI", done: false, active: true },
+    ];
+    expect(planAwaitingApproval("plan", false, todos)).toBe(true);
+    expect(planAwaitingApproval("plan", true, todos)).toBe(false);
+    expect(planAwaitingApproval("auto", false, todos)).toBe(false);
+    expect(planAwaitingApproval("plan", false, [{ id: "1", text: "done", done: true }])).toBe(false);
   });
 
   it("keeps the command title when the end event has no args", () => {
@@ -302,7 +345,10 @@ describe("conversation events", () => {
       },
     });
     expect(messages[0]?.tools[0]?.title).toBe("委托 1/3");
-    expect(liveStatus(messages[0]!.tools)).toBe("委托中 1/3");
+    expect(liveStatus(messages[0]!.tools)).toBe("正在读取 src/renderer/ui.tsx");
+    expect(traceRows(messages[0]!.work, messages[0]!.tools).map((row) => row.chip)).toEqual([
+      "1/3 · 正在读取 src/renderer/ui.tsx",
+    ]);
     expect(delegateProgress(messages[0]!.tools[0]!).tasks.map((item) => [item.status, item.live ?? ""])).toEqual([
       ["completed", ""],
       ["running", "正在读取 src/renderer/ui.tsx"],
