@@ -1419,15 +1419,16 @@ export function App() {
                 }
                 const recovered = assistantGroupHasRecoverableError(group.messages)
                   && groups.slice(index + 1).some((next) => next.type === "assistant" && assistantGroupSucceeded(next.messages));
+                const isLastGroup = index === groups.length - 1;
                 return (
                   <AssistantTurn
                     key={group.id}
                     messages={group.messages}
                     errorRecovered={recovered}
                     onOpenFile={setPreview}
-                    onRetry={() => {
+                    onRetry={!running && isLastGroup ? () => {
                       void sendMessage(t("composer.retryContinue"));
-                    }}
+                    } : undefined}
                   />
                 );
               })}

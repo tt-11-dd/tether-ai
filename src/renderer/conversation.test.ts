@@ -115,6 +115,8 @@ describe("conversation events", () => {
     expect(isRecoverableRequestError("连接模型服务失败，请检查网络和 Base URL 后重试")).toBe(true);
     expect(isRecoverableRequestError("模型响应超时，请稍后重试")).toBe(true);
     expect(isRecoverableRequestError("模型流中断了（常见于停止委派后立刻继续）。点「继续」再试一次，或换个更稳的模型。")).toBe(true);
+    expect(isRecoverableRequestError("Connection error")).toBe(true);
+    expect(friendlyAgentError("Connection error")).toContain("网络");
     expect(isRecoverableRequestError("接口地址不可用，请检查 Base URL 是否包含正确的 API 路径")).toBe(false);
     expect(isRecoverableRequestError("当前模型不可用，请切换模型或检查模型名称")).toBe(false);
     expect(friendlyAgentError("JSON error injected into SSE stream")).toMatch(/流中断|Continue|stream/i);

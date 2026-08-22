@@ -644,10 +644,11 @@ export function Thinking({
   const header = live ? label ?? t("think.live") : t("think.done");
   const showLive = live && current !== header;
   const hasBody = rows.length > 0 || showLive || Boolean(error);
-  if (!hasBody && !live) return null;
+  const expandable = live || hasBody;
+  if (!expandable && !live) return null;
   return (
     <div className={live ? (open ? "trace live open" : "trace live") : open ? "trace open" : "trace"}>
-      <button type="button" className="trace-toggle" onClick={() => hasBody && setOpen((value) => !value)}>
+      <button type="button" className="trace-toggle" onClick={() => expandable && setOpen((value) => !value)}>
         {live ? <Dots /> : <img className="trace-logo" src={logo} alt="" width={18} height={10} />}
         <span className={live ? "shimmer trace-label" : "trace-label"}>
           {header}
@@ -659,14 +660,14 @@ export function Thinking({
           </span>
         )}
         <Elapsed start={start} end={endedAt} live={live} />
-        {hasBody ? <Icon className="chevron" path="M6 9l6 6 6-6" size={14} /> : null}
+        {expandable ? <Icon className="chevron" path="M6 9l6 6 6-6" size={14} /> : null}
       </button>
-      {open && hasBody && (
+      {open && expandable && (
         <div className="trace-rows">
           {rows.map((row) => <TraceRowView key={row.id} row={row} />)}
-          {showLive && (
+          {(showLive || (live && rows.length === 0)) && (
             <div className="trace-row-live">
-              <span className="shimmer">{current}</span>
+              <span className="shimmer">{rows.length === 0 ? header : current}</span>
             </div>
           )}
           {error && (
@@ -677,7 +678,9 @@ export function Thinking({
                 </span>
                 <span className="trace-row-label">{t("trace.requestFailed")}</span>
                 <span className="trace-row-chip">{error}</span>
-                {onRetry && <button type="button" className="ghost" onClick={onRetry}>{t("common.continue")}</button>}
+                {onRetry && errorTone === "weak" && (
+                  <button type="button" className="ghost" onClick={onRetry}>{t("common.continue")}</button>
+                )}
               </div>
             </div>
           )}

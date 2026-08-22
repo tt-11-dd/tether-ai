@@ -40,13 +40,16 @@ export function friendlyAgentError(error: unknown): string {
   if (/JSON error injected into SSE stream|injected into SSE|SSE stream/i.test(detail)) {
     return ct("toast.errorStreamInterrupted");
   }
+  if (/connection error|connection failed|connection reset|ECONNRESET|socket hang up/i.test(detail)) {
+    return ct("toast.errorNetwork");
+  }
   return detail || ct("error.modelFailed");
 }
 
 /** Intermittent network/provider hiccups that may recover next turn. */
 export function isRecoverableRequestError(error: string | undefined): boolean {
   if (!error) return false;
-  return /网络|连接模型服务失败|超时|model timed out|network|timed out|gateway|service unavailable|status code\s*5\d\d|SSE|stream interrupted|流中断|中断后重试/i.test(error);
+  return /网络|连接模型服务失败|超时|model timed out|network|timed out|gateway|service unavailable|status code\s*5\d\d|SSE|stream interrupted|流中断|中断后重试|connection error|connection failed/i.test(error);
 }
 
 export interface ToolActivity {
