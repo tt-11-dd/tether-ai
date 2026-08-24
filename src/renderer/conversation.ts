@@ -1219,7 +1219,7 @@ export function thoughtSteps(
 
 export interface TraceRow {
   id: string;
-  kind: "think" | "run" | "write" | "read" | "look" | "tool";
+  kind: "think" | "run" | "write" | "read" | "search" | "look" | "tool";
   label: string;
   chip: string;
   /** Chips carrying code, paths or commands read better in the mono face. */
@@ -1301,7 +1301,7 @@ function toolRow(tool: ToolActivity, index: number): TraceRow {
   if (/grep|glob|search|find/.test(name)) {
     return {
       ...base,
-      kind: "read",
+      kind: "search",
       label: ct("trace.search"),
       chip: stringField(args, "pattern") || stringField(args, "query") || baseName(file) || ct("trace.workspace"),
     };

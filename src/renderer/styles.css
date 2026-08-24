@@ -1980,6 +1980,9 @@ textarea::selection,
   padding-top: 6px;
   padding-bottom: 6px;
 }
+.trace-row-wrap.error .trace-row-dismiss {
+  align-self: center;
+}
 .trace-row-wrap.error .trace-row-chip {
   white-space: normal;
   color: var(--red);
@@ -2000,6 +2003,9 @@ textarea::selection,
   align-items: flex-start;
   padding-top: 6px;
   padding-bottom: 6px;
+}
+.trace-row-wrap.weak-error .trace-row-dismiss {
+  align-self: center;
 }
 .trace-row-wrap.weak-error .trace-row-chip {
   white-space: normal;
