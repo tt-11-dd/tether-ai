@@ -426,6 +426,24 @@ describe("conversation events", () => {
     ]);
   });
 
+  it("shows web search queries on the trace chip", () => {
+    const messages = applyAgentEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "s1",
+      toolName: "web_search",
+      args: { query: "vite rolldown" },
+      result: {
+        details: {
+          totalResults: 1,
+          curatedQueries: [{ sources: [{ title: "Vite", url: "https://vite.dev" }] }],
+        },
+      },
+    });
+    expect(traceRows(messages[0]!.work, messages[0]!.tools).map((row) => [row.kind, row.label, row.chip])).toEqual([
+      ["search", "网页搜索", "vite rolldown"],
+    ]);
+  });
+
   it("accumulates legacy single-result delegate updates", () => {
     const tasks = [
       { role: "explorer", task: "a" },

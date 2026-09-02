@@ -1256,7 +1256,7 @@ export function App() {
         <div className="section-label">{t("nav.sectionProjects")}</div>
         {projects.length === 0 && <p className="sidebar-empty">{t("nav.noProjects")}</p>}
         {projects.map(({ item, sessions: threads }) => {
-          const open = openProjects[item.path] !== false;
+          const open = openProjects[item.path] === true;
           return (
             <div key={item.path} className={open ? "project open" : "project"}>
               <div

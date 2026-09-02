@@ -1,5 +1,6 @@
 import type { AgentEvent, PermissionMode } from "../shared/types";
 import { sameUserSkillTurn } from "../shared/skills";
+import { parseWebSearchCard } from "../shared/integrations";
 import { DEFAULT_LOCALE, t, type Locale, type MessageKey } from "../shared/i18n";
 import { isVisionHandoff, mimeFromImagePath, visibleUserText, visionHandoffPaths, visionToolTitle, visionUploadUrl } from "../shared/vision-api";
 
@@ -1287,6 +1288,16 @@ function toolRow(tool: ToolActivity, index: number): TraceRow {
     };
   }
   if (tool.name === "vision") return { ...base, kind: "look", label: ct("trace.look"), chip: "", mono: false };
+  if (/web_search|fetch_content|get_search_content/.test(name)) {
+    const card = parseWebSearchCard(tool.name, tool.args, tool.details, tool.output);
+    return {
+      ...base,
+      kind: "search",
+      label: name === "fetch_content" ? ct("trace.fetch") : ct("trace.web"),
+      chip: card?.query || card?.url || "",
+      mono: false,
+    };
+  }
   const args = isRecord(tool.args) ? tool.args : {};
   const file = toolPath(tool) || patchTarget(stringField(args, "input"))?.path || "";
   if (/write|edit|patch/.test(name)) {
@@ -1308,6 +1319,10 @@ function toolRow(tool: ToolActivity, index: number): TraceRow {
   }
   if (/read|cat|view/.test(name)) return { ...base, kind: "read", label: ct("trace.read"), chip: baseName(file) || ct("trace.file") };
   return { ...base, kind: "tool", label: tool.title, chip: baseName(file), mono: Boolean(file) };
+}
+
+export function webSearchCard(tool: ToolActivity) {
+  return parseWebSearchCard(tool.name, tool.args, tool.details, tool.output);
 }
 
 function writtenLines(tool: ToolActivity): number {

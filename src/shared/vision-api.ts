@@ -1,4 +1,5 @@
 import { PREVIEW_SCHEME, UPLOADS_HOST } from "./types";
+import { defaultCustomProfile, isDeepSeekUrl, type CustomApiProfile } from "./chat-profiles";
 
 export const VISION_ENDPOINT = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
 export const VISION_MODEL = "glm-4v-flash";
@@ -71,6 +72,76 @@ export function resolveVisionRuntime(
     endpoint: deepseekVisionEndpoint(deepseek?.baseUrl || DEEPSEEK_VISION_BASE),
     model: DEEPSEEK_VISION_MODEL,
     apiKey: deepseek?.apiKey?.trim() || config.apiKey,
+  };
+}
+
+export function parseVisionStore(raw: unknown): {
+  profiles: CustomApiProfile[];
+  activeProfileId: string;
+} {
+  const value = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? raw as Record<string, unknown>
+    : {};
+  const listed = Array.isArray(value.profiles)
+    ? value.profiles.flatMap((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+      const rec = item as Record<string, unknown>;
+      const id = typeof rec.id === "string" ? rec.id.trim() : "";
+      if (!id) return [];
+      return [defaultCustomProfile({
+        id,
+        name: typeof rec.name === "string" ? rec.name : "",
+        url: typeof rec.url === "string" ? rec.url : "",
+        model: typeof rec.model === "string" ? rec.model : "",
+        apiKey: typeof rec.apiKey === "string" ? rec.apiKey : "",
+      })];
+    })
+    : [];
+  if (Array.isArray(value.profiles)) {
+    const active = typeof value.activeProfileId === "string" ? value.activeProfileId.trim() : "";
+    return {
+      profiles: listed,
+      activeProfileId: listed.some((item) => item.id === active) ? active : listed[0]?.id ?? "",
+    };
+  }
+  const settings = resolveVisionSettings({
+    provider: value.provider === "deepseek" ? "deepseek" : "custom",
+    endpoint: typeof value.endpoint === "string" ? value.endpoint : "",
+    model: typeof value.model === "string" ? value.model : "",
+  });
+  const profile = defaultCustomProfile({
+    name: settings.provider === "deepseek" ? "DeepSeek" : "默认",
+    url: settings.endpoint,
+    model: settings.model,
+    apiKey: typeof value.apiKey === "string" ? value.apiKey : "",
+  });
+  return { profiles: [profile], activeProfileId: profile.id };
+}
+
+export function visionSnapshot(
+  profiles: CustomApiProfile[],
+  activeProfileId: string,
+): VisionConfig {
+  const profile = profiles.find((item) => item.id === activeProfileId) ?? profiles[0];
+  if (!profile) return { ...DEFAULT_VISION_CONFIG, apiKey: "" };
+  const url = profile.url.trim();
+  const official = isDeepSeekUrl(url.replace(/\/+$/, "").replace(/\/chat\/completions$/i, "").replace(/\/+$/, ""));
+  return {
+    provider: "custom",
+    endpoint: url,
+    model: profile.model.trim() || (official ? DEEPSEEK_VISION_MODEL : ""),
+    apiKey: profile.apiKey.trim(),
+  };
+}
+
+export function serializeVisionStore(profiles: CustomApiProfile[], activeProfileId: string) {
+  const active = visionSnapshot(profiles, activeProfileId);
+  return {
+    ...active,
+    profiles,
+    activeProfileId: profiles.some((item) => item.id === activeProfileId)
+      ? activeProfileId
+      : profiles[0]?.id ?? "",
   };
 }
 

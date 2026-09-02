@@ -22,6 +22,7 @@ import {
   initializeTetherHome,
   listTetherThreads,
   TetherStateStore,
+  defaultModelForProvider,
   providerDisplayName,
   providerEnvironmentKey,
   removeStoredProviderCredential,
@@ -38,19 +39,33 @@ import { apiBaseUrl, listOpenAiModels } from "../shared/openai-models";
 import {
   activeChat,
   activeCustomProfile,
+  isDeepSeekUrl,
   mergeChatProfiles,
   migrateChatProfiles,
+  officialDeepSeekKey,
   parseChatProfiles,
   type ChatProfiles,
+  type CustomApiProfile,
 } from "../shared/chat-profiles";
+import {
+  mergeWebSearchConfig,
+  parseDeepSeekBalance,
+  parseMcpServers,
+  parseWebSearchConfig,
+  serializeMcpServers,
+  type McpServerRow,
+  type WebSearchConfig,
+} from "../shared/integrations";
 import {
   DEFAULT_VISION_CONFIG,
   DEEPSEEK_VISION_BASE,
+  parseVisionStore,
   resolveVisionRuntime,
   resolveVisionSettings,
+  serializeVisionStore,
+  visionSnapshot,
   visionTitle,
   type VisionConfig,
-  type VisionProvider,
 } from "../shared/vision-api";
 import {
   DEFAULT_LOCALE,
@@ -461,20 +476,29 @@ function registerIpc(): void {
     return listWorkspaceFiles(root);
   });
   ipcMain.handle("vision:config", async () => {
-    const config = await loadVisionConfig();
+    let raw: unknown = {};
+    try {
+      raw = JSON.parse(await fsp.readFile(visionConfigPath(), "utf8")) as unknown;
+    } catch {
+      raw = {
+        ...DEFAULT_VISION_CONFIG,
+        apiKey: process.env.ZHIPU_API_KEY?.trim() ?? "",
+      };
+    }
+    const store = parseVisionStore(raw);
     const profiles = await loadChatProfiles().catch(() => undefined);
-    const chatKey =
-      profiles?.kind === "deepseek" ? profiles.deepseek.apiKey.trim() : "";
-    const apiKey =
-      config.provider === "deepseek"
-        ? config.apiKey.trim() || chatKey
-        : config.apiKey;
+    const chatKey = profiles ? officialDeepSeekKey(profiles) : "";
+    const next = store.profiles.map((item) => {
+      const base = item.url.trim().replace(/\/+$/, "").replace(/\/chat\/completions$/i, "").replace(/\/+$/, "");
+      if (chatKey && isDeepSeekUrl(base) && !item.apiKey.trim()) return { ...item, apiKey: chatKey };
+      return item;
+    });
+    const snapshot = visionSnapshot(next, store.activeProfileId);
     return {
-      provider: config.provider,
-      endpoint: config.endpoint,
-      model: config.model,
-      apiKey,
-      hasApiKey: Boolean(apiKey.trim()),
+      ...snapshot,
+      profiles: next,
+      activeProfileId: store.activeProfileId,
+      hasApiKey: Boolean(snapshot.apiKey.trim()),
     };
   });
   ipcMain.handle(
@@ -482,25 +506,17 @@ function registerIpc(): void {
     async (
       _event,
       next: {
-        provider?: VisionProvider;
-        endpoint?: string;
-        model?: string;
-        apiKey?: string;
+        profiles?: CustomApiProfile[];
+        activeProfileId?: string;
       },
     ) => {
-      const settings = resolveVisionSettings({
-        provider: next.provider,
-        endpoint: next.endpoint,
-        model: next.model,
+      const store = parseVisionStore({
+        profiles: Array.isArray(next.profiles) ? next.profiles : [],
+        activeProfileId: next.activeProfileId,
       });
-      const apiKey = typeof next.apiKey === "string" ? next.apiKey.trim() : "";
-      const config: VisionConfig =
-        settings.provider === "deepseek"
-          ? await materializeDeepSeekVision(apiKey)
-          : { ...settings, apiKey };
       await fsp.writeFile(
         visionConfigPath(),
-        `${JSON.stringify(config, null, 2)}\n`,
+        `${JSON.stringify(serializeVisionStore(store.profiles, store.activeProfileId), null, 2)}\n`,
         { mode: 0o600 },
       );
     },
@@ -531,6 +547,40 @@ function registerIpc(): void {
         return file;
       }),
     );
+  });
+
+  ipcMain.handle("services:web-search", async () => parseWebSearchConfig(await readHomeJson("web-search.json")));
+  ipcMain.handle(
+    "services:save-web-search",
+    async (_event, next: WebSearchConfig) => {
+      const previous = await readHomeJson("web-search.json");
+      await writeHomeJson("web-search.json", mergeWebSearchConfig(previous, parseWebSearchConfig(next)));
+    },
+  );
+  ipcMain.handle("services:mcp", async () => parseMcpServers(await readHomeJson("mcp.json")));
+  ipcMain.handle("services:save-mcp", async (_event, rows: McpServerRow[]) => {
+    await writeHomeJson("mcp.json", serializeMcpServers(Array.isArray(rows) ? rows : []));
+  });
+  ipcMain.handle("services:reveal-mcp", async () => {
+    const file = path.join(getTetherHome(), "mcp.json");
+    try {
+      await fsp.access(file);
+    } catch {
+      await writeHomeJson("mcp.json", { mcpServers: {} });
+    }
+    await shell.showItemInFolder(file);
+  });
+  ipcMain.handle("services:deepseek-balance", async () => {
+    const profiles = await loadChatProfiles();
+    const chat = activeChat(profiles);
+    const key = chat.apiKey;
+    if (!key || !isDeepSeekUrl(chat.url)) return null;
+    const response = await fetch("https://api.deepseek.com/user/balance", {
+      headers: { authorization: `Bearer ${key}` },
+    });
+    const payload: unknown = await response.json().catch(() => undefined);
+    if (!response.ok) throw new Error(`DeepSeek 余额查询失败（${response.status}）`);
+    return parseDeepSeekBalance(payload) ?? null;
   });
 
   ipcMain.handle("sessions:list", async (_event, cwd?: string) => {
@@ -624,7 +674,9 @@ function registerIpc(): void {
               ? { source: "environment" as const }
               : {}),
           defaultModel:
-            stored?.providerId === id && stored.modelId ? stored.modelId : "",
+            stored?.providerId === id && stored.modelId
+              ? stored.modelId
+              : defaultModelForProvider(id),
           ...(id === "deepseek" && deepseekUrl ? { baseUrl: deepseekUrl } : {}),
           ...(stored?.providerId === id ? { preferred: true } : {}),
         };
@@ -715,10 +767,7 @@ function registerIpc(): void {
     // Keep DeepSeek vision credentials in sync with the chat DeepSeek key/base URL.
     await syncDeepSeekVisionConfig().catch(() => undefined);
     const profiles = await loadChatProfiles();
-    const maxTokens =
-      profiles.kind === "custom"
-        ? (activeCustomProfile(profiles)?.maxTokens ?? 384_000)
-        : undefined;
+    const maxTokens = activeCustomProfile(profiles)?.maxTokens;
     const baseUrl = rawUrl ? apiBaseUrl(rawUrl) : undefined;
     const snapshot = await agentHost!.start({
       ...startOptions,
@@ -761,6 +810,20 @@ function registerIpc(): void {
       return agentHost!.respondToUi(id, response);
     },
   );
+}
+
+async function readHomeJson(name: string): Promise<unknown> {
+  try {
+    return JSON.parse(await fsp.readFile(path.join(getTetherHome(), name), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+async function writeHomeJson(name: string, value: unknown): Promise<void> {
+  const file = path.join(getTetherHome(), name);
+  await fsp.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+  await fsp.writeFile(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
 async function saveDefaultModel(
@@ -984,12 +1047,9 @@ async function materializeDeepSeekVision(
       stored && stored.type === "api_key" && typeof stored.key === "string"
         ? stored.key.trim()
         : "";
-    // Prefer an explicit vision key; only reuse chat DeepSeek key when chat is actually DeepSeek
-    // (custom chat overwrites the same credential slot with a gateway key that official API rejects).
-    const chatKey =
-      profiles?.kind === "deepseek"
-        ? profiles.deepseek.apiKey.trim() || storedKey
-        : "";
+    // Prefer an explicit vision key; only reuse an official DeepSeek chat key
+    // (the credential slot is overwritten by whichever profile is enabled).
+    const chatKey = profiles ? officialDeepSeekKey(profiles) : storedKey;
     const key =
       fallbackKey.trim() ||
       chatKey ||

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isVisionHandoff, isVisionReadable, mergeVisionResult, mimeFromImagePath, mineruResult, mineruUpload, modelSupportsVision, resolveVisionSettings, toPromptImages, visibleUserText, visionAgentPrompt, visionEngineDetails, visionError, visionHandoffPaths, visionRequest, visionResultSections, visionText, visionTitle, visionToolChips, visionToolTitle, visionUploadUrl } from "./vision-api";
+import { isVisionHandoff, isVisionReadable, mergeVisionResult, mimeFromImagePath, mineruResult, mineruUpload, modelSupportsVision, parseVisionStore, resolveVisionSettings, serializeVisionStore, toPromptImages, visibleUserText, visionAgentPrompt, visionEngineDetails, visionError, visionHandoffPaths, visionRequest, visionResultSections, visionSnapshot, visionText, visionTitle, visionToolChips, visionToolTitle, visionUploadUrl } from "./vision-api";
 
 describe("modelSupportsVision", () => {
   it("accepts known vision models", () => {
@@ -45,6 +45,45 @@ describe("visionText", () => {
 
   it("throws when empty", () => {
     expect(() => visionText({ choices: [] })).toThrow();
+  });
+});
+
+describe("parseVisionStore", () => {
+  it("migrates a DeepSeek vision slot into an enableable profile", () => {
+    const store = parseVisionStore({
+      provider: "deepseek",
+      endpoint: "https://api.deepseek.com/chat/completions",
+      model: "deepseek-v4-flash-vision-exp",
+      apiKey: "sk-ds",
+    });
+    expect(store.profiles).toHaveLength(1);
+    expect(store.profiles[0]).toMatchObject({
+      name: "DeepSeek",
+      apiKey: "sk-ds",
+      model: "deepseek-v4-flash-vision-exp",
+    });
+    expect(visionSnapshot(store.profiles, store.activeProfileId)).toMatchObject({
+      provider: "custom",
+      endpoint: "https://api.deepseek.com/chat/completions",
+      apiKey: "sk-ds",
+    });
+  });
+
+  it("keeps a stored profile list", () => {
+    const store = parseVisionStore({
+      provider: "custom",
+      profiles: [
+        { id: "a", name: "A", url: "https://a.example/v1/chat/completions", model: "gpt-4o", apiKey: "a" },
+        { id: "b", name: "B", url: "https://b.example/v1/chat/completions", model: "glm", apiKey: "b" },
+      ],
+      activeProfileId: "b",
+    });
+    expect(store.activeProfileId).toBe("b");
+    expect(serializeVisionStore(store.profiles, store.activeProfileId).activeProfileId).toBe("b");
+  });
+
+  it("keeps an empty stored list", () => {
+    expect(parseVisionStore({ provider: "custom", profiles: [], activeProfileId: "" }).profiles).toEqual([]);
   });
 });
 

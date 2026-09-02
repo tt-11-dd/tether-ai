@@ -40,6 +40,14 @@ const api: DesktopApi = {
     saveConfig: (config) => ipcRenderer.invoke("vision:save-config", config),
     stage: (images) => ipcRenderer.invoke("vision:stage", images),
   },
+  services: {
+    webSearch: () => ipcRenderer.invoke("services:web-search"),
+    saveWebSearch: (config) => ipcRenderer.invoke("services:save-web-search", config),
+    mcp: () => ipcRenderer.invoke("services:mcp"),
+    saveMcp: (rows) => ipcRenderer.invoke("services:save-mcp", rows),
+    revealMcp: () => ipcRenderer.invoke("services:reveal-mcp"),
+    deepseekBalance: () => ipcRenderer.invoke("services:deepseek-balance"),
+  },
   sessions: {
     list: (cwd) => ipcRenderer.invoke("sessions:list", cwd),
     remove: (id) => ipcRenderer.invoke("sessions:remove", id),

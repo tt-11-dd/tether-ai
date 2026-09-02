@@ -153,9 +153,28 @@ export interface DesktopApi {
     onChanged(listener: (root: string) => void): () => void;
   };
   vision: {
-    config(): Promise<{ provider?: "deepseek" | "custom"; endpoint: string; model: string; apiKey: string; hasApiKey?: boolean }>;
-    saveConfig(config: { provider?: "deepseek" | "custom"; endpoint: string; model: string; apiKey?: string }): Promise<void>;
+    config(): Promise<{
+      provider?: "deepseek" | "custom";
+      endpoint: string;
+      model: string;
+      apiKey: string;
+      hasApiKey?: boolean;
+      profiles: import("./chat-profiles").CustomApiProfile[];
+      activeProfileId: string;
+    }>;
+    saveConfig(config: {
+      profiles: import("./chat-profiles").CustomApiProfile[];
+      activeProfileId: string;
+    }): Promise<void>;
     stage(images: string[]): Promise<string[]>;
+  };
+  services: {
+    webSearch(): Promise<import("./integrations").WebSearchConfig>;
+    saveWebSearch(config: import("./integrations").WebSearchConfig): Promise<void>;
+    mcp(): Promise<import("./integrations").McpServerRow[]>;
+    saveMcp(rows: import("./integrations").McpServerRow[]): Promise<void>;
+    revealMcp(): Promise<void>;
+    deepseekBalance(): Promise<import("./integrations").DeepSeekBalance | null>;
   };
   sessions: {
     list(cwd?: string): Promise<SessionSummary[]>;

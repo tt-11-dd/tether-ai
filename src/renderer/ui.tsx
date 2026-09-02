@@ -4,11 +4,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PREVIEW_HOST, PREVIEW_SCHEME, type AgentSessionStats, type ExtensionUiRequest, type PermissionMode } from "../shared/types";
 import { skillUserDisplay } from "../shared/skills";
-import { DEFAULT_VISION_CONFIG, DEEPSEEK_VISION_MODEL, visibleUserText, visionResultSections, visionToolChips, type VisionProvider } from "../shared/vision-api";
-import { DEEPSEEK_PRESET, activeCustomProfile, defaultCustomProfile, type ChatKind, type CustomApiProfile } from "../shared/chat-profiles";
+import { visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
+import { DEEPSEEK_PRESET, activeCustomProfile, defaultCustomProfile, isDeepSeekUrl, type CustomApiProfile } from "../shared/chat-profiles";
 import { applyTheme, readStoredTheme, THEMES, type ThemeId } from "../shared/theme";
 import { effortLabelKey, pickEffortOptions, reasoningLevelsAvailable } from "../shared/thinking";
-import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, delegateProgress, delegateStatusLabel, filterMentionPaths, formatCommand, isRecoverableRequestError, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, assistantReplyText, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
+import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, delegateProgress, delegateStatusLabel, filterMentionPaths, formatCommand, isRecoverableRequestError, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, assistantReplyText, webSearchCard, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
 import type { AgentSkillCommand } from "../shared/skills";
 import { PROJECT_SKILL_ROOTS, USER_SKILL_ROOTS, skillSlashCommand } from "../shared/skills";
@@ -773,6 +773,10 @@ function traceDetail(row: TraceRow): ReactNode {
       </div>
     );
   }
+  const web = webSearchCard(tool);
+  if (web && (web.sources.length > 0 || web.summary)) {
+    return <WebSearchDetail card={web} />;
+  }
   const preview = toolWritePreview(tool, 24);
   const body = preview || tool.output?.trim() || "";
   if (!body) return null;
@@ -782,6 +786,25 @@ function traceDetail(row: TraceRow): ReactNode {
         <span key={index} className={line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : ""}>{line}</span>
       ))}
     </pre>
+  );
+}
+
+function WebSearchDetail({ card }: { card: NonNullable<ReturnType<typeof webSearchCard>> }) {
+  return (
+    <div className="web-tool">
+      {card.summary ? <p className="web-tool-summary">{card.summary}</p> : null}
+      {card.sources.map((source) => (
+        <button
+          key={source.url}
+          type="button"
+          className="web-source"
+          onClick={() => void window.harness.app.openExternal(source.url)}
+        >
+          <span>{source.title}</span>
+          <span className="web-source-host">{source.url.replace(/^https?:\/\//, "")}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -2724,6 +2747,157 @@ function SecretField({
   );
 }
 
+function ApiProfilesEditor({
+  profiles,
+  activeId,
+  onProfiles,
+  onActiveId,
+  models,
+  listing,
+  onList,
+  urlPlaceholder,
+  showMaxTokens,
+  testStatus,
+}: {
+  profiles: CustomApiProfile[];
+  activeId: string;
+  onProfiles(next: CustomApiProfile[]): void;
+  onActiveId(id: string): void;
+  models: string[];
+  listing: boolean;
+  onList(): void;
+  urlPlaceholder: string;
+  showMaxTokens?: boolean;
+  testStatus?: { ok: boolean; message: string } | null;
+}) {
+  const { t } = useI18n();
+  const active = profiles.find((item) => item.id === activeId) ?? profiles[0];
+  const update = (fields: Partial<CustomApiProfile>) => {
+    if (!active) return;
+    onProfiles(profiles.map((item) => (item.id === active.id ? { ...item, ...fields } : item)));
+  };
+  return (
+    <div className="custom-api-layout">
+      <div className="custom-api-sidebar">
+        <div className="custom-api-sidebar-head">
+          <span className="custom-api-sidebar-title">{t("settings.profilesList")}</span>
+          <button
+            type="button"
+            className="custom-api-add-btn"
+            onClick={() => {
+              const profile = defaultCustomProfile({
+                name: `${t("settings.customProfile")} ${profiles.length + 1}`,
+              });
+              onProfiles([...profiles, profile]);
+              onActiveId(profile.id);
+            }}
+          >
+            <Icon path="M12 5v14M5 12h14" size={12} />
+            <span>{t("settings.addCustomProfile")}</span>
+          </button>
+        </div>
+        <div className="custom-api-card-list">
+          {profiles.map((profile) => {
+            const isActive = profile.id === activeId;
+            return (
+              <div
+                key={profile.id}
+                className={`custom-api-card ${isActive ? "active" : ""}`}
+                onClick={() => {
+                  if (profile.id === activeId) return;
+                  onActiveId(profile.id);
+                }}
+              >
+                <div className="custom-api-card-head">
+                  <span className="custom-api-card-radio">
+                    {isActive && <span className="custom-api-card-dot" />}
+                  </span>
+                  <span className="custom-api-card-title">
+                    {profile.name || t("settings.profileUntitled")}
+                  </span>
+                  {isActive && <small className="custom-api-card-use">{t("settings.profileInUse")}</small>}
+                  <button
+                    type="button"
+                    className="custom-api-card-del"
+                    title={t("settings.removeCustomProfile")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      const remaining = profiles.filter((item) => item.id !== profile.id);
+                      onProfiles(remaining);
+                      if (activeId === profile.id) onActiveId(remaining[0]?.id ?? "");
+                    }}
+                  >
+                    <Icon path="M6 6l12 12M18 6L6 18" size={13} />
+                  </button>
+                </div>
+                <div className="custom-api-card-meta">
+                  {profile.url || t("settings.customApi")}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="custom-api-form">
+        {active ? (
+          <>
+            <label>
+              {t("settings.profileName")}
+              <input
+                value={active.name}
+                onChange={(event) => update({ name: event.target.value })}
+                placeholder={t("settings.profileUntitled")}
+              />
+            </label>
+            <label>
+              {t("settings.baseUrl")}
+              <input
+                value={active.url}
+                onChange={(event) => update({ url: event.target.value, model: "" })}
+                placeholder={urlPlaceholder}
+              />
+            </label>
+            <SecretField value={active.apiKey} onChange={(apiKey) => update({ apiKey })} />
+            <ModelField
+              value={active.model}
+              onChange={(model) => update({ model })}
+              models={models}
+              listing={listing}
+              canList={Boolean(active.url.trim() && active.apiKey.trim())}
+              onList={onList}
+            />
+            {showMaxTokens && (
+              <details className="settings-advanced">
+                <summary>{t("settings.advanced")}</summary>
+                <label>
+                  {t("settings.maxTokens")}
+                  <input
+                    inputMode="numeric"
+                    value={active.maxTokens ? String(active.maxTokens) : ""}
+                    onChange={(event) => {
+                      const digits = event.target.value.replace(/[^\d]/g, "");
+                      update({ maxTokens: digits ? Number(digits) : undefined });
+                    }}
+                    placeholder={t("settings.maxTokensPlaceholder")}
+                  />
+                </label>
+              </details>
+            )}
+            {testStatus && (
+              <div className={`settings-feedback ${testStatus.ok ? "ok" : "err"}`}>
+                <Icon path={testStatus.ok ? "M5 12.5l4 4 10-10" : "M12 8v4m0 4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 22 0z"} size={14} />
+                <span>{testStatus.message}</span>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="settings-hint">{t("settings.customEmpty")}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 type SettingsPane = "chat" | "vision" | "appearance" | "shortcuts" | "skills" | "about";
 
 const THEME_LABEL: Record<ThemeId, MessageKey> = {
@@ -2796,16 +2970,10 @@ export function Login({
   const { t } = useI18n();
   const [pane, setPane] = useState<SettingsPane>("chat");
   const [theme, setTheme] = useState<ThemeId>(readStoredTheme);
-  const [kind, setKind] = useState<ChatKind>("deepseek");
-  const [deepseekKey, setDeepseekKey] = useState("");
-  const [deepseekModel, setDeepseekModel] = useState(DEEPSEEK_PRESET.model);
   const [customProfiles, setCustomProfiles] = useState<CustomApiProfile[]>([]);
   const [activeCustomId, setActiveCustomId] = useState("");
-  const [visionProvider, setVisionProvider] = useState<VisionProvider>("custom");
-  const [visionEndpoint, setVisionEndpoint] = useState(DEFAULT_VISION_CONFIG.endpoint);
-  const [visionModel, setVisionModel] = useState(DEFAULT_VISION_CONFIG.model);
-  const [visionDeepSeekKey, setVisionDeepSeekKey] = useState("");
-  const [visionCustomKey, setVisionCustomKey] = useState("");
+  const [visionProfiles, setVisionProfiles] = useState<CustomApiProfile[]>([]);
+  const [activeVisionId, setActiveVisionId] = useState("");
   const [busy, setBusy] = useState(false);
   const [chatModels, setChatModels] = useState<string[]>([]);
   const [visionModels, setVisionModels] = useState<string[]>([]);
@@ -2815,45 +2983,16 @@ export function Login({
   const [testStatus, setTestStatus] = useState<{ target: "chat" | "vision"; ok: boolean; message: string } | null>(null);
 
   const activeCustom = customProfiles.find((item) => item.id === activeCustomId) ?? customProfiles[0];
-  const chatUrl = kind === "deepseek" ? DEEPSEEK_PRESET.url : activeCustom?.url ?? "";
-  const chatKey = kind === "deepseek" ? deepseekKey : activeCustom?.apiKey ?? "";
-  const chatModel = kind === "deepseek" ? deepseekModel : activeCustom?.model ?? "";
-  const visionKey = visionProvider === "deepseek" ? visionDeepSeekKey : visionCustomKey;
-  const setVisionKey = visionProvider === "deepseek" ? setVisionDeepSeekKey : setVisionCustomKey;
+  const activeVision = visionProfiles.find((item) => item.id === activeVisionId) ?? visionProfiles[0];
+  const chatUrl = activeCustom?.url ?? "";
+  const chatKey = activeCustom?.apiKey ?? "";
+  const visionUrl = activeVision?.url ?? "";
+  const visionKey = activeVision?.apiKey ?? "";
   const modKey = window.harness.platform === "darwin" ? "⌘" : "Ctrl";
 
-  const updateActiveCustom = (fields: Partial<CustomApiProfile>) => {
-    if (!activeCustom) return;
-    setCustomProfiles((current) =>
-      current.map((item) => (item.id === activeCustom.id ? { ...item, ...fields } : item))
-    );
-  };
-
-  const addCustomProfile = () => {
-    const newProfile = defaultCustomProfile({
-      name: `${t("settings.customProfile")} ${customProfiles.length + 1}`,
-    });
-    setCustomProfiles((current) => [...current, newProfile]);
-    setActiveCustomId(newProfile.id);
-    setChatModels([]);
-    setTestStatus(null);
-  };
-
-  const deleteCustomProfile = (id: string, event?: React.MouseEvent) => {
-    event?.stopPropagation();
-    if (customProfiles.length <= 1) return;
-    const remaining = customProfiles.filter((item) => item.id !== id);
-    setCustomProfiles(remaining);
-    if (activeCustomId === id) {
-      setActiveCustomId(remaining[0]?.id ?? "");
-      setChatModels([]);
-      setTestStatus(null);
-    }
-  };
-
   const listModels = async (target: "chat" | "vision") => {
-    const base = target === "chat" ? chatUrl : visionEndpoint;
-    const secret = target === "chat" ? chatKey : visionCustomKey;
+    const base = target === "chat" ? chatUrl : visionUrl;
+    const secret = target === "chat" ? chatKey : visionKey;
     if (!base.trim() || !secret.trim()) {
       setTestStatus({ target, ok: false, message: t("settings.fillUrlKey") });
       return;
@@ -2887,31 +3026,20 @@ export function Login({
       window.harness.auth.profiles(),
       window.harness.vision.config(),
       window.harness.app.version().catch(() => "0.1.0"),
-    ]).then(([profiles, config, ver]) => {
-      setKind(profiles.kind);
-      setDeepseekKey(profiles.deepseek.apiKey);
-      setDeepseekModel(profiles.deepseek.model || DEEPSEEK_PRESET.model);
+    ]).then(async ([profiles, config, ver]) => {
       setCustomProfiles(profiles.customProfiles);
       setActiveCustomId(profiles.activeCustomId);
-      setVisionProvider(config.provider === "deepseek" ? "deepseek" : "custom");
-      setVisionEndpoint(config.endpoint);
-      setVisionModel(config.model);
-      const loadedKey = (config.apiKey ?? "").trim();
-      if (config.provider === "deepseek") {
-        setVisionDeepSeekKey(loadedKey || profiles.deepseek.apiKey.trim());
-        setVisionCustomKey("");
-      } else {
-        setVisionCustomKey(loadedKey);
-        setVisionDeepSeekKey(profiles.deepseek.apiKey.trim());
-      }
+      setVisionProfiles(config.profiles);
+      setActiveVisionId(config.activeProfileId);
       if (ver) setAppVersion(ver);
-      const url = profiles.kind === "custom" ? activeCustomProfile(profiles)?.url ?? "" : DEEPSEEK_PRESET.url;
-      const key = profiles.kind === "custom" ? activeCustomProfile(profiles)?.apiKey ?? "" : profiles.deepseek.apiKey;
+      const url = activeCustomProfile(profiles)?.url ?? "";
+      const key = activeCustomProfile(profiles)?.apiKey ?? "";
       if (url.trim() && key.trim()) {
         void window.harness.auth.listModels(url, key).then(setChatModels).catch(() => undefined);
       }
-      if (config.endpoint.trim() && config.apiKey.trim()) {
-        void window.harness.auth.listModels(config.endpoint, config.apiKey).then(setVisionModels).catch(() => undefined);
+      const vision = config.profiles.find((item) => item.id === config.activeProfileId) ?? config.profiles[0];
+      if (vision?.url.trim() && vision.apiKey.trim()) {
+        void window.harness.auth.listModels(vision.url, vision.apiKey).then(setVisionModels).catch(() => undefined);
       }
     }).catch(() => undefined);
   }, []);
@@ -2933,19 +3061,21 @@ export function Login({
           event.preventDefault();
           setBusy(true);
           try {
-            if (kind === "deepseek" ? deepseekKey.trim() || deepseekModel.trim() : Boolean(activeCustom?.url && activeCustom.model && activeCustom.apiKey)) {
+            if (customProfiles.length === 0 || Boolean(activeCustom?.url && activeCustom.model && activeCustom.apiKey)) {
+              const official = customProfiles.find((item) => isDeepSeekUrl(item.url));
               await window.harness.auth.saveProfiles({
-                kind,
-                deepseek: { model: deepseekModel, apiKey: deepseekKey },
+                kind: "custom",
+                deepseek: {
+                  model: official?.model || DEEPSEEK_PRESET.model,
+                  apiKey: official?.apiKey || "",
+                },
                 customProfiles,
-                activeCustomId: activeCustom?.id ?? activeCustomId,
+                activeCustomId: activeCustom?.id ?? "",
               });
             }
             await window.harness.vision.saveConfig({
-              provider: visionProvider,
-              endpoint: visionEndpoint.trim(),
-              model: visionModel.trim(),
-              apiKey: visionKey.trim(),
+              profiles: visionProfiles,
+              activeProfileId: activeVision?.id ?? activeVisionId,
             });
             await onSaved();
           } catch (error) {
@@ -2995,265 +3125,55 @@ export function Login({
           <div className="settings-body">
             {pane === "chat" && (
               <>
-                <div className="settings-seg">
-                  {([["deepseek", t("settings.deepseekPreset")], ["custom", t("settings.customApi")]] as const).map(([id, label]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      className={kind === id ? "on" : ""}
-                      onClick={() => {
-                        if (id === kind) return;
-                        setKind(id);
-                        setChatModels([]);
-                        setTestStatus(null);
-                      }}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                {kind === "deepseek" ? (
-                  <>
-                    <SecretField value={deepseekKey} onChange={setDeepseekKey} />
-                    <ModelField
-                      value={deepseekModel}
-                      onChange={setDeepseekModel}
-                      models={chatModels}
-                      listing={listing === "chat"}
-                      canList={Boolean(chatUrl.trim() && chatKey.trim())}
-                      onList={() => void listModels("chat")}
-                    />
-                    {testStatus?.target === "chat" && (
-                      <div className={`settings-feedback ${testStatus.ok ? "ok" : "err"}`}>
-                        <Icon path={testStatus.ok ? "M5 12.5l4 4 10-10" : "M12 8v4m0 4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 22 0z"} size={14} />
-                        <span>{testStatus.message}</span>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <p className="settings-hint">{t("settings.customHint")}</p>
-                    <div className="custom-api-layout">
-                      <div className="custom-api-sidebar">
-                        <div className="custom-api-sidebar-head">
-                          <span className="custom-api-sidebar-title">{t("settings.profilesList")}</span>
-                          <button
-                            type="button"
-                            className="custom-api-add-btn"
-                            onClick={addCustomProfile}
-                          >
-                            <Icon path="M12 5v14M5 12h14" size={12} />
-                            <span>{t("settings.addCustomProfile")}</span>
-                          </button>
-                        </div>
-                        <div className="custom-api-card-list">
-                          {customProfiles.map((profile) => {
-                            const isActive = profile.id === activeCustomId;
-                            return (
-                              <div
-                                key={profile.id}
-                                className={`custom-api-card ${isActive ? "active" : ""}`}
-                                onClick={() => {
-                                  if (profile.id !== activeCustomId) {
-                                    setActiveCustomId(profile.id);
-                                    setChatModels([]);
-                                    setTestStatus(null);
-                                    if (profile.url.trim() && profile.apiKey.trim()) {
-                                      void window.harness.auth.listModels(profile.url, profile.apiKey).then(setChatModels).catch(() => undefined);
-                                    }
-                                  }
-                                }}
-                              >
-                                <div className="custom-api-card-head">
-                                  <span className="custom-api-card-radio">
-                                    {isActive && <span className="custom-api-card-dot" />}
-                                  </span>
-                                  <span className="custom-api-card-title">
-                                    {profile.name || t("settings.profileUntitled")}
-                                  </span>
-                                  {customProfiles.length > 1 && (
-                                    <button
-                                      type="button"
-                                      className="custom-api-card-del"
-                                      title={t("settings.removeCustomProfile")}
-                                      onClick={(e) => deleteCustomProfile(profile.id, e)}
-                                    >
-                                      <Icon path="M6 6l12 12M18 6L6 18" size={13} />
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="custom-api-card-meta">
-                                  {profile.model || t("settings.customApi")}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="custom-api-form">
-                        {activeCustom ? (
-                          <>
-                            <label>
-                              {t("settings.profileName")}
-                              <input
-                                value={activeCustom.name}
-                                onChange={(e) => updateActiveCustom({ name: e.target.value })}
-                                placeholder={t("settings.profileUntitled")}
-                              />
-                            </label>
-                            <label>
-                              {t("settings.baseUrl")}
-                              <input
-                                value={activeCustom.url}
-                                onChange={(e) => {
-                                  updateActiveCustom({ url: e.target.value, model: "" });
-                                  setChatModels([]);
-                                }}
-                                placeholder="https://api.example.com/v1"
-                              />
-                            </label>
-                            <SecretField
-                              value={activeCustom.apiKey}
-                              onChange={(apiKey) => updateActiveCustom({ apiKey })}
-                            />
-                            <ModelField
-                              value={activeCustom.model}
-                              onChange={(model) => updateActiveCustom({ model })}
-                              models={chatModels}
-                              listing={listing === "chat"}
-                              canList={Boolean(activeCustom.url.trim() && activeCustom.apiKey.trim())}
-                              onList={() => void listModels("chat")}
-                            />
-                            <details className="settings-advanced">
-                              <summary>{t("settings.advanced")}</summary>
-                              <label>
-                                {t("settings.maxTokens")}
-                                <input
-                                  inputMode="numeric"
-                                  value={activeCustom.maxTokens ? String(activeCustom.maxTokens) : ""}
-                                  onChange={(e) => {
-                                    const digits = e.target.value.replace(/[^\d]/g, "");
-                                    updateActiveCustom({ maxTokens: digits ? Number(digits) : undefined });
-                                  }}
-                                  placeholder={t("settings.maxTokensPlaceholder")}
-                                />
-                              </label>
-                            </details>
-
-                            {testStatus?.target === "chat" && (
-                              <div className={`settings-feedback ${testStatus.ok ? "ok" : "err"}`}>
-                                <Icon path={testStatus.ok ? "M5 12.5l4 4 10-10" : "M12 8v4m0 4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 22 0z"} size={14} />
-                                <span>{testStatus.message}</span>
-                              </div>
-                            )}
-                          </>
-                        ) : (
-                          <p className="settings-hint">{t("settings.customEmpty")}</p>
-                        )}
-                      </div>
-                    </div>
-                  </>
-                )}
+                <p className="settings-hint">{t("settings.customHint")}</p>
+                <ApiProfilesEditor
+                  profiles={customProfiles}
+                  activeId={activeCustomId}
+                  onProfiles={setCustomProfiles}
+                  onActiveId={(id) => {
+                    setActiveCustomId(id);
+                    setChatModels([]);
+                    setTestStatus((current) => current?.target === "chat" ? null : current);
+                    const profile = customProfiles.find((item) => item.id === id);
+                    if (profile?.url.trim() && profile.apiKey.trim()) {
+                      void window.harness.auth.listModels(profile.url, profile.apiKey).then(setChatModels).catch(() => undefined);
+                    }
+                  }}
+                  models={chatModels}
+                  listing={listing === "chat"}
+                  onList={() => void listModels("chat")}
+                  urlPlaceholder="https://api.example.com/v1"
+                  showMaxTokens
+                  testStatus={testStatus?.target === "chat" ? testStatus : null}
+                />
               </>
             )}
 
             {pane === "vision" && (
               <>
-                <div className="settings-seg">
-                  {([
-                    ["deepseek", t("settings.visionDeepSeek")],
-                    ["custom", t("settings.visionCustom")],
-                  ] as const).map(([id, label]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      className={visionProvider === id ? "on" : ""}
-                      onClick={() => {
-                        if (id === visionProvider) return;
-                        setVisionProvider(id);
-                        setTestStatus(null);
-                        if (id === "deepseek") {
-                          setVisionModel(DEEPSEEK_VISION_MODEL);
-                          if (!visionDeepSeekKey.trim() && deepseekKey.trim()) {
-                            setVisionDeepSeekKey(deepseekKey.trim());
-                          }
-                        } else {
-                          setVisionModel(DEFAULT_VISION_CONFIG.model);
-                          setVisionEndpoint(
-                            kind === "custom" && activeCustom?.url.trim()
-                              ? `${activeCustom.url.trim().replace(/\/+$/, "").replace(/\/chat\/completions$/i, "")}/chat/completions`
-                              : DEFAULT_VISION_CONFIG.endpoint,
-                          );
-                        }
-                      }}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                {visionProvider === "deepseek" ? (
-                  <>
-                    <p className="settings-hint">
-                      {kind === "custom" ? t("settings.visionDeepSeekWithCustomChatHint") : t("settings.visionDeepSeekHint")}
-                    </p>
-                    <label>
-                      {t("settings.model")}
-                      <input value={DEEPSEEK_VISION_MODEL} readOnly />
-                    </label>
-                    <SecretField
-                      value={visionKey}
-                      onChange={setVisionKey}
-                      placeholder={t("settings.visionDeepSeekKey")}
-                    />
-                    {!visionKey.trim() && (
-                      <div className="settings-feedback err">
-                        <Icon path="M12 8v4m0 4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 22 0z" size={14} />
-                        <span>{t("settings.visionDeepSeekNeedKey")}</span>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <p className="settings-hint">{t("settings.visionHint")}</p>
-                    <label>
-                      {t("settings.endpoint")}
-                      <input
-                        value={visionEndpoint}
-                        onChange={(event) => setVisionEndpoint(event.target.value)}
-                        placeholder={DEFAULT_VISION_CONFIG.endpoint}
-                      />
-                    </label>
-                    <SecretField
-                      value={visionKey}
-                      onChange={setVisionKey}
-                      placeholder={t("settings.zhipuKey")}
-                    />
-                    <ModelField
-                      value={visionModel}
-                      onChange={setVisionModel}
-                      models={visionModels}
-                      listing={listing === "vision"}
-                      canList={Boolean(visionEndpoint.trim() && visionCustomKey.trim())}
-                      onList={() => void listModels("vision")}
-                      placeholder={DEFAULT_VISION_CONFIG.model}
-                    />
-
-                    {testStatus?.target === "vision" && (
-                      <div className={`settings-feedback ${testStatus.ok ? "ok" : "err"}`}>
-                        <Icon path={testStatus.ok ? "M5 12.5l4 4 10-10" : "M12 8v4m0 4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 22 0z"} size={14} />
-                        <span>{testStatus.message}</span>
-                      </div>
-                    )}
-                  </>
-                )}
-
+                <p className="settings-hint">{t("settings.visionHint")}</p>
+                <ApiProfilesEditor
+                  profiles={visionProfiles}
+                  activeId={activeVisionId}
+                  onProfiles={setVisionProfiles}
+                  onActiveId={(id) => {
+                    setActiveVisionId(id);
+                    setVisionModels([]);
+                    setTestStatus((current) => current?.target === "vision" ? null : current);
+                    const profile = visionProfiles.find((item) => item.id === id);
+                    if (profile?.url.trim() && profile.apiKey.trim()) {
+                      void window.harness.auth.listModels(profile.url, profile.apiKey).then(setVisionModels).catch(() => undefined);
+                    }
+                  }}
+                  models={visionModels}
+                  listing={listing === "vision"}
+                  onList={() => void listModels("vision")}
+                  urlPlaceholder="https://api.example.com/v1/chat/completions"
+                  testStatus={testStatus?.target === "vision" ? testStatus : null}
+                />
                 <p className="settings-hint">{t("settings.mineruHint")}</p>
               </>
             )}
-
             {pane === "appearance" && (
               <div className="theme-page">
                 <p className="settings-hint">{t("settings.themeHint")}</p>
@@ -3479,11 +3399,12 @@ export function Login({
                 className="primary"
                 disabled={
                   busy ||
-                  !visionEndpoint.trim() ||
-                  !visionModel.trim() ||
-                  (kind === "deepseek"
-                    ? !deepseekModel.trim() || !deepseekKey.trim()
-                    : !activeCustom?.url.trim() || !activeCustom.model.trim() || !activeCustom.apiKey.trim())
+                  (activeCustom
+                    ? !activeCustom.url.trim() || !activeCustom.model.trim() || !activeCustom.apiKey.trim()
+                    : false) ||
+                  (activeVision
+                    ? !activeVision.url.trim() || !activeVision.model.trim() || !activeVision.apiKey.trim()
+                    : false)
                 }
               >
                 {t("settings.save")}

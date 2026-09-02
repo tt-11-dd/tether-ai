@@ -39,7 +39,7 @@ export function defaultCustomProfile(partial: Partial<CustomApiProfile> = {}): C
 export function emptyChatProfiles(): ChatProfiles {
   const profile = defaultCustomProfile({ name: "默认" });
   return {
-    kind: "deepseek",
+    kind: "custom",
     deepseek: { model: DEEPSEEK_PRESET.model, apiKey: "" },
     customProfiles: [profile],
     activeCustomId: profile.id,
@@ -57,19 +57,79 @@ export function activeCustomProfile(profiles: ChatProfiles): CustomApiProfile | 
 }
 
 export function activeChat(profiles: ChatProfiles) {
-  if (profiles.kind === "custom") {
-    const profile = activeCustomProfile(profiles);
-    if (!profile) return { url: "", model: "", apiKey: "" };
-    return {
-      url: profile.url.trim(),
-      model: profile.model.trim(),
-      apiKey: profile.apiKey.trim(),
-    };
-  }
+  const profile = activeCustomProfile(profiles);
+  if (!profile) return { url: "", model: "", apiKey: "" };
   return {
-    url: DEEPSEEK_PRESET.url,
-    model: profiles.deepseek.model.trim() || DEEPSEEK_PRESET.model,
-    apiKey: profiles.deepseek.apiKey.trim(),
+    url: profile.url.trim(),
+    model: profile.model.trim(),
+    apiKey: profile.apiKey.trim(),
+  };
+}
+
+/** Official DeepSeek key from the enabled profile, else any official-URL profile. */
+export function officialDeepSeekKey(profiles: ChatProfiles): string {
+  const active = activeCustomProfile(profiles);
+  if (active && isDeepSeekUrl(active.url) && active.apiKey.trim()) return active.apiKey.trim();
+  const stored = profiles.customProfiles.find((item) => isDeepSeekUrl(item.url) && item.apiKey.trim());
+  return stored?.apiKey.trim() || profiles.deepseek.apiKey.trim();
+}
+
+/** Turn the old DeepSeek/custom split into one profile list. */
+export function foldOfficialDeepSeek(profiles: ChatProfiles): ChatProfiles {
+  const dsKey = profiles.deepseek.apiKey.trim();
+  const dsModel = profiles.deepseek.model.trim() || DEEPSEEK_PRESET.model;
+  let customProfiles = [...profiles.customProfiles];
+  let activeCustomId = profiles.activeCustomId;
+  const existing = customProfiles.find((item) => isDeepSeekUrl(item.url));
+
+  if (profiles.kind === "deepseek") {
+    if (existing) {
+      customProfiles = customProfiles.map((item) =>
+        item.id === existing.id
+          ? defaultCustomProfile({
+            ...item,
+            name: item.name.trim() || "DeepSeek",
+            url: DEEPSEEK_PRESET.url,
+            model: item.model.trim() || dsModel,
+            apiKey: item.apiKey.trim() || dsKey,
+          })
+          : item,
+      );
+      activeCustomId = existing.id;
+    } else {
+      const profile = defaultCustomProfile({
+        name: "DeepSeek",
+        url: DEEPSEEK_PRESET.url,
+        model: dsModel,
+        apiKey: dsKey,
+      });
+      customProfiles = [profile, ...customProfiles.filter((item) => item.url.trim() || item.apiKey.trim())];
+      activeCustomId = profile.id;
+    }
+  } else if (dsKey && !existing && customProfiles.length) {
+    customProfiles = [
+      defaultCustomProfile({
+        name: "DeepSeek",
+        url: DEEPSEEK_PRESET.url,
+        model: dsModel,
+        apiKey: dsKey,
+      }),
+      ...customProfiles.filter((item) => item.url.trim() || item.apiKey.trim() || item.id === activeCustomId),
+    ];
+  }
+
+  const official = customProfiles.find((item) => isDeepSeekUrl(item.url));
+  const resolvedActive = customProfiles.some((item) => item.id === activeCustomId)
+    ? activeCustomId
+    : customProfiles[0]?.id ?? "";
+  return {
+    kind: "custom",
+    deepseek: {
+      model: official?.model.trim() || dsModel,
+      apiKey: official?.apiKey.trim() || dsKey,
+    },
+    customProfiles,
+    activeCustomId: resolvedActive,
   };
 }
 
@@ -132,11 +192,12 @@ export function parseChatProfiles(raw: unknown): ChatProfiles | undefined {
     ? value.deepseek as Record<string, unknown>
     : {};
   const activeCustomId = text(value.activeCustomId);
-  let customProfiles = Array.isArray(value.customProfiles)
+  const listed = Array.isArray(value.customProfiles);
+  let customProfiles = listed
     ? value.customProfiles.map(parseCustomProfile).filter((item): item is CustomApiProfile => Boolean(item))
     : [];
   let resolvedActiveId = activeCustomId;
-  if (!customProfiles.length) {
+  if (!listed) {
     const custom = value.custom && typeof value.custom === "object" && !Array.isArray(value.custom)
       ? value.custom as Record<string, unknown>
       : {};
@@ -147,12 +208,12 @@ export function parseChatProfiles(raw: unknown): ChatProfiles | undefined {
   const resolvedActive = customProfiles.some((item) => item.id === resolvedActiveId)
     ? resolvedActiveId
     : customProfiles[0]?.id ?? "";
-  return {
+  return foldOfficialDeepSeek({
     kind,
     deepseek: { model: text(deepseek.model) || DEEPSEEK_PRESET.model, apiKey: text(deepseek.apiKey) },
     customProfiles,
     activeCustomId: resolvedActive,
-  };
+  });
 }
 
 /** One stored URL/key/model → two profiles. Official DeepSeek stays on the preset slot. */
@@ -160,12 +221,28 @@ export function migrateChatProfiles(stored: { url?: string; model?: string; apiK
   const url = stored.url?.trim() ?? "";
   const model = stored.model?.trim() ?? "";
   const apiKey = stored.apiKey?.trim() ?? "";
-  const base = emptyChatProfiles();
   if (url && !isDeepSeekUrl(url)) {
     const profile = defaultCustomProfile({ name: "默认", url, model, apiKey });
-    return { ...base, kind: "custom", customProfiles: [profile], activeCustomId: profile.id };
+    return {
+      kind: "custom",
+      deepseek: { model: DEEPSEEK_PRESET.model, apiKey: "" },
+      customProfiles: [profile],
+      activeCustomId: profile.id,
+    };
   }
-  return { ...base, deepseek: { model: model || DEEPSEEK_PRESET.model, apiKey } };
+  if (!url && !apiKey) return emptyChatProfiles();
+  const profile = defaultCustomProfile({
+    name: "DeepSeek",
+    url: DEEPSEEK_PRESET.url,
+    model: model || DEEPSEEK_PRESET.model,
+    apiKey,
+  });
+  return {
+    kind: "custom",
+    deepseek: { model: profile.model, apiKey },
+    customProfiles: [profile],
+    activeCustomId: profile.id,
+  };
 }
 
 function mergeCustomProfile(previous: CustomApiProfile | undefined, next: CustomApiProfile): CustomApiProfile {
@@ -182,21 +259,19 @@ function mergeCustomProfile(previous: CustomApiProfile | undefined, next: Custom
 
 export function mergeChatProfiles(previous: ChatProfiles, next: ChatProfiles): ChatProfiles {
   const previousById = new Map(previous.customProfiles.map((item) => [item.id, item]));
-  const mergedProfiles = next.customProfiles.length
-    ? next.customProfiles.map((item) => mergeCustomProfile(previousById.get(item.id), item))
-    : previous.customProfiles;
+  const mergedProfiles = next.customProfiles.map((item) => mergeCustomProfile(previousById.get(item.id), item));
   const activeCustomId = mergedProfiles.some((item) => item.id === next.activeCustomId)
     ? next.activeCustomId
-    : mergedProfiles[0]?.id ?? previous.activeCustomId;
-  return {
+    : mergedProfiles[0]?.id ?? "";
+  return foldOfficialDeepSeek({
     kind: next.kind,
     deepseek: {
-      model: next.deepseek.model.trim() || previous.deepseek.model || DEEPSEEK_PRESET.model,
-      apiKey: next.deepseek.apiKey.trim() || previous.deepseek.apiKey,
+      model: next.deepseek.model.trim() || (mergedProfiles.length ? previous.deepseek.model : "") || DEEPSEEK_PRESET.model,
+      apiKey: next.deepseek.apiKey.trim() || (mergedProfiles.length ? previous.deepseek.apiKey : ""),
     },
-    customProfiles: mergedProfiles.length ? mergedProfiles : previous.customProfiles,
+    customProfiles: mergedProfiles,
     activeCustomId,
-  };
+  });
 }
 
 export function buildCustomProfilesPayload(
