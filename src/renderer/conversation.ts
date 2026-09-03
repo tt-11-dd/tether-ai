@@ -1254,9 +1254,22 @@ export function traceRows(work: WorkItem[], tools: ToolActivity[], fallback = ""
     if (step.text.trim()) pending.push(step.text.trim());
     if (step.tools.length === 0) continue;
     flushThinking();
-    for (const tool of step.tools) rows.push(toolRow(tool, rows.length));
+    for (const tool of step.tools) {
+      const row = toolRow(tool, rows.length);
+      const last = rows.at(-1);
+      if (tool.name === "update_plan" && last?.tool?.name === "update_plan") {
+        rows[rows.length - 1] = { ...row, id: last.id };
+        continue;
+      }
+      rows.push(row);
+    }
   }
   flushThinking();
+  const lastPlan = [...rows].reverse().find((row) => row.tool?.name === "update_plan");
+  if (lastPlan?.tool) {
+    const steps = todosFromPlanTool(lastPlan.tool);
+    if (steps?.length) lastPlan.chip = formatPlanChip(overlayPlanProgress(steps, work, tools, lastPlan.tool.id));
+  }
   return rows;
 }
 
@@ -1288,6 +1301,9 @@ function toolRow(tool: ToolActivity, index: number): TraceRow {
     };
   }
   if (tool.name === "vision") return { ...base, kind: "look", label: ct("trace.look"), chip: "", mono: false };
+  if (tool.name === "update_plan") {
+    return { ...base, kind: "tool", label: ct("trace.plan"), chip: formatPlanChip(todosFromPlanTool(tool) ?? []), mono: false };
+  }
   if (/web_search|fetch_content|get_search_content/.test(name)) {
     const card = parseWebSearchCard(tool.name, tool.args, tool.details, tool.output);
     return {
@@ -1501,11 +1517,13 @@ export function parseFeaturesJson(input: string): SessionTodo[] {
 
 export function collectTodos(messages: ChatMessage[]): SessionTodo[] {
   let fromPlan: SessionTodo[] | undefined;
+  let lastPlanId: string | undefined;
   const fromTools: SessionTodo[] = [];
   for (const tool of sessionTools(messages)) {
     const planned = todosFromPlanTool(tool);
     if (planned) {
       fromPlan = planned;
+      lastPlanId = tool.id;
       continue;
     }
     if (!/todo/i.test(tool.name)) continue;
@@ -1527,7 +1545,11 @@ export function collectTodos(messages: ChatMessage[]): SessionTodo[] {
       });
     });
   }
-  if (fromPlan?.length) return fromPlan;
+  if (fromPlan?.length) {
+    return lastPlanId
+      ? overlayPlanProgress(fromPlan, turnWork(messages), sessionTools(messages), lastPlanId)
+      : fromPlan;
+  }
   if (fromTools.length) return fromTools;
   const text = messages.filter((item) => item.role === "assistant").map((item) => item.text).join("\n");
   const checks: SessionTodo[] = [];
@@ -1571,6 +1593,63 @@ function planStepsFromUnknown(value: unknown): SessionTodo[] | undefined {
     });
   }
   return todos.length ? todos : undefined;
+}
+
+function formatPlanChip(steps: SessionTodo[]): string {
+  const done = steps.filter((item) => item.done).length;
+  const active = steps.find((item) => item.active)?.text;
+  if (steps.length === 0) return "";
+  return active ? `${done}/${steps.length} · ${crop(headline(active), 40)}` : `${done}/${steps.length}`;
+}
+
+/** Model often skips mid-step update_plan; count write/exec bursts after the last plan as completed steps. */
+function overlayPlanProgress(
+  plan: SessionTodo[],
+  work: WorkItem[],
+  tools: ToolActivity[],
+  afterToolId: string,
+): SessionTodo[] {
+  const byId = new Map(tools.map((tool) => [tool.id, tool]));
+  let after = false;
+  let pending = false;
+  let bursts = 0;
+  for (const item of work) {
+    if (item.type === "tool" && item.toolId === afterToolId) {
+      after = true;
+      continue;
+    }
+    if (!after) continue;
+    if (item.type === "thinking" || item.type === "text") {
+      if (pending) {
+        bursts += 1;
+        pending = false;
+      }
+      continue;
+    }
+    const tool = byId.get(item.toolId);
+    if (tool && isPlanProgressWork(tool)) pending = true;
+  }
+  if (pending) bursts += 1;
+  if (bursts === 0) return plan;
+  const done = Math.min(plan.length, plan.filter((item) => item.done).length + bursts);
+  return plan.map((todo, index) => {
+    const { active: _active, ...rest } = todo;
+    return {
+      ...rest,
+      done: index < done,
+      ...(index === done && done < plan.length ? { active: true } : {}),
+    };
+  });
+}
+
+function isPlanProgressWork(tool: ToolActivity): boolean {
+  if (tool.status === "error") return false;
+  const name = tool.name.toLowerCase();
+  if (name === "update_plan" || /read|grep|glob|search|find|list/.test(name)) return false;
+  if (/exec|bash|command/.test(name)) {
+    return formatCommand(toolCommand(tool)).split("\n").some((line) => line && !/^cd\s/.test(line));
+  }
+  return /write|edit|patch/.test(name);
 }
 
 function toolPath(tool: ToolActivity): string {

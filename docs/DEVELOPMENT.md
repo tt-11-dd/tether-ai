@@ -22,7 +22,7 @@ Tether 是一个基于 Electron 的本地优先 AI 编程桌面工作台：模�
 | Vite 7                    | 渲染进程构建 + dev server                          |
 | tsup 8                    | 主进程 / preload / 扩展构建为 ESM/CJS              |
 | Vitest 3                  | 单元测试                                           |
-| tether-agent-core 0.1.18   | agent 运行时（RPC worker、沙箱、会话、checkpoint） |
+| tether-agent-core 0.1.19   | agent 运行时（RPC worker、沙箱、会话、checkpoint） |
 | electron-builder 26       | 打包 dmg / nsis / dir                              |
 
 ### 1.1 架构分层

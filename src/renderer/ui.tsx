@@ -526,20 +526,14 @@ export function ContextStats({
               <span className="context-foot-label">{t("common.model")}</span>
               <code className="context-model-tag">{model || t("context.defaultModel")}</code>
             </div>
-            <div className="context-foot-row">
-              {reasoningLevelsAvailable(effortLevels ?? []) && effort && (
+            {reasoningLevelsAvailable(effortLevels ?? []) && effort && (
+              <div className="context-foot-row">
                 <div className="context-foot-item">
                   <span className="context-foot-label">{t("composer.effort")}</span>
                   <span className="context-effort-val">{t(effortLabelKey(effort))}</span>
                 </div>
-              )}
-              <div className="context-foot-item context-foot-item-cost">
-                <span className="context-foot-label">{t("context.cost")}</span>
-                <span className="context-cost-val">
-                  {stats?.cost ? `$${stats.cost.toFixed(4)}` : "—"}
-                </span>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}

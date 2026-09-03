@@ -849,6 +849,84 @@ describe("conversation events", () => {
     ]);
   });
 
+  it("collapses consecutive update_plan rows to the latest progress", () => {
+    const plan = (id: string, steps: Array<{ step: string; status: string }>) => ({
+      id,
+      name: "update_plan",
+      title: "Update plan",
+      status: "complete" as const,
+      args: { plan: steps },
+    });
+    expect(traceRows(
+      [
+        { type: "tool", id: "w1", toolId: "1" },
+        { type: "tool", id: "w2", toolId: "2" },
+        { type: "tool", id: "w3", toolId: "3" },
+      ],
+      [
+        plan("1", [
+          { step: "读代码", status: "in_progress" },
+          { step: "改 UI", status: "pending" },
+        ]),
+        plan("2", [
+          { step: "读代码", status: "completed" },
+          { step: "改 UI", status: "in_progress" },
+        ]),
+        plan("3", [
+          { step: "读代码", status: "completed" },
+          { step: "改 UI", status: "completed" },
+        ]),
+      ],
+    ).map((row) => [row.label, row.chip])).toEqual([
+      ["更新计划", "2/2"],
+    ]);
+  });
+
+  it("advances plan progress from write bursts when update_plan stays at 0/4", () => {
+    const messages: ChatMessage[] = [{
+      id: "a",
+      role: "assistant",
+      text: "",
+      images: [],
+      tools: [
+        {
+          id: "plan",
+          name: "update_plan",
+          title: "Update plan",
+          status: "complete",
+          args: { plan: [
+            { step: "注释类型", status: "in_progress" },
+            { step: "注释 DOM", status: "pending" },
+            { step: "注释导出", status: "pending" },
+            { step: "校验", status: "pending" },
+          ] },
+        },
+        { id: "w1", name: "apply_patch", title: "Edited a.ts", status: "complete", args: { input: "*** Update File: a.ts\n+a\n" } },
+        { id: "w2", name: "apply_patch", title: "Edited a.ts", status: "complete", args: { input: "*** Update File: a.ts\n+b\n" } },
+        { id: "cd", name: "exec_command", title: "cd", status: "complete", args: { cmd: "cd /tmp" } },
+        { id: "w3", name: "apply_patch", title: "Edited a.ts", status: "complete", args: { input: "*** Update File: a.ts\n+c\n" } },
+      ],
+      work: [
+        { type: "tool", id: "wp", toolId: "plan" },
+        { type: "tool", id: "ww1", toolId: "w1" },
+        { type: "thinking", id: "t1", text: "下一块" },
+        { type: "tool", id: "ww2", toolId: "w2" },
+        { type: "tool", id: "wcd", toolId: "cd" },
+        { type: "thinking", id: "t2", text: "再一块" },
+        { type: "tool", id: "ww3", toolId: "w3" },
+      ],
+    }];
+    expect(collectTodos(messages).map((item) => [item.done, item.active ?? false, item.text])).toEqual([
+      [true, false, "注释类型"],
+      [true, false, "注释 DOM"],
+      [true, false, "注释导出"],
+      [false, true, "校验"],
+    ]);
+    expect(traceRows(messages[0]!.work, messages[0]!.tools).map((row) => row.kind === "tool" ? row.chip : undefined).filter(Boolean)).toEqual([
+      "3/4 · 校验",
+    ]);
+  });
+
   it("parses features.json into session todos", () => {
     expect(parseFeaturesJson(JSON.stringify([
       { id: "chat", description: "新对话按钮创建空白会话", passes: true },
