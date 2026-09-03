@@ -1289,6 +1289,7 @@ textarea::selection,
 .user-turn {
   width: fit-content;
   max-width: 78%;
+  min-width: 0;
   margin: 0 0 22px auto;
   display: flex;
   flex-direction: column;
@@ -1298,6 +1299,7 @@ textarea::selection,
 .user {
   width: fit-content;
   max-width: 100%;
+  min-width: 0;
   margin: 0;
   padding: 10px 14px;
   border-radius: 16px 16px 6px 16px;
@@ -1305,6 +1307,7 @@ textarea::selection,
   box-shadow: var(--shadow-hairline);
   line-height: 1.55;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-size: 14px;
 }
 .user-skill-tag {
@@ -1555,6 +1558,7 @@ textarea::selection,
 }
 .tree-dir {
   width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1580,6 +1584,7 @@ textarea::selection,
 }
 .inspect-file {
   width: 100%;
+  min-width: 0;
   min-height: 28px;
   padding: 4px 4px 4px 22px;
   display: flex;
@@ -1606,7 +1611,8 @@ textarea::selection,
 .inspect-file.edit span {
   font-weight: 500;
 }
-.inspect-file span {
+.inspect-file span,
+.tree-dir span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

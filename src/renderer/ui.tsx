@@ -1359,7 +1359,7 @@ export function InspectPanel({
             >
               <Icon className="chevron" path="M6 9l6 6 6-6" size={12} />
               <Icon path="M3 7h6l2 2h10v10H3z" size={14} />
-              {prefix ? prefix.replace(/\/$/, "") : folder ?? t("inspect.workspace")}
+              <span>{prefix ? prefix.replace(/\/$/, "") : folder ?? t("inspect.workspace")}</span>
             </button>
             {treeOpen && visible.length === 0 && <p className="sidebar-empty">{t("inspect.noFiles")}</p>}
             {treeOpen && visible.map((file) => {
