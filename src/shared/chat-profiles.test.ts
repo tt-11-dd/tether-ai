@@ -6,6 +6,8 @@ import {
   DEEPSEEK_PRESET,
   defaultCustomProfile,
   foldOfficialDeepSeek,
+  isChatProfileValid,
+  isVisionProfileValid,
   mergeChatProfiles,
   migrateChatProfiles,
   officialDeepSeekKey,
@@ -194,5 +196,65 @@ describe("buildCustomProfilesPayload", () => {
       model: "gpt-5",
       apiKey: "b2",
     });
+  });
+});
+
+describe("isChatProfileValid and isVisionProfileValid", () => {
+  it("validates chat profile requiring url, model, and apiKey", () => {
+    expect(isChatProfileValid(undefined)).toBe(true);
+    expect(isChatProfileValid(defaultCustomProfile({
+      url: "https://ark.cn-beijing.volces.com/api/v3",
+      model: "deepseek-v4-flash-ga-260731",
+      apiKey: "test-key",
+    }))).toBe(true);
+
+    expect(isChatProfileValid(defaultCustomProfile({
+      url: "",
+      model: "deepseek-v4-flash-ga-260731",
+      apiKey: "test-key",
+    }))).toBe(false);
+
+    expect(isChatProfileValid(defaultCustomProfile({
+      url: "https://ark.cn-beijing.volces.com/api/v3",
+      model: "   ",
+      apiKey: "test-key",
+    }))).toBe(false);
+
+    expect(isChatProfileValid(defaultCustomProfile({
+      url: "https://ark.cn-beijing.volces.com/api/v3",
+      model: "deepseek-v4-flash-ga-260731",
+      apiKey: "",
+    }))).toBe(false);
+  });
+
+  it("validates vision profile requiring url and model but allowing empty apiKey for MinerU OCR fallback", () => {
+    expect(isVisionProfileValid(undefined)).toBe(true);
+    // Default vision profile with empty key (falls back to MinerU OCR)
+    expect(isVisionProfileValid(defaultCustomProfile({
+      url: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      model: "glm-4v-flash",
+      apiKey: "",
+    }))).toBe(true);
+
+    // Vision profile with key
+    expect(isVisionProfileValid(defaultCustomProfile({
+      url: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      model: "glm-4v-flash",
+      apiKey: "my-key",
+    }))).toBe(true);
+
+    // Vision profile with missing url
+    expect(isVisionProfileValid(defaultCustomProfile({
+      url: "",
+      model: "glm-4v-flash",
+      apiKey: "my-key",
+    }))).toBe(false);
+
+    // Vision profile with missing model
+    expect(isVisionProfileValid(defaultCustomProfile({
+      url: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      model: "   ",
+      apiKey: "my-key",
+    }))).toBe(false);
   });
 });

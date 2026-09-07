@@ -305,7 +305,7 @@ describe("conversation events", () => {
         },
       },
     });
-    expect(messages[0]?.tools[0]?.title).toBe("GLM-4V 识图 · glm-4v-flash · MinerU OCR");
+    expect(messages[0]?.tools[0]?.title).toBe("识图 · glm-4v-flash · MinerU OCR");
   });
 
   it("tracks delegate progress from start through cumulative updates", () => {

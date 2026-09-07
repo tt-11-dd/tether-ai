@@ -192,12 +192,12 @@ export function parseChatProfiles(raw: unknown): ChatProfiles | undefined {
     ? value.deepseek as Record<string, unknown>
     : {};
   const activeCustomId = text(value.activeCustomId);
-  const listed = Array.isArray(value.customProfiles);
-  let customProfiles = listed
-    ? value.customProfiles.map(parseCustomProfile).filter((item): item is CustomApiProfile => Boolean(item))
+  const rawProfiles = Array.isArray(value.customProfiles) ? value.customProfiles : undefined;
+  let customProfiles: CustomApiProfile[] = rawProfiles
+    ? rawProfiles.map(parseCustomProfile).filter((item): item is CustomApiProfile => Boolean(item))
     : [];
   let resolvedActiveId = activeCustomId;
-  if (!listed) {
+  if (!rawProfiles) {
     const custom = value.custom && typeof value.custom === "object" && !Array.isArray(value.custom)
       ? value.custom as Record<string, unknown>
       : {};
@@ -297,4 +297,14 @@ export function buildCustomProfilesPayload(
       ? activeCustomId
       : nextProfiles[0]?.id ?? activeCustomId,
   };
+}
+
+export function isChatProfileValid(profile?: CustomApiProfile): boolean {
+  if (!profile) return true;
+  return Boolean(profile.url.trim() && profile.model.trim() && profile.apiKey.trim());
+}
+
+export function isVisionProfileValid(profile?: CustomApiProfile): boolean {
+  if (!profile) return true;
+  return Boolean(profile.url.trim() && profile.model.trim());
 }

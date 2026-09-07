@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 import { PREVIEW_HOST, PREVIEW_SCHEME, type AgentSessionStats, type ExtensionUiRequest, type PermissionMode } from "../shared/types";
 import { skillUserDisplay } from "../shared/skills";
 import { visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
-import { DEEPSEEK_PRESET, activeCustomProfile, defaultCustomProfile, isDeepSeekUrl, type CustomApiProfile } from "../shared/chat-profiles";
+import { DEEPSEEK_PRESET, activeCustomProfile, defaultCustomProfile, isChatProfileValid, isDeepSeekUrl, isVisionProfileValid, type CustomApiProfile } from "../shared/chat-profiles";
 import { applyTheme, readStoredTheme, THEMES, type ThemeId } from "../shared/theme";
 import { effortLabelKey, pickEffortOptions, reasoningLevelsAvailable } from "../shared/thinking";
 import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, delegateProgress, delegateStatusLabel, filterMentionPaths, formatCommand, isRecoverableRequestError, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, assistantReplyText, webSearchCard, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
@@ -3055,7 +3055,7 @@ export function Login({
           event.preventDefault();
           setBusy(true);
           try {
-            if (customProfiles.length === 0 || Boolean(activeCustom?.url && activeCustom.model && activeCustom.apiKey)) {
+            if (isChatProfileValid(activeCustom)) {
               const official = customProfiles.find((item) => isDeepSeekUrl(item.url));
               await window.harness.auth.saveProfiles({
                 kind: "custom",
@@ -3067,10 +3067,12 @@ export function Login({
                 activeCustomId: activeCustom?.id ?? "",
               });
             }
-            await window.harness.vision.saveConfig({
-              profiles: visionProfiles,
-              activeProfileId: activeVision?.id ?? activeVisionId,
-            });
+            if (isVisionProfileValid(activeVision)) {
+              await window.harness.vision.saveConfig({
+                profiles: visionProfiles,
+                activeProfileId: activeVision?.id ?? activeVisionId,
+              });
+            }
             await onSaved();
           } catch (error) {
             window.alert(error instanceof Error ? error.message : String(error));
@@ -3393,12 +3395,9 @@ export function Login({
                 className="primary"
                 disabled={
                   busy ||
-                  (activeCustom
-                    ? !activeCustom.url.trim() || !activeCustom.model.trim() || !activeCustom.apiKey.trim()
-                    : false) ||
-                  (activeVision
-                    ? !activeVision.url.trim() || !activeVision.model.trim() || !activeVision.apiKey.trim()
-                    : false)
+                  (pane === "chat"
+                    ? !isChatProfileValid(activeCustom)
+                    : !isVisionProfileValid(activeVision))
                 }
               >
                 {t("settings.save")}
