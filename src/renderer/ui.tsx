@@ -17,6 +17,7 @@ import type { MessageKey } from "../shared/i18n";
 import logo from "./logo.svg";
 
 const MAX_UPLOAD_IMAGES = 4;
+export const MAX_STEER_ROWS = 10;
 const PATH_MIME = "text/tether-path";
 let treeDragPath = "";
 
@@ -1788,6 +1789,8 @@ export function PromptBar({
   onCommand,
   stats,
   onCompact,
+  onQueuedEdit,
+  onQueuedRemove,
   skillCommands = [],
   placement = "dock",
 }: {
@@ -1813,12 +1816,16 @@ export function PromptBar({
   onCommand(command: string): void;
   stats?: AgentSessionStats;
   onCompact?(): void;
+  onQueuedEdit?(index: number): void;
+  onQueuedRemove?(index: number): void;
   skillCommands?: AgentSkillCommand[];
   placement?: "dock" | "hero";
 }) {
   const { t } = useI18n();
   const [value, setValue] = useState("");
   const [cursor, setCursor] = useState(0);
+  const [steerOpen, setSteerOpen] = useState(false);
+  const steerItems = (steering ?? []).slice(-MAX_STEER_ROWS);
   const [files, setFiles] = useState<string[]>([]);
   const [listing, setListing] = useState(false);
   const [picked, setPicked] = useState(0);
@@ -1978,7 +1985,7 @@ export function PromptBar({
     if (!root || disabled) return;
     const text = serializePrompt(root).trim();
     const refs = collectPromptImages(root);
-    if (!text && refs.length === 0) return;
+    if (!text && refs.length === 0 && !steering?.length) return;
     root.replaceChildren();
     setBlank(true);
     setValue("");
@@ -2110,18 +2117,38 @@ export function PromptBar({
               <Icon path="M3 7h6l2 2h10v10H3z" size={13} />
               <span>{folder ?? t("composer.selectProject")}</span>
             </button>
-            {steering && steering.length > 0 && (
+            {steerItems.length > 0 && (
               <div className="prompt-queue-meta">
-                <span className="prompt-steer-count">{t("composer.steering", { n: steering.length })}</span>
+                <button
+                  type="button"
+                  className={steerOpen ? "prompt-steer-toggle open" : "prompt-steer-toggle"}
+                  aria-expanded={steerOpen}
+                  onClick={() => setSteerOpen((open) => !open)}
+                >
+                  <span className="prompt-steer-count">{t("composer.steering", { n: steerItems.length })}</span>
+                  <Icon className="chevron" path="M6 9l6 6 6-6" size={12} />
+                </button>
               </div>
             )}
           </div>
-          {steering && steering.length > 0 && (
-            <div className="prompt-steer">
-              {steering.map((item, index) => (
-                <div key={`${index}-${item}`} className="prompt-steer-row">
-                  <Icon path="M12 19V5M5 12l7-7 7 7" size={12} />
-                  <p className="prompt-steer-text">{item}</p>
+          {steerOpen && steerItems.length > 0 && (
+            <div className="prompt-queue">
+              {steerItems.map((item, index) => (
+                <div key={`${index}-${item}`} className="prompt-queue-row">
+                  <span className="prompt-queue-index">{index + 1}</span>
+                  <p className="prompt-queue-text">{item}</p>
+                  <div className="prompt-queue-actions">
+                    {onQueuedEdit && (
+                      <button type="button" className="bubble-action" aria-label={t("composer.queueEdit")} onClick={() => onQueuedEdit(index)}>
+                        <Icon path="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" size={12} />
+                      </button>
+                    )}
+                    {onQueuedRemove && (
+                      <button type="button" className="bubble-action" aria-label={t("composer.queueRemove")} onClick={() => onQueuedRemove(index)}>
+                        <Icon path="M6 6l12 12M18 6L6 18" size={12} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -2267,7 +2294,7 @@ export function PromptBar({
               <i />
             </button>
           ) : (
-            <button type="submit" className="send" disabled={disabled || blank} aria-label={t("composer.send")}>
+            <button type="submit" className="send" disabled={disabled || (blank && !steering?.length)} aria-label={t("composer.send")}>
               <Icon path="M12 19V5M5 12l7-7 7 7" size={15} />
             </button>
           )}

@@ -25,7 +25,7 @@ Tether is an Electron desktop agent for real codebases. It brings model calls, w
 - **Permission boundaries** — Plan, Ask, Workspace, and Full Access modes.
 - **Recoverable edits** — patch checkpoints let `/undo` restore the previous turn's file changes.
 - **Local-first state** — settings, credentials, and sessions live under `~/.tether`; no telemetry or Tether-hosted model proxy.
-- **Desktop workflow** — project threads, `@` file mentions, steer-while-generating, image input, themes (white / paper / dark), diff previews, and Chinese/English UI.
+- **Desktop workflow** — project threads, `@` file mentions, queue-while-generating, image input, themes (white / paper / dark), diff previews, and Chinese/English UI.
 
 ## What Tether uses from Pi
 
@@ -117,9 +117,9 @@ Then:
 2. Configure a DeepSeek API key or compatible endpoint.
 3. Describe a task, review tool activity and diffs, and use `/undo` when needed.
 
-### Steer while generating
+### Queue while generating
 
-While a reply is generating, you can still type and press Enter. That text is steered into the current turn immediately (shown above the composer), not queued for later. Slash commands are not steered. Switching thread, starting a new chat, or changing project clears the on-screen steer list.
+While a reply is generating, you can still type and press Enter. That text is queued for after the current turn (shown above the composer), not injected into the turn in progress. Stop ends the current turn and leaves the queue unsent. Slash commands are not queued. Switching thread, starting a new chat, or changing project clears the on-screen queue.
 
 The current macOS package uses development signing. If Gatekeeper blocks it, right-click the app and choose **Open**, or run:
 

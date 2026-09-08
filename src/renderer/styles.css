@@ -3056,6 +3056,24 @@ textarea::selection,
   padding-top: 4px;
   border-top: 1px solid var(--line);
 }
+.prompt-steer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 8px;
+}
+.prompt-steer-toggle:hover {
+  background: var(--hover);
+}
+.prompt-steer-toggle .chevron {
+  color: var(--brand);
+  flex: none;
+}
+.prompt-steer-toggle:not(.open) .chevron {
+  transform: rotate(-90deg);
+}
 .prompt-steer-count {
   font-size: 11px;
   color: var(--brand);

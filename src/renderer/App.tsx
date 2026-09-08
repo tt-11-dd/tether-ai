@@ -58,6 +58,7 @@ import {
   Icon,
   InspectPanel,
   Login,
+  MAX_STEER_ROWS,
   PromptBar,
   SidebarNav,
   Thinking,
@@ -371,7 +372,7 @@ export function App() {
   const fillPrompt = useCallback((text: string) => {
     setPromptFill((current) => ({ text, token: current.token + 1 }));
   }, []);
-  const [steering, setSteering] = useState<string[]>([]);
+  const [queued, setQueued] = useState<Array<{ text: string; images?: string[] }>>([]);
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -394,6 +395,10 @@ export function App() {
   const agentCwd = useRef<string | undefined>(undefined);
   const sessionRef = useRef<string | undefined>(undefined);
   const sending = useRef(false);
+  const queuedRef = useRef(queued);
+  queuedRef.current = queued;
+  const queueFlush = useRef(false);
+  const queueHeld = useRef(false);
   const stick = useRef(true);
   const dock = useRef<HTMLDivElement>(null);
   const live = useRef(false);
@@ -574,7 +579,7 @@ export function App() {
       return false;
     }
     if (!seedMessage && !resume) {
-      setSteering([]);
+      setQueued([]);
       // Opening a thread: clear the pane so we don't keep showing the welcome/home shell.
       if (sessionPath) {
         setMessages([]);
@@ -719,7 +724,7 @@ export function App() {
     setMessages([]);
     setStats(undefined);
     fillPrompt("");
-    setSteering([]);
+    setQueued([]);
     setActiveSession(undefined);
     sessionRef.current = undefined;
     setRunning(false);
@@ -746,7 +751,7 @@ export function App() {
     setMessages([]);
     setStats(undefined);
     fillPrompt("");
-    setSteering([]);
+    setQueued([]);
     setRunning(false);
     setUiRequest(undefined);
     setPreview(undefined);
@@ -771,7 +776,7 @@ export function App() {
       }
       setMessages([]);
       setStats(undefined);
-      setSteering([]);
+      setQueued([]);
       setActiveSession(undefined);
       sessionRef.current = undefined;
       setRunning(false);
@@ -817,7 +822,7 @@ export function App() {
     setWorkspace(undefined);
     setMessages([]);
     setStats(undefined);
-    setSteering([]);
+    setQueued([]);
     setActiveSession(undefined);
     setRunning(false);
     setUiRequest(undefined);
@@ -959,26 +964,33 @@ export function App() {
       void undoLastTurn();
       return;
     }
-    if ((!text && !images?.length) || loading || sending.current) return;
     if (running) {
-      if (text.startsWith("/")) return;
+      if ((!text && !images?.length) || text.startsWith("/")) return;
+      if (queued.length >= MAX_STEER_ROWS) {
+        setToast(t("toast.steerLimit", { n: MAX_STEER_ROWS }));
+        return;
+      }
       const followup = text || t("toast.defaultImagePrompt");
       fillPrompt("");
-      try {
-        const payload: Record<string, unknown> = { message: followup };
-        if (images?.length) payload.images = toPromptImages(images);
-        await window.harness.agent.command("steer", payload);
-        setSteering((current) => (current.includes(followup) ? current : [...current, followup]));
-        setToast(t("toast.steered"));
-      } catch (error) {
-        fillPrompt(text);
-        setToast(friendlyAgentError(error));
-      }
+      setQueued((current) => [...current, { text: followup, images }]);
+      setToast(t("toast.steered"));
       return;
     }
+    let question = text;
+    let attached = images;
+    if (!question && !attached?.length) {
+      const next = queuedRef.current[0];
+      if (!next || loading || sending.current) return;
+      queueHeld.current = false;
+      setQueued((current) => current.slice(1));
+      question = next.text;
+      attached = next.images;
+    }
+    if ((!question && !attached?.length) || loading || sending.current) return;
     sending.current = true;
-    const question = text || t("toast.defaultImagePrompt");
-    const thumbs = (images ?? []).map((item) => {
+    queueHeld.current = false;
+    question = question || t("toast.defaultImagePrompt");
+    const thumbs = (attached ?? []).map((item) => {
       const match = item.match(/^data:([^;]+);base64,(.+)$/);
       return {
         mimeType: match?.[1] ?? "image/png",
@@ -1004,24 +1016,24 @@ export function App() {
         const started = await startAgent(cwd, undefined, true, false, permission, optimistic);
         if (!started) {
           setMessages((current) => current.filter((item) => item.id !== optimistic!.id));
-          fillPrompt(text);
+          fillPrompt(question);
           setRunning(false);
           return;
         }
       } else if (!(await ensureModelReady())) {
         setMessages((current) => current.filter((item) => item.id !== optimistic!.id));
-        fillPrompt(text);
+        fillPrompt(question);
         setRunning(false);
         return;
       }
 
-      if (!images?.length) {
+      if (!attached?.length) {
         await window.harness.agent.command("prompt", { message: question });
       } else if (modelSupportsVision(modelRef.current)) {
         try {
           await window.harness.agent.command("prompt", {
             message: question,
-            images: toPromptImages(images),
+            images: toPromptImages(attached),
           });
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
@@ -1029,24 +1041,35 @@ export function App() {
           if (!/does not support image|image input|unsupported.*image|invalid.*image/i.test(detail)) {
             throw error;
           }
-          const message = visionAgentPrompt(question, await window.harness.vision.stage(images));
+          const message = visionAgentPrompt(question, await window.harness.vision.stage(attached));
           await window.harness.agent.command("prompt", { message });
         }
       } else {
-        const message = visionAgentPrompt(question, await window.harness.vision.stage(images));
+        const message = visionAgentPrompt(question, await window.harness.vision.stage(attached));
         await window.harness.agent.command("prompt", { message });
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       const optimisticId = optimistic?.id;
       if (optimisticId) setMessages((current) => current.filter((item) => item.id !== optimisticId));
-      fillPrompt(text);
+      fillPrompt(question);
       setRunning(false);
       if (!/Agent session closed/.test(detail)) setToast(friendlyAgentError(error));
     } finally {
       sending.current = false;
     }
-  }, [ensureModelReady, fillPrompt, loading, openFolder, permission, running, startAgent, t, undoLastTurn, workspace]);
+  }, [ensureModelReady, fillPrompt, loading, openFolder, permission, running, startAgent, queued.length, t, undoLastTurn, workspace]);
+
+  useEffect(() => {
+    if (running || loading || sending.current || queueFlush.current || queueHeld.current) return;
+    const next = queuedRef.current[0];
+    if (!next) return;
+    queueFlush.current = true;
+    setQueued((current) => current.slice(1));
+    void sendMessage(next.text, next.images).finally(() => {
+      queueFlush.current = false;
+    });
+  }, [loading, running, sendMessage]);
 
   useEffect(() => {
     void refresh().then((status) => {
@@ -1092,12 +1115,6 @@ export function App() {
           setActiveSession(nextStats.sessionFile);
         }).catch(() => undefined);
         void window.harness.sessions.list().then(setSessions);
-      }
-      if (event.type === "queue_update") {
-        const nextSteering = Array.isArray(event.steering)
-          ? event.steering.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-          : [];
-        setSteering(nextSteering);
       }
       if (event.type === "extension_error" && typeof event.error === "string" && !isTransientStreamError(event.error)) {
         const text = friendlyAgentError(event.error);
@@ -1177,7 +1194,7 @@ export function App() {
     if (dock.current) ro.observe(dock.current);
     pin();
     return () => ro.disconnect();
-  }, [home, steering.length]);
+  }, [home, queued.length]);
 
   const homeRecents = (
     workspace
@@ -1190,6 +1207,7 @@ export function App() {
       fillToken={promptFill.token}
       onSubmit={(text, images) => void sendMessage(text, images)}
       onStop={() => {
+        queueHeld.current = true;
         setToast(t("toast.stopping"));
         void window.harness.agent.command("abort")
           .catch(() => undefined)
@@ -1197,7 +1215,14 @@ export function App() {
             setRunning(false);
           });
       }}
-      steering={steering}
+      steering={queued.map((item) => item.text)}
+      onQueuedEdit={(index) => {
+        const item = queued[index];
+        if (!item) return;
+        setQueued((current) => current.filter((_, i) => i !== index));
+        fillPrompt(item.text);
+      }}
+      onQueuedRemove={(index) => setQueued((current) => current.filter((_, i) => i !== index))}
       rootRef={dock}
       running={running}
       disabled={loading}

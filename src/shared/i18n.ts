@@ -135,7 +135,8 @@ const zh = {
   "toast.errorTimeout": "模型响应超时，请稍后重试",
   "toast.errorStreamInterrupted": "模型流中断了（常见于停止委派后立刻继续）。点「继续」再试一次，或换个更稳的模型。",
   "toast.stopping": "正在停止…",
-  "toast.steered": "已插话",
+  "toast.steered": "已排队",
+  "toast.steerLimit": "最多 {n} 条排队",
   "composer.retryContinue": "请从中断处继续，不要重复已完成的步骤。",
   "toast.errorEndpoint":
     "接口地址不可用，请检查 Base URL 是否包含正确的 API 路径",
@@ -147,8 +148,10 @@ const zh = {
 
   "composer.placeholderWorkspace": "输入你的需求或问题，输入 @ 可选择文件…",
   "composer.placeholderEmpty": "输入你的想法或指令，或从上方选择项目开始…",
-  "composer.placeholderFollowup": "Enter 插话，Shift+Enter 换行",
-  "composer.steering": "{n} 条插话",
+  "composer.placeholderFollowup": "Enter 排队，Shift+Enter 换行",
+  "composer.steering": "{n} 条排队",
+  "composer.queueEdit": "改回输入框",
+  "composer.queueRemove": "从排队移除",
   "composer.selectProject": "选择项目",
   "composer.selectOrOpen": "选择或打开本地项目",
   "composer.uploadImage": "上传图片",
@@ -570,7 +573,8 @@ const en: Record<MessageKey, string> = {
   "toast.errorStreamInterrupted":
     "The model stream broke (common after stopping a delegate). Click Continue, or switch to a more stable model.",
   "toast.stopping": "Stopping…",
-  "toast.steered": "Steered",
+  "toast.steered": "Queued",
+  "toast.steerLimit": "At most {n} queued messages",
   "composer.retryContinue": "Continue from where we left off. Do not redo completed steps.",
   "toast.errorEndpoint":
     "The endpoint is unavailable. Check that the Base URL includes the correct API path.",
@@ -586,8 +590,10 @@ const en: Record<MessageKey, string> = {
   "composer.placeholderEmpty":
     "Share an idea, or pick a project above to begin…",
   "composer.placeholderFollowup":
-    "Enter to steer, Shift+Enter for newline",
-  "composer.steering": "{n} steer",
+    "Enter to queue, Shift+Enter for newline",
+  "composer.steering": "{n} queued",
+  "composer.queueEdit": "Edit in composer",
+  "composer.queueRemove": "Remove from queue",
   "composer.selectProject": "Choose project",
   "composer.selectOrOpen": "Choose or open a local project",
   "composer.uploadImage": "Upload image",
