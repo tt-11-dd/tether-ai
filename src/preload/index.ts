@@ -65,11 +65,26 @@ const api: DesktopApi = {
   },
   agent: {
     start: (options) => ipcRenderer.invoke("agent:start", options),
-    stop: () => ipcRenderer.invoke("agent:stop"),
-    command: (type, data) => ipcRenderer.invoke("agent:command", type, data),
-    respondToUi: (id, response) => ipcRenderer.invoke("agent:ui-response", id, response),
+    stop: (sessionPath) => ipcRenderer.invoke("agent:stop", sessionPath),
+    command: (type, data, sessionPath) => ipcRenderer.invoke("agent:command", type, data, sessionPath),
+    respondToUi: (id, response, sessionPath) => ipcRenderer.invoke("agent:ui-response", id, response, sessionPath),
     onEvent: (listener) => subscribe<AgentEvent>("agent:event", listener),
-    onError: (listener) => subscribe<string>("agent:error", listener),
+    onError: (listener) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        payload: string | { message: string; sessionPath?: string },
+        extraSessionPath?: string,
+      ) => {
+        if (typeof payload === "object" && payload !== null && "message" in payload) {
+          listener(payload.message, payload.sessionPath);
+        } else {
+          listener(payload, extraSessionPath);
+        }
+      };
+      ipcRenderer.on("agent:error", handler);
+      return () => ipcRenderer.removeListener("agent:error", handler);
+    },
+    runningSessions: () => ipcRenderer.invoke("agent:running-sessions"),
   },
   onAppCommand: (listener) => subscribe<string>("app:command", listener),
 };

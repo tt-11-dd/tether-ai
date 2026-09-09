@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
-import { getTetherRpcEntryPath } from "tether-agent-core";
+import { getTetherRpcEntryPath, indexTetherSession } from "tether-agent-core";
 import type { AgentEvent, AgentSessionStats, AgentSnapshot, AgentStartOptions } from "../shared/types";
 import { parseSkillCommands } from "../shared/skills";
 import { killProcessTree } from "./process-tree";
@@ -32,15 +32,58 @@ export class AgentHost {
   private stderr = "";
   private requestId = 0;
   private pending = new Map<string, PendingRequest>();
+  private busy = false;
+  private lastActiveAt = Date.now();
   private static readonly STDERR_CAP = 200_000;
+  public onSessionResolved?: (resolvedPath: string, previousPath?: string) => void;
+  public tempId?: string;
 
   constructor(
     private readonly emitEvent: (event: AgentEvent) => void,
-    private readonly emitError: (message: string) => void,
+    private readonly emitError: (message: string, sessionPath?: string) => void,
+    public sessionPath?: string,
+    public cwd?: string,
   ) {}
 
   isRunning(): boolean {
     return Boolean(this.child && this.child.exitCode === null);
+  }
+
+  isBusy(): boolean {
+    return this.isRunning() && this.busy;
+  }
+
+  getLastActiveAt(): number {
+    return this.lastActiveAt;
+  }
+
+  setSessionPath(file: string): void {
+    const resolved = path.resolve(file);
+    if (this.sessionPath === resolved) return;
+    const previous = this.sessionPath;
+    this.sessionPath = resolved;
+    this.onSessionResolved?.(resolved, previous);
+    void indexTetherSession(resolved).catch(() => undefined);
+    this.emitEvent({
+      type: "session_created",
+      sessionPath: resolved,
+      cwd: this.cwd,
+      ...(this.tempId ? { tempId: this.tempId } : {}),
+    });
+  }
+
+  async resolveSessionPath(): Promise<string | undefined> {
+    try {
+      const state = await this.request<{ sessionFile?: string }>("get_state");
+      const file = sessionFileFromUnknown(state);
+      if (file && (!this.sessionPath || this.sessionPath.includes("unknown_"))) {
+        this.setSessionPath(file);
+        return this.sessionPath;
+      }
+    } catch {
+      // Best-effort
+    }
+    return this.sessionPath;
   }
 
   async snapshot(): Promise<AgentSnapshot> {
@@ -48,13 +91,22 @@ export class AgentHost {
       this.request<Record<string, unknown>>("get_state"),
       this.request<{ messages: unknown[] }>("get_messages"),
     ]);
+    if (!this.sessionPath || this.sessionPath.includes("unknown_")) {
+      const file = sessionFileFromUnknown(state);
+      if (file) this.setSessionPath(file);
+    }
     void this.emitSnapshotMeta();
     return {
-      state,
+      state: {
+        ...state,
+        isStreaming: this.busy,
+        isBusy: this.busy,
+      },
       messages: messages.messages,
       models: [],
       thinkingLevels: [],
       skills: [],
+      ...(this.cwd ? { cwd: this.cwd } : {}),
     };
   }
 
@@ -80,6 +132,7 @@ export class AgentHost {
         thinkingLevels: thinkingLevels.levels,
         skills: parseSkillCommands(commands.commands),
         ...(stats ? { stats } : {}),
+        ...(this.sessionPath ? { sessionPath: this.sessionPath } : {}),
       });
     } catch {
       // First paint already succeeded; meta is best-effort.
@@ -93,6 +146,11 @@ export class AgentHost {
     visionUploads?: string;
   }): Promise<AgentSnapshot> {
     await this.stop();
+    if (options.tempId) this.tempId = options.tempId;
+    if (options.sessionPath) this.sessionPath = options.sessionPath;
+    if (options.cwd) this.cwd = options.cwd;
+    this.busy = false;
+    this.lastActiveAt = Date.now();
     const args = [
       getTetherRpcEntryPath(),
       "--mode",
@@ -194,9 +252,16 @@ export class AgentHost {
   async request<T>(type: string, data: Record<string, unknown> = {}): Promise<T> {
     const child = this.child;
     if (!child || child.stdin.destroyed) throw new Error("No workspace session is active");
+    if (type === "prompt" || type === "steer") {
+      this.busy = true;
+    }
+    if (type === "abort") {
+      this.busy = false;
+    }
+    this.lastActiveAt = Date.now();
     const id = `desktop_${++this.requestId}`;
     const command = { ...data, type, id };
-    return new Promise<T>((resolve, reject) => {
+    const result = await new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`Tether did not respond to ${type}. ${this.stderr}`.trim()));
@@ -214,6 +279,10 @@ export class AgentHost {
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
+    if ((type === "prompt" || type === "steer") && (!this.sessionPath || this.sessionPath.includes("unknown_"))) {
+      void this.resolveSessionPath();
+    }
+    return result;
   }
 
   async respondToUi(id: string, response: Record<string, unknown>): Promise<void> {
@@ -248,10 +317,31 @@ export class AgentHost {
       else pending.resolve(data.data);
       return;
     }
-    if (typeof data.type === "string") this.emitEvent(data as AgentEvent);
+    if (typeof data.type === "string") {
+      if (data.type === "agent_start") {
+        this.busy = true;
+        if (!this.sessionPath || this.sessionPath.includes("unknown_")) {
+          void this.resolveSessionPath();
+        }
+      }
+      if (data.type === "agent_settled") {
+        this.busy = false;
+        if (!this.sessionPath || this.sessionPath.includes("unknown_")) {
+          void this.resolveSessionPath();
+        }
+      }
+      this.lastActiveAt = Date.now();
+      const event: AgentEvent = {
+        ...(data as AgentEvent),
+        ...(this.sessionPath ? { sessionPath: this.sessionPath } : {}),
+        ...(this.tempId ? { tempId: this.tempId } : {}),
+      };
+      this.emitEvent(event);
+    }
   }
 
   private handleExit(error: Error): void {
+    this.busy = false;
     const detail = this.stderr.trim();
     const message = detail ? `${error.message}\n${detail}` : error.message;
     for (const pending of this.pending.values()) {
@@ -259,10 +349,15 @@ export class AgentHost {
       pending.reject(new Error(message));
     }
     this.pending.clear();
-    this.emitError(message);
+    this.emitError(message, this.sessionPath);
   }
 }
 
 function timeoutForRequest(type: string): number {
   return LONG_RUNNING_REQUESTS.has(type) ? LONG_RPC_TIMEOUT_MS : DEFAULT_RPC_TIMEOUT_MS;
+}
+
+function sessionFileFromUnknown(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || !("sessionFile" in value)) return undefined;
+  return typeof value.sessionFile === "string" ? value.sessionFile : undefined;
 }

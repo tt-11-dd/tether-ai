@@ -10,6 +10,7 @@ import {
   mineruUpload,
   MINERU_PARSE_FILE,
   MINERU_PARSE_TASK,
+  normalizeVisionEndpoint,
   resolveVisionSettings,
   visionEngineDetails,
   visionError,
@@ -171,7 +172,8 @@ export default function visionExtension(pi: ExtensionAPI) {
 }
 
 async function analyzeGlm(config: VisionConfig, prompt: string, images: string[], signal: AbortSignal) {
-  const response = await fetch(config.endpoint, {
+  const endpoint = normalizeVisionEndpoint(config.endpoint);
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: { authorization: `Bearer ${config.apiKey}`, "content-type": "application/json" },
     body: JSON.stringify(visionRequest(prompt, images, { model: config.model })),
@@ -213,13 +215,19 @@ async function loadVisionConfig(): Promise<VisionConfig> {
   if (file) {
     try {
       const raw = JSON.parse(await readFile(file, "utf8")) as Partial<VisionConfig>;
+      const settings = resolveVisionSettings(raw);
       return {
-        ...resolveVisionSettings(raw),
+        ...settings,
+        endpoint: normalizeVisionEndpoint(settings.endpoint),
         apiKey: typeof raw.apiKey === "string" ? raw.apiKey.trim() : "",
       };
     } catch {
       /* fall through */
     }
   }
-  return { ...DEFAULT_VISION_CONFIG, apiKey: process.env.ZHIPU_API_KEY?.trim() ?? "" };
+  return {
+    ...DEFAULT_VISION_CONFIG,
+    endpoint: normalizeVisionEndpoint(DEFAULT_VISION_CONFIG.endpoint),
+    apiKey: process.env.ZHIPU_API_KEY?.trim() ?? "",
+  };
 }

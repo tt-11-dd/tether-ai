@@ -53,6 +53,7 @@ import {
   ApprovalCard,
   AssistantTurn,
   Chat,
+  ConversationSkeleton,
   Dots,
   FileDrawer,
   Icon,
@@ -90,12 +91,43 @@ function sessionFileOf(snapshot: AgentSnapshot): string | undefined {
   return undefined;
 }
 
+function isSamePath(a?: string, b?: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  try {
+    return a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 function isSameSession(session: SessionSummary, active?: string) {
-  return Boolean(active && (session.path === active || session.storagePath === active));
+  return Boolean(
+    active &&
+      (session.id === active ||
+        session.path === active ||
+        isSamePath(session.path, active) ||
+        isSamePath(session.storagePath, active)),
+  );
+}
+
+function isSessionInSet(session: SessionSummary, set: Set<string>): boolean {
+  for (const item of set) {
+    if (
+      session.id === item ||
+      session.path === item ||
+      isSamePath(session.path, item) ||
+      isSamePath(session.storagePath, item) ||
+      (item && (item.endsWith(`/${session.id}.jsonl`) || item.endsWith(`\\${session.id}.jsonl`)))
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 const PIN_ICON =
-  "M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z";
+  "M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 1z";
 const PENCIL_ICON = "M21.2 6.8a1 1 0 0 0-4-4L3.8 16.2a2 2 0 0 0-.5.8l-1.3 4.4a.5.5 0 0 0 .6.6l4.4-1.3a2 2 0 0 0 .8-.5zM15 5l4 4";
 const TRASH_ICON = "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6";
 /** Real filled dots: zero-length stroked segments render as thin nubs, not circles. */
@@ -112,6 +144,7 @@ function MoreIcon() {
 function SessionRow({
   session,
   active,
+  running,
   onOpen,
   onPin,
   onRename,
@@ -119,6 +152,7 @@ function SessionRow({
 }: {
   session: SessionSummary;
   active: boolean;
+  running?: boolean;
   onOpen(): void;
   onPin(): void;
   onRename(title: string): void;
@@ -182,7 +216,12 @@ function SessionRow({
       ) : (
         <button type="button" className="session-row" onClick={onOpen}>
           {session.pinned && <Icon path={PIN_ICON} size={12} />}
-          <span>{session.title || t("common.unnamed")}</span>
+          <span className="session-title">{session.title || t("common.unnamed")}</span>
+          {running && (
+            <span className="session-running-badge" title={t("terminal.running")}>
+              <span className="session-running-dot" />
+            </span>
+          )}
         </button>
       )}
       <button
@@ -354,10 +393,48 @@ function AccountMenu({
   );
 }
 
+interface SessionCacheItem {
+  messages: ChatMessage[];
+  running: boolean;
+  stats?: AgentSessionStats;
+  queued: Array<{ text: string; images?: string[] }>;
+  uiRequest?: ExtensionUiRequest;
+  agentSkills?: AgentSkillCommand[];
+  cwd?: string;
+  queueHeld?: boolean;
+  draft?: string;
+}
+
 export function App() {
   const { t, locale } = useI18n();
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const diskSessionsRef = useRef<SessionSummary[]>([]);
+  const optimisticSessionsRef = useRef<Map<string, SessionSummary>>(new Map());
+
+  const updateSessions = useCallback((diskSessions?: SessionSummary[]) => {
+    if (diskSessions) diskSessionsRef.current = diskSessions;
+    const disk = diskSessionsRef.current;
+    const optimistic = optimisticSessionsRef.current;
+    const merged: SessionSummary[] = [];
+    for (const [key, opt] of optimistic.entries()) {
+      const foundInDisk = disk.some(
+        (d) =>
+          d.id === key ||
+          d.id === opt.id ||
+          isSamePath(d.path, opt.path) ||
+          isSamePath(d.storagePath, opt.storagePath) ||
+          isSamePath(d.path, key) ||
+          (opt.path && isSamePath(d.path, opt.path)),
+      );
+      if (!foundInDisk) {
+        merged.push(opt);
+      } else {
+        optimistic.delete(key);
+      }
+    }
+    setSessions([...merged, ...disk]);
+  }, []);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [workspace, setWorkspace] = useState<string>();
   const [activeSession, setActiveSession] = useState<string>();
@@ -391,9 +468,55 @@ export function App() {
   const [featureTodos, setFeatureTodos] = useState<SessionTodo[]>([]);
   const [agentSkills, setAgentSkills] = useState<AgentSkillCommand[]>([]);
   const [stoppedJobs, setStoppedJobs] = useState<string[]>([]);
+  const sessionStates = useRef<Map<string, SessionCacheItem>>(new Map());
+  const [runningSessions, setRunningSessions] = useState<Set<string>>(new Set());
   const scroller = useRef<HTMLDivElement>(null);
   const agentCwd = useRef<string | undefined>(undefined);
   const sessionRef = useRef<string | undefined>(undefined);
+
+  const reconcileOptimisticSession = useCallback((tempId: string, realPath: string) => {
+    if (!tempId || !realPath || tempId === realPath) return;
+    const opt = optimisticSessionsRef.current.get(tempId);
+    if (opt) {
+      opt.path = realPath;
+      opt.storagePath = realPath;
+      opt.id = realPath;
+      optimisticSessionsRef.current.delete(tempId);
+      optimisticSessionsRef.current.set(realPath, opt);
+    }
+    setRunningSessions((prev) => {
+      const next = new Set(prev);
+      next.delete(tempId);
+      next.add(realPath);
+      return next;
+    });
+    const cached = sessionStates.current.get(tempId);
+    if (cached) {
+      sessionStates.current.delete(tempId);
+      sessionStates.current.set(realPath, cached);
+    }
+    if (sessionRef.current === tempId) sessionRef.current = realPath;
+    setActiveSession((current) => (current === tempId ? realPath : current));
+    updateSessions();
+  }, [updateSessions]);
+
+  const draftRef = useRef("");
+  const saveCurrentSessionToCache = useCallback(() => {
+    const key = sessionRef.current || activeSession;
+    if (!key) return;
+    const existing = sessionStates.current.get(key);
+    sessionStates.current.set(key, {
+      messages,
+      running,
+      stats,
+      queued,
+      uiRequest,
+      agentSkills,
+      cwd: agentCwd.current,
+      queueHeld: existing?.queueHeld ?? queueHeld.current,
+      draft: draftRef.current,
+    });
+  }, [activeSession, agentSkills, messages, queued, running, stats, uiRequest]);
   const sending = useRef(false);
   const queuedRef = useRef(queued);
   queuedRef.current = queued;
@@ -488,13 +611,20 @@ export function App() {
       ];
 
   const projects = useMemo(() => {
-    const byPath = new Map<string, { item: WorkspaceItem; sessions: SessionSummary[] }>();
-    for (const item of workspaces) byPath.set(item.path, { item, sessions: [] });
+    const result = workspaces.map((item) => ({ item, sessions: [] as SessionSummary[] }));
     for (const session of sessions) {
-      byPath.get(session.cwd)?.sessions.push(session);
+      const match = result.find((p) => isSamePath(p.item.path, session.cwd));
+      if (match) {
+        match.sessions.push(session);
+      } else if (workspace) {
+        const activeMatch = result.find((p) => isSamePath(p.item.path, workspace));
+        if (activeMatch && (!session.cwd || isSamePath(session.cwd, activeMatch.item.path))) {
+          activeMatch.sessions.push(session);
+        }
+      }
     }
-    return [...byPath.values()];
-  }, [sessions, workspaces]);
+    return result;
+  }, [sessions, workspaces, workspace]);
 
   const refreshAgentSkills = useCallback(async () => {
     const loadDisk = () => window.harness.app.listSkills().catch(() => [] as AgentSkillCommand[]);
@@ -530,9 +660,9 @@ export function App() {
     ]);
     setWorkspaces(recent);
     setProviders(status);
-    setSessions(threads);
+    updateSessions(threads);
     return status;
-  }, []);
+  }, [updateSessions]);
 
   const resolveSandbox = useCallback(async (asProject: boolean, mode: PermissionMode, cwd?: string) => {
     if (!asProject) return "read-only" as const;
@@ -557,9 +687,10 @@ export function App() {
     mode = permission,
     seedMessage?: ChatMessage,
     storagePath?: string,
+    targetTempId?: string,
   ) => {
     const seq = ++startSeq.current;
-    setLoading(true);
+    if (!seedMessage) setLoading(true);
     setUiRequest(undefined);
     let accounts: ProviderStatus[];
     try {
@@ -569,7 +700,6 @@ export function App() {
       setLoading(false);
       return false;
     }
-    if (seq !== startSeq.current) return false;
     setProviders(accounts);
     const chat = accounts.find((item) => item.id === "deepseek");
     if (!chat?.configured) {
@@ -598,7 +728,6 @@ export function App() {
       }
     }
     const sandbox = await resolveSandbox(asProject, mode, cwd);
-    if (seq !== startSeq.current) return false;
     if (asProject && sandbox !== "danger-full-access" && window.harness.platform !== "darwin") {
       setLoading(false);
       setToast(t("toast.sandboxCancelled"));
@@ -619,51 +748,127 @@ export function App() {
         ...(storagePath ? { storagePath } : {}),
         ...(resume ? { resume: true } : {}),
         ...(extraModels.length ? { extraModels } : {}),
+        ...(targetTempId ? { tempId: targetTempId } : {}),
       });
-      if (seq !== startSeq.current) return false;
-      if (seedMessage) {
-        setMessages([...normalizeMessages(snapshot.messages), seedMessage]);
-        setStats(snapshot.stats);
-        setAgentSkills(snapshot.skills ?? []);
-        setRunning(true);
-      } else {
-        const raw = normalizeMessages(snapshot.messages);
-        const hadRunning = Boolean(raw.at(-1)?.tools.some((tool) => tool.status === "running"));
-        const next = resume ? finalizeInterruptedTurn(raw) : raw;
-        setMessages(next);
-        setStats(snapshot.stats);
-        setRunning(Boolean(snapshot.state.isStreaming) && !hadRunning);
-        setAgentSkills(snapshot.skills ?? []);
-        if (resume && hadRunning) setToast(t("toast.sessionInterrupted"));
-        if (sessionPath && next.length === 0) {
-          setToast(t("toast.sessionEmpty"));
+
+      const file = sessionFileOf(snapshot) ?? sessionPath;
+      const canonicalPath = file || targetTempId;
+
+      // Always reconcile targetTempId if provided
+      if (targetTempId && file) {
+        reconcileOptimisticSession(targetTempId, file);
+      }
+
+      // Always cache background/foreground session state
+      const resolvedTarget = file ?? targetTempId ?? sessionPath;
+      if (resolvedTarget) {
+        const isActivelyStreaming = Boolean(snapshot.state?.isStreaming || snapshot.state?.isBusy);
+        if (seedMessage) {
+          const nextMsgs = [...normalizeMessages(snapshot.messages), seedMessage];
+          const existingCached = sessionStates.current.get(resolvedTarget);
+          sessionStates.current.set(resolvedTarget, {
+            messages: nextMsgs,
+            running: true,
+            stats: snapshot.stats,
+            queued: existingCached?.queued ?? [],
+            queueHeld: existingCached?.queueHeld,
+            draft: existingCached?.draft,
+            agentSkills: snapshot.skills ?? [],
+            cwd: snapshot.cwd ?? cwd,
+          });
+          setRunningSessions((prev) => new Set(prev).add(resolvedTarget));
+        } else {
+          const raw = normalizeMessages(snapshot.messages);
+          const hadRunning = Boolean(raw.at(-1)?.tools.some((tool) => tool.status === "running"));
+          const sessionStillRunning =
+            isActivelyStreaming ||
+            isSessionInSet({ path: resolvedTarget, id: resolvedTarget, storagePath: resolvedTarget } as SessionSummary, runningSessions) ||
+            Boolean(sessionStates.current.get(resolvedTarget)?.running);
+          const isCurrentlyRunning = sessionStillRunning || hadRunning;
+          if (isCurrentlyRunning) {
+            setRunningSessions((prev) => new Set(prev).add(resolvedTarget));
+          } else {
+            setRunningSessions((prev) => {
+              const s = new Set(prev);
+              s.delete(resolvedTarget);
+              return s;
+            });
+          }
+          const existingCached = sessionStates.current.get(resolvedTarget);
+          sessionStates.current.set(resolvedTarget, {
+            messages: (!sessionStillRunning || (existingCached?.messages.length ?? 0) === 0) ? raw : (existingCached?.messages ?? raw),
+            running: isCurrentlyRunning,
+            stats: snapshot.stats,
+            queued: existingCached?.queued ?? queuedRef.current,
+            queueHeld: existingCached?.queueHeld,
+            draft: existingCached?.draft,
+            agentSkills: snapshot.skills ?? [],
+            cwd: snapshot.cwd ?? cwd,
+          });
         }
       }
-      live.current = true;
-      agentCwd.current = snapshot.cwd ?? cwd ?? agentCwd.current;
-      agentModelsRef.current = snapshot.models ?? [];
-      agentModelIdsRef.current = agentModelsRef.current.map((item) => item.id).filter(Boolean);
-      if (modelId) {
-        setModel(modelId);
-        await window.harness.agent.command("set_model", { provider: "deepseek", modelId }).catch(() => undefined);
+
+      // Check if user is still focused on this session
+      const isTargetActive =
+        seq === startSeq.current ||
+        sessionRef.current === targetTempId ||
+        (file && sessionRef.current === file) ||
+        (sessionPath && sessionRef.current === sessionPath);
+
+      if (isTargetActive) {
+        if (file) {
+          sessionRef.current = file;
+          setActiveSession(file);
+        }
+        if (seedMessage) {
+          const nextMsgs = [...normalizeMessages(snapshot.messages), seedMessage];
+          setMessages(nextMsgs);
+          setStats(snapshot.stats);
+          setRunning(true);
+        } else {
+          const raw = normalizeMessages(snapshot.messages);
+          const hadRunning = Boolean(raw.at(-1)?.tools.some((tool) => tool.status === "running"));
+          const sessionStillRunning =
+            Boolean(snapshot.state?.isStreaming || snapshot.state?.isBusy) ||
+            Boolean(sessionStates.current.get(resolvedTarget!)?.running);
+          const next = (resume && hadRunning && !sessionStillRunning) ? finalizeInterruptedTurn(raw) : raw;
+          if (!sessionStillRunning || messages.length === 0) {
+            setMessages(next);
+          } else {
+            setMessages((current) => (current.length >= next.length ? current : next));
+          }
+          setStats(snapshot.stats);
+          setRunning(sessionStillRunning || hadRunning);
+          if (resume && hadRunning && !sessionStillRunning) setToast(t("toast.sessionInterrupted"));
+          if (sessionPath && next.length === 0) {
+            setToast(t("toast.sessionEmpty"));
+          }
+        }
+        setAgentSkills(snapshot.skills ?? []);
+        live.current = true;
+        agentCwd.current = snapshot.cwd ?? cwd ?? agentCwd.current;
+        agentModelsRef.current = snapshot.models ?? [];
+        agentModelIdsRef.current = agentModelsRef.current.map((item) => item.id).filter(Boolean);
+        if (modelId) {
+          setModel(modelId);
+          await window.harness.agent.command("set_model", { provider: "deepseek", modelId }, file ?? sessionPath).catch(() => undefined);
+        }
+        applyThinkingForModel(modelId);
+        const nextEffort = effortRef.current;
+        await window.harness.agent.command("set_thinking_level", { level: nextEffort }, file ?? sessionPath).catch(() => undefined);
+        await window.harness.agent.command("set_auto_compaction", { enabled: true }, file ?? sessionPath).catch(() => undefined);
       }
-      applyThinkingForModel(modelId);
-      const nextEffort = effortRef.current;
-      await window.harness.agent.command("set_thinking_level", { level: nextEffort }).catch(() => undefined);
-      await window.harness.agent.command("set_auto_compaction", { enabled: true }).catch(() => undefined);
-      if (seq !== startSeq.current) return false;
-      const file = sessionFileOf(snapshot) ?? sessionPath;
-      if (file) {
-        sessionRef.current = file;
-        setActiveSession(file);
-      }
-      void window.harness.sessions.list().then(setSessions);
+
+      void window.harness.sessions.list().then(updateSessions);
       void refreshAgentSkills();
       return true;
     } catch (error) {
-      if (seq !== startSeq.current) return false;
+      const isTargetActive =
+        seq === startSeq.current ||
+        sessionRef.current === targetTempId ||
+        (sessionPath && sessionRef.current === sessionPath);
+      if (!isTargetActive) return false;
       const message = error instanceof Error ? error.message : String(error);
-      // Session switch kills the previous agent; still tell the user when open failed.
       if (sessionPath) {
         setToast(t("toast.sessionOpenFailed", { error: friendlyAgentError(error) }));
       } else if (!/Agent session closed/.test(message)) {
@@ -672,15 +877,68 @@ export function App() {
       if (/not configured|credential|login|api key/i.test(message)) setLoginOpen(true);
       return false;
     } finally {
-      if (seq === startSeq.current) setLoading(false);
+      const isTargetActive =
+        seq === startSeq.current ||
+        sessionRef.current === targetTempId ||
+        (sessionPath && sessionRef.current === sessionPath);
+      if (isTargetActive) setLoading(false);
     }
-  }, [applyThinkingForModel, permission, refreshAgentSkills, resolveSandbox, t]);
+  }, [applyThinkingForModel, permission, reconcileOptimisticSession, refreshAgentSkills, resolveSandbox, t, updateSessions]);
 
   const openSession = useCallback((session: SessionSummary) => {
     // Allow re-open when the row is highlighted but the transcript failed to load.
     if (isSameSession(session, activeSession) && messages.length > 0 && !loading) return;
-    void startAgent(session.cwd, session.path, true, false, permission, undefined, session.storagePath);
-  }, [activeSession, loading, messages.length, permission, startAgent]);
+    saveCurrentSessionToCache();
+    stick.current = true;
+    let cached =
+      sessionStates.current.get(session.path) ??
+      (session.storagePath ? sessionStates.current.get(session.storagePath) : undefined) ??
+      (session.id ? sessionStates.current.get(session.id) : undefined);
+    if (!cached) {
+      for (const [key, item] of sessionStates.current.entries()) {
+        if (
+          isSamePath(key, session.path) ||
+          (session.storagePath && isSamePath(key, session.storagePath)) ||
+          key === session.id
+        ) {
+          cached = item;
+          break;
+        }
+      }
+    }
+    const isRunning = Boolean(cached?.running) || isSessionInSet(session, runningSessions);
+    const targetDraft = cached?.draft ?? "";
+    draftRef.current = targetDraft;
+    fillPrompt(targetDraft);
+    queueHeld.current = Boolean(cached?.queueHeld);
+    if (cached) {
+      setMessages(cached.messages);
+      setRunning(isRunning);
+      setStats(cached.stats);
+      setQueued(cached.queued ?? []);
+      setUiRequest(cached.uiRequest);
+      if (cached.agentSkills) setAgentSkills(cached.agentSkills);
+      setActiveSession(session.path);
+      sessionRef.current = session.path;
+      live.current = true;
+    } else {
+      setMessages([]);
+      setRunning(isRunning);
+      setStats(undefined);
+      setQueued([]);
+      setUiRequest(undefined);
+      setActiveSession(session.path);
+      sessionRef.current = session.path;
+      live.current = true;
+    }
+
+    if (isRunning) {
+      void window.harness.agent.command("get_state", undefined, session.path).catch(() => undefined);
+      return;
+    }
+
+    void startAgent(session.cwd, session.path, true, true, permission, undefined, session.storagePath);
+  }, [activeSession, fillPrompt, isSessionInSet, loading, messages.length, permission, runningSessions, saveCurrentSessionToCache, startAgent]);
 
   const ensureModelReady = useCallback(async (): Promise<boolean> => {
     if (!agentCwd.current) return true;
@@ -688,7 +946,7 @@ export function App() {
     if (!next) return true;
     if (agentModelIdsRef.current.includes(next)) {
       try {
-        await window.harness.agent.command("set_model", { provider: "deepseek", modelId: next });
+        await window.harness.agent.command("set_model", { provider: "deepseek", modelId: next }, sessionRef.current);
         await syncAgentThinking();
         return true;
       } catch (error) {
@@ -696,7 +954,7 @@ export function App() {
         return false;
       }
     }
-    await window.harness.agent.stop().catch(() => undefined);
+    await window.harness.agent.stop(sessionRef.current).catch(() => undefined);
     return startAgent(workspace, sessionRef.current, Boolean(workspace), true);
   }, [startAgent, syncAgentThinking, workspace]);
 
@@ -705,7 +963,7 @@ export function App() {
     modelRef.current = next;
     applyThinkingForModel(next);
     if (agentCwd.current && agentModelIdsRef.current.includes(next)) {
-      void window.harness.agent.command("set_model", { provider: "deepseek", modelId: next })
+      void window.harness.agent.command("set_model", { provider: "deepseek", modelId: next }, sessionRef.current)
         .then(() => syncAgentThinking())
         .catch(() => undefined);
     }
@@ -713,11 +971,10 @@ export function App() {
   }, [applyThinkingForModel, syncAgentThinking, t]);
 
   const bindProject = useCallback(async (cwd: string): Promise<boolean> => {
-    if (running && agentCwd.current && agentCwd.current !== cwd) {
-      setToast(t("toast.agentBusySwitch"));
-      return false;
-    }
-    if (running && agentCwd.current === cwd) return true;
+    saveCurrentSessionToCache();
+    queueHeld.current = false;
+    draftRef.current = "";
+    stick.current = true;
     live.current = false;
     setWorkspace(cwd);
     setOpenProjects((current) => ({ ...current, [cwd]: true }));
@@ -732,11 +989,10 @@ export function App() {
     setPreview(undefined);
     setFeatureTodos([]);
     setAgentSkills([]);
-    if (!agentCwd.current) return true;
     agentCwd.current = undefined;
-    if (!running) await window.harness.agent.stop().catch(() => undefined);
     return true;
-  }, [fillPrompt, running, t]);
+  }, [fillPrompt, saveCurrentSessionToCache]);
+
   const openFolder = useCallback(async () => {
     const selected = await window.harness.workspace.choose();
     if (!selected) return;
@@ -746,6 +1002,10 @@ export function App() {
   }, [bindProject]);
 
   const newThread = useCallback(async () => {
+    saveCurrentSessionToCache();
+    queueHeld.current = false;
+    draftRef.current = "";
+    stick.current = true;
     live.current = false;
     setWorkspace(undefined);
     setMessages([]);
@@ -759,21 +1019,26 @@ export function App() {
     setAgentSkills([]);
     setActiveSession(undefined);
     sessionRef.current = undefined;
-    if (!agentCwd.current) return;
     agentCwd.current = undefined;
-    await window.harness.agent.command("abort").catch(() => undefined);
-    await window.harness.agent.stop().catch(() => undefined);
-  }, [fillPrompt]);
+  }, [fillPrompt, saveCurrentSessionToCache]);
 
   const removeSession = useCallback(async (session: SessionSummary) => {
+    optimisticSessionsRef.current.delete(session.id);
+    optimisticSessionsRef.current.delete(session.path);
+    if (session.storagePath) optimisticSessionsRef.current.delete(session.storagePath);
+    await window.harness.agent.stop(session.path).catch(() => undefined);
+    sessionStates.current.delete(session.path);
+    if (session.storagePath) sessionStates.current.delete(session.storagePath);
+    setRunningSessions((prev) => {
+      const next = new Set(prev);
+      next.delete(session.path);
+      next.delete(session.id);
+      if (session.storagePath) next.delete(session.storagePath);
+      return next;
+    });
     if (isSameSession(session, activeSession)) {
       live.current = false;
-      // Abort + stop the RPC tree so Seatbelt shells / background jobs die with the thread.
-      if (agentCwd.current) {
-        await window.harness.agent.command("abort").catch(() => undefined);
-        await window.harness.agent.stop().catch(() => undefined);
-        agentCwd.current = undefined;
-      }
+      agentCwd.current = undefined;
       setMessages([]);
       setStats(undefined);
       setQueued([]);
@@ -785,34 +1050,34 @@ export function App() {
     }
     try {
       await window.harness.sessions.remove(session.id);
-      setSessions(await window.harness.sessions.list());
+      updateSessions(await window.harness.sessions.list());
     } catch (error) {
       setToast(error instanceof Error ? error.message : String(error));
     }
-  }, [activeSession]);
+  }, [activeSession, updateSessions]);
 
   const pinSession = useCallback(async (session: SessionSummary) => {
     try {
       await window.harness.sessions.pin(session.id, !session.pinned);
-      setSessions(await window.harness.sessions.list());
+      updateSessions(await window.harness.sessions.list());
     } catch (error) {
       setToast(error instanceof Error ? error.message : String(error));
     }
-  }, []);
+  }, [updateSessions]);
 
   const renameSession = useCallback(async (session: SessionSummary, title: string) => {
     try {
       await window.harness.sessions.rename(session.id, title);
-      setSessions(await window.harness.sessions.list());
+      updateSessions(await window.harness.sessions.list());
     } catch (error) {
       setToast(error instanceof Error ? error.message : String(error));
     }
-  }, []);
+  }, [updateSessions]);
 
   const removeProject = useCallback(async (path: string) => {
     try {
       setWorkspaces(await window.harness.workspace.forget(path));
-      setSessions(await window.harness.sessions.list());
+      updateSessions(await window.harness.sessions.list());
     } catch (error) {
       setToast(error instanceof Error ? error.message : String(error));
       return;
@@ -830,7 +1095,7 @@ export function App() {
     agentCwd.current = undefined;
     await window.harness.agent.command("abort").catch(() => undefined);
     await window.harness.agent.stop().catch(() => undefined);
-  }, [workspace]);
+  }, [updateSessions, workspace]);
 
   const applyUndo = useCallback(async (files: RestoreFile[]) => {
     await window.harness.workspace.restore(files, workspace);
@@ -840,14 +1105,14 @@ export function App() {
       sessionRef.current = stats.sessionFile;
       setActiveSession(stats.sessionFile);
     }
-    void window.harness.sessions.list().then(setSessions);
-  }, [workspace]);
+    void window.harness.sessions.list().then(updateSessions);
+  }, [updateSessions, workspace]);
 
   const stopJobs = useCallback(async (message: string) => {
-    const data = await window.harness.agent.command<{ commands: Array<{ name: string }> }>("get_commands");
+    const data = await window.harness.agent.command<{ commands: Array<{ name: string }> }>("get_commands", undefined, sessionRef.current);
     const names = new Set((data.commands ?? []).map((item) => item.name.replace(/^\//, "")));
     if (!names.has("stop-job") && !names.has("stop-jobs")) throw new Error(t("toast.needJobCommands"));
-    await window.harness.agent.command("prompt", { message });
+    await window.harness.agent.command("prompt", { message }, sessionRef.current);
   }, [t]);
 
   const undoLastTurn = useCallback(async () => {
@@ -860,7 +1125,7 @@ export function App() {
       }
     }
     try {
-      const log = await window.harness.agent.command<{ entries: Parameters<typeof lastTurnRestoreFiles>[0] }>("get_entries");
+      const log = await window.harness.agent.command<{ entries: Parameters<typeof lastTurnRestoreFiles>[0] }>("get_entries", undefined, sessionRef.current);
       const files = lastTurnRestoreFiles(log.entries ?? []);
       if (files.length === 0) {
         setToast(t("toast.nothingToUndo"));
@@ -897,10 +1162,10 @@ export function App() {
     setLoading(true);
     setToast(t("toast.compacting"));
     try {
-      const result = await window.harness.agent.command<{ tokensBefore?: number; summary?: string }>("compact");
+      const result = await window.harness.agent.command<{ tokensBefore?: number; summary?: string }>("compact", undefined, sessionRef.current);
       const [history, nextStats] = await Promise.all([
-        window.harness.agent.command<{ messages: unknown[] }>("get_messages"),
-        window.harness.agent.command<AgentSessionStats>("get_session_stats"),
+        window.harness.agent.command<{ messages: unknown[] }>("get_messages", undefined, sessionRef.current),
+        window.harness.agent.command<AgentSessionStats>("get_session_stats", undefined, sessionRef.current),
       ]);
       setMessages(normalizeMessages(history.messages));
       setStats(nextStats);
@@ -909,7 +1174,7 @@ export function App() {
           ? t("toast.compactDoneTokens", { tokens: result.tokensBefore.toLocaleString(locale === "en" ? "en-US" : "zh-CN") })
           : t("toast.compactDone"),
       );
-      void window.harness.sessions.list().then(setSessions);
+      void window.harness.sessions.list().then(updateSessions);
     } catch (error) {
       const raw = error instanceof Error ? error.message : String(error);
       if (/nothing to compact|session too small/i.test(raw)) {
@@ -931,7 +1196,7 @@ export function App() {
     const target = permissionBeforePlan.current;
     setLoading(true);
     try {
-      await window.harness.agent.command("prompt", { message: "/plan execute" });
+      await window.harness.agent.command("prompt", { message: "/plan execute" }, sessionRef.current);
       setPermission(target);
       setToast(t("plan.approved"));
     } catch (error) {
@@ -948,7 +1213,7 @@ export function App() {
     try {
       await window.harness.agent.command("prompt", {
         message: `Refine the current plan using update_plan. Requested changes:\n${text}`,
-      });
+      }, sessionRef.current);
     } catch (error) {
       setToast(friendlyAgentError(error));
     } finally {
@@ -972,7 +1237,15 @@ export function App() {
       }
       const followup = text || t("toast.defaultImagePrompt");
       fillPrompt("");
-      setQueued((current) => [...current, { text: followup, images }]);
+      setQueued((current) => {
+        const next = [...current, { text: followup, images }];
+        const target = sessionRef.current || activeSession;
+        if (target) {
+          const cached = sessionStates.current.get(target);
+          if (cached) cached.queued = next;
+        }
+        return next;
+      });
       setToast(t("toast.steered"));
       return;
     }
@@ -982,13 +1255,30 @@ export function App() {
       const next = queuedRef.current[0];
       if (!next || loading || sending.current) return;
       queueHeld.current = false;
-      setQueued((current) => current.slice(1));
+      setQueued((current) => {
+        const nextQ = current.slice(1);
+        const target = sessionRef.current || activeSession;
+        if (target) {
+          const cached = sessionStates.current.get(target);
+          if (cached) cached.queued = nextQ;
+        }
+        return nextQ;
+      });
       question = next.text;
       attached = next.images;
     }
     if ((!question && !attached?.length) || loading || sending.current) return;
     sending.current = true;
     queueHeld.current = false;
+    draftRef.current = "";
+    const activeKey = sessionRef.current || activeSession;
+    if (activeKey) {
+      const c = sessionStates.current.get(activeKey);
+      if (c) {
+        c.queueHeld = false;
+        c.draft = "";
+      }
+    }
     question = question || t("toast.defaultImagePrompt");
     const thumbs = (attached ?? []).map((item) => {
       const match = item.match(/^data:([^;]+);base64,(.+)$/);
@@ -998,6 +1288,7 @@ export function App() {
       };
     });
     let optimistic: ChatMessage | undefined;
+    let optimisticSessionId: string | undefined;
     try {
       let cwd = workspace ?? agentCwd.current;
       if (!cwd) {
@@ -1012,60 +1303,165 @@ export function App() {
       setMessages((current) => [...current, optimistic!]);
       setRunning(true);
 
-      if (!agentCwd.current) {
-        const started = await startAgent(cwd, undefined, true, false, permission, optimistic);
+      // If starting a brand new conversation without an active session file:
+      // IMMEDIATELY create an optimistic session in sidebar so user sees it right away!
+      if (!sessionRef.current) {
+        const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        optimisticSessionId = tempId;
+        const optimisticSession: SessionSummary = {
+          id: tempId,
+          path: tempId,
+          storagePath: tempId,
+          cwd,
+          title: question.slice(0, 96),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          messageCount: 1,
+          preview: question.slice(0, 240),
+          pinned: false,
+          archived: false,
+        };
+        sessionRef.current = tempId;
+        setActiveSession(tempId);
+        setRunningSessions((prev) => new Set([...prev, tempId]));
+        optimisticSessionsRef.current.set(tempId, optimisticSession);
+        updateSessions();
+        setOpenProjects((current) => ({ ...current, [cwd]: true }));
+        sessionStates.current.set(tempId, {
+          messages: [optimistic!],
+          running: true,
+          stats: undefined,
+          queued: [],
+          agentSkills: [],
+          cwd,
+        });
+      } else {
+        setRunningSessions((prev) => new Set([...prev, sessionRef.current!]));
+      }
+
+      if (!agentCwd.current || (optimisticSessionId && sessionRef.current === optimisticSessionId)) {
+        const started = await startAgent(cwd, undefined, true, false, permission, optimistic, undefined, optimisticSessionId);
         if (!started) {
           setMessages((current) => current.filter((item) => item.id !== optimistic!.id));
           fillPrompt(question);
           setRunning(false);
+          if (optimisticSessionId) {
+            optimisticSessionsRef.current.delete(optimisticSessionId);
+            setRunningSessions((prev) => {
+              const next = new Set(prev);
+              next.delete(optimisticSessionId!);
+              return next;
+            });
+            if (sessionRef.current === optimisticSessionId) {
+              sessionRef.current = undefined;
+              setActiveSession(undefined);
+            }
+            updateSessions();
+          }
           return;
         }
       } else if (!(await ensureModelReady())) {
         setMessages((current) => current.filter((item) => item.id !== optimistic!.id));
         fillPrompt(question);
         setRunning(false);
+        if (optimisticSessionId) {
+          optimisticSessionsRef.current.delete(optimisticSessionId);
+          setRunningSessions((prev) => {
+            const next = new Set(prev);
+            next.delete(optimisticSessionId!);
+            return next;
+          });
+          if (sessionRef.current === optimisticSessionId) {
+            sessionRef.current = undefined;
+            setActiveSession(undefined);
+          }
+          updateSessions();
+        }
         return;
       }
 
+      const targetSession = sessionRef.current || optimisticSessionId;
+
       if (!attached?.length) {
-        await window.harness.agent.command("prompt", { message: question });
+        await window.harness.agent.command("prompt", { message: question }, targetSession);
       } else if (modelSupportsVision(modelRef.current)) {
         try {
           await window.harness.agent.command("prompt", {
             message: question,
             images: toPromptImages(attached),
-          });
+          }, targetSession);
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           // Model declared vision but API rejected images — fall back to dedicated vision tool.
-          if (!/does not support image|image input|unsupported.*image|invalid.*image/i.test(detail)) {
+          if (!/does not support image|image input|unsupported.*image|invalid.*image|image_url|multimodal|vision/i.test(detail)) {
             throw error;
           }
           const message = visionAgentPrompt(question, await window.harness.vision.stage(attached));
-          await window.harness.agent.command("prompt", { message });
+          await window.harness.agent.command("prompt", { message }, targetSession);
         }
       } else {
         const message = visionAgentPrompt(question, await window.harness.vision.stage(attached));
-        await window.harness.agent.command("prompt", { message });
+        await window.harness.agent.command("prompt", { message }, targetSession);
       }
+
+      void (async () => {
+        try {
+          const state = await window.harness.agent.command<{ sessionFile?: string }>("get_state", undefined, targetSession);
+          if (state?.sessionFile) {
+            const realFile = state.sessionFile;
+            if (optimisticSessionId) {
+              reconcileOptimisticSession(optimisticSessionId, realFile);
+            }
+            if (sessionRef.current === optimisticSessionId) {
+              sessionRef.current = realFile;
+              setActiveSession(realFile);
+            }
+            setRunningSessions((prev) => new Set([...prev, realFile]));
+          }
+        } catch {
+          // Ignore
+        }
+        void window.harness.sessions.list().then(updateSessions);
+      })();
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       const optimisticId = optimistic?.id;
       if (optimisticId) setMessages((current) => current.filter((item) => item.id !== optimisticId));
+      if (optimisticSessionId) {
+        optimisticSessionsRef.current.delete(optimisticSessionId);
+        setRunningSessions((prev) => {
+          const next = new Set(prev);
+          next.delete(optimisticSessionId!);
+          return next;
+        });
+        if (sessionRef.current === optimisticSessionId) {
+          sessionRef.current = undefined;
+          setActiveSession(undefined);
+        }
+        updateSessions();
+      }
       fillPrompt(question);
       setRunning(false);
       if (!/Agent session closed/.test(detail)) setToast(friendlyAgentError(error));
     } finally {
       sending.current = false;
     }
-  }, [ensureModelReady, fillPrompt, loading, openFolder, permission, running, startAgent, queued.length, t, undoLastTurn, workspace]);
+  }, [ensureModelReady, fillPrompt, loading, openFolder, permission, reconcileOptimisticSession, running, startAgent, queued.length, t, undoLastTurn, updateSessions, workspace]);
 
   useEffect(() => {
     if (running || loading || sending.current || queueFlush.current || queueHeld.current) return;
     const next = queuedRef.current[0];
     if (!next) return;
     queueFlush.current = true;
-    setQueued((current) => current.slice(1));
+    setQueued((current) => {
+      const nextQ = current.slice(1);
+      const target = sessionRef.current || activeSession;
+      if (target) {
+        const cached = sessionStates.current.get(target);
+        if (cached) cached.queued = nextQ;
+      }
+      return nextQ;
+    });
     void sendMessage(next.text, next.images).finally(() => {
       queueFlush.current = false;
     });
@@ -1077,6 +1473,9 @@ export function App() {
       if (current?.configured) setModel(current.defaultModel);
       if (!current?.configured) setLoginOpen(true);
     });
+    void window.harness.agent.runningSessions?.().then((sessions) => {
+      if (sessions?.length) setRunningSessions(new Set(sessions));
+    }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -1094,52 +1493,210 @@ export function App() {
 
   useEffect(() => {
     const offEvent = window.harness.agent.onEvent((event) => {
-      if (!live.current) return;
-      if (event.type === "agent_start") setRunning(true);
-      if (event.type === "desktop_snapshot_meta") {
-        if (Array.isArray(event.models)) {
-          agentModelsRef.current = event.models as typeof agentModelsRef.current;
-          agentModelIdsRef.current = agentModelsRef.current.map((item) => item.id).filter(Boolean);
+      const eventSession = (event as { sessionPath?: string }).sessionPath;
+      const isCurrent = Boolean(live.current && (!eventSession || (sessionRef.current ? isSamePath(eventSession, sessionRef.current) : true)));
+
+      if (event.type === "session_created" && typeof (event as { sessionPath?: string }).sessionPath === "string") {
+        const createdPath = (event as { sessionPath: string }).sessionPath;
+        const eventTempId = (event as { tempId?: string }).tempId;
+        const eventCwd = (event as { cwd?: string }).cwd;
+        if (eventTempId && optimisticSessionsRef.current.has(eventTempId)) {
+          reconcileOptimisticSession(eventTempId, createdPath);
+        } else {
+          for (const [tempId, opt] of optimisticSessionsRef.current.entries()) {
+            if (tempId.startsWith("temp_") && (!eventCwd || isSamePath(opt.cwd, eventCwd) || optimisticSessionsRef.current.size === 1)) {
+              reconcileOptimisticSession(tempId, createdPath);
+              break;
+            }
+          }
         }
-        if (Array.isArray(event.skills)) setAgentSkills(event.skills as AgentSkillCommand[]);
-        if (event.stats && typeof event.stats === "object") setStats(event.stats as AgentSessionStats);
+        const currentSession = sessionRef.current;
+        const isTargetingCurrent = Boolean(
+          currentSession &&
+          (isSamePath(currentSession, createdPath) ||
+           (eventTempId && currentSession === eventTempId) ||
+           (!eventTempId && (currentSession.includes("unknown_") || currentSession.startsWith("temp_"))))
+        );
+        if (currentSession && isTargetingCurrent) {
+          sessionRef.current = createdPath;
+          setActiveSession(createdPath);
+        }
+        setRunningSessions((prev) => new Set([...prev, createdPath]));
+        void window.harness.sessions.list().then(updateSessions);
       }
+
+      if (event.type === "agent_start") {
+        if (eventSession) {
+          setRunningSessions((prev) => new Set([...prev, eventSession]));
+        } else if (sessionRef.current) {
+          setRunningSessions((prev) => new Set([...prev, sessionRef.current!]));
+        }
+        if (isCurrent) setRunning(true);
+        void window.harness.sessions.list().then(updateSessions);
+      }
+
+      // Maintain background / cached session state
+      if (eventSession) {
+        let targetKey: string | undefined;
+        for (const key of sessionStates.current.keys()) {
+          if (isSamePath(key, eventSession)) {
+            targetKey = key;
+            break;
+          }
+        }
+        if (!targetKey) {
+          targetKey = eventSession;
+          sessionStates.current.set(targetKey, {
+            messages: [],
+            running: false,
+            stats: undefined,
+            queued: [],
+            uiRequest: undefined,
+          });
+        }
+        const cached = sessionStates.current.get(targetKey)!;
+        cached.messages = applyAgentEvent(cached.messages, event);
+        if (event.type === "agent_start") cached.running = true;
+        if (event.type === "agent_settled") {
+          cached.running = false;
+          cached.uiRequest = undefined;
+          // Auto-consume background session queue if not paused/held
+          if (cached.queued?.length && !isCurrent && !cached.queueHeld) {
+            const next = cached.queued[0];
+            cached.queued = cached.queued.slice(1);
+            cached.running = true;
+            const optimistic = optimisticUserMessage(next.text, false);
+            cached.messages = [...cached.messages, optimistic];
+            setRunningSessions((prev) => new Set(prev).add(eventSession));
+            void window.harness.agent.command("prompt", { message: next.text }, eventSession)
+              .catch(() => {
+                cached.running = false;
+                setRunningSessions((prev) => {
+                  const s = new Set(prev);
+                  s.delete(eventSession);
+                  return s;
+                });
+              });
+          }
+        }
+        if (event.type === "extension_ui_request") {
+          const request = event as ExtensionUiRequest;
+          if (["select", "confirm", "input", "editor"].includes(request.method)) {
+            cached.uiRequest = request;
+          }
+        }
+        if (event.type === "desktop_snapshot_meta" && event.stats && typeof event.stats === "object") {
+          cached.stats = event.stats as AgentSessionStats;
+        }
+      }
+
+      if (isCurrent) {
+        if (event.type === "desktop_snapshot_meta") {
+          if (Array.isArray(event.models)) {
+            agentModelsRef.current = event.models as typeof agentModelsRef.current;
+            agentModelIdsRef.current = agentModelsRef.current.map((item) => item.id).filter(Boolean);
+          }
+          if (Array.isArray(event.skills)) setAgentSkills(event.skills as AgentSkillCommand[]);
+          if (event.stats && typeof event.stats === "object") setStats(event.stats as AgentSessionStats);
+        }
+        if (event.type === "agent_settled") {
+          setRunning(false);
+          setUiRequest(undefined);
+          void window.harness.agent.command<AgentSessionStats>("get_session_stats", undefined, sessionRef.current).then((nextStats) => {
+            if (!live.current) return;
+            setStats(nextStats);
+            if (typeof nextStats?.sessionFile !== "string") return;
+            const realFile = nextStats.sessionFile;
+            const currentSession = sessionRef.current;
+            sessionRef.current = realFile;
+            setActiveSession(realFile);
+            if (currentSession && currentSession.startsWith("temp_")) {
+              reconcileOptimisticSession(currentSession, realFile);
+            }
+          }).catch(() => undefined);
+          void window.harness.sessions.list().then(updateSessions);
+        }
+        if (event.type === "extension_error" && typeof event.error === "string" && !isTransientStreamError(event.error)) {
+          const text = friendlyAgentError(event.error);
+          if (text) setToast(text);
+        }
+        if (event.type === "tool_execution_end" && event.isError === true) {
+          const detail = typeof event.result === "string" ? event.result : JSON.stringify(event.result ?? "");
+          if (/read-only|permission denied|not permitted|sandbox/i.test(detail)) {
+            setToast(t("toast.readOnlySession"));
+          }
+        }
+        if (event.type === "extension_ui_request") {
+          const request = event as ExtensionUiRequest;
+          if (request.method === "notify") setToast(request.message ?? t("toast.notify"));
+          else if (["select", "confirm", "input", "editor"].includes(request.method)) setUiRequest(request);
+        }
+        setMessages((current) => (live.current ? applyAgentEvent(current, event) : current));
+      } else {
+        if (event.type === "agent_settled") {
+          void window.harness.sessions.list().then(updateSessions);
+        }
+      }
+
       if (event.type === "agent_settled") {
+        const eventTempId = (event as { tempId?: string }).tempId;
+        if (eventTempId) {
+          setRunningSessions((prev) => {
+            const next = new Set(prev);
+            next.delete(eventTempId);
+            return next;
+          });
+        }
+        if (eventSession) {
+          const cached = sessionStates.current.get(eventSession);
+          if (!cached?.running) {
+            setRunningSessions((prev) => {
+              const next = new Set(prev);
+              for (const s of prev) {
+                if (isSamePath(s, eventSession)) next.delete(s);
+              }
+              return next;
+            });
+          }
+        } else if (isCurrent && sessionRef.current) {
+          setRunningSessions((prev) => {
+            const next = new Set(prev);
+            for (const s of prev) {
+              if (isSamePath(s, sessionRef.current)) next.delete(s);
+            }
+            return next;
+          });
+        }
+      }
+    });
+    const offError = window.harness.agent.onError((message, errorSession) => {
+      if (/Agent session closed/.test(message) || isTransientStreamError(message)) return;
+      const isCurrent = Boolean(live.current && (!errorSession || (sessionRef.current ? isSamePath(errorSession, sessionRef.current) : true)));
+      if (errorSession) {
+        setRunningSessions((prev) => {
+          const next = new Set(prev);
+          for (const s of prev) {
+            if (isSamePath(s, errorSession)) next.delete(s);
+          }
+          return next;
+        });
+        for (const [key, cached] of sessionStates.current.entries()) {
+          if (isSamePath(key, errorSession)) {
+            cached.running = false;
+            cached.queueHeld = true;
+            cached.uiRequest = undefined;
+            cached.messages = finalizeInterruptedTurn(cached.messages);
+          }
+        }
+      }
+      if (isCurrent) {
+        queueHeld.current = true;
         setRunning(false);
         setUiRequest(undefined);
-        void window.harness.agent.command<AgentSessionStats>("get_session_stats").then((nextStats) => {
-          if (!live.current) return;
-          setStats(nextStats);
-          if (typeof nextStats?.sessionFile !== "string") return;
-          sessionRef.current = nextStats.sessionFile;
-          setActiveSession(nextStats.sessionFile);
-        }).catch(() => undefined);
-        void window.harness.sessions.list().then(setSessions);
-      }
-      if (event.type === "extension_error" && typeof event.error === "string" && !isTransientStreamError(event.error)) {
-        const text = friendlyAgentError(event.error);
+        setMessages((current) => finalizeInterruptedTurn(current));
+        const text = friendlyAgentError(message);
         if (text) setToast(text);
       }
-      if (event.type === "tool_execution_end" && event.isError === true) {
-        const detail = typeof event.result === "string" ? event.result : JSON.stringify(event.result ?? "");
-        if (/read-only|permission denied|not permitted|sandbox/i.test(detail)) {
-          setToast(t("toast.readOnlySession"));
-        }
-      }
-      if (event.type === "extension_ui_request") {
-        const request = event as ExtensionUiRequest;
-        if (request.method === "notify") setToast(request.message ?? t("toast.notify"));
-        else if (["select", "confirm", "input", "editor"].includes(request.method)) setUiRequest(request);
-      }
-      setMessages((current) => (live.current ? applyAgentEvent(current, event) : current));
-    });
-    const offError = window.harness.agent.onError((message) => {
-      if (!live.current) return;
-      if (/Agent session closed/.test(message) || isTransientStreamError(message)) return;
-      setRunning(false);
-      setMessages((current) => finalizeInterruptedTurn(current));
-      const text = friendlyAgentError(message);
-      if (text) setToast(text);
     });
     const offCommand = window.harness.onAppCommand((command) => {
       if (command === "new-thread") void newThread();
@@ -1208,8 +1765,16 @@ export function App() {
       onSubmit={(text, images) => void sendMessage(text, images)}
       onStop={() => {
         queueHeld.current = true;
+        const target = sessionRef.current || activeSession;
+        if (target) {
+          const cached = sessionStates.current.get(target);
+          if (cached) {
+            cached.queueHeld = true;
+            cached.running = false;
+          }
+        }
         setToast(t("toast.stopping"));
-        void window.harness.agent.command("abort")
+        void window.harness.agent.command("abort", undefined, sessionRef.current)
           .catch(() => undefined)
           .finally(() => {
             setRunning(false);
@@ -1219,10 +1784,26 @@ export function App() {
       onQueuedEdit={(index) => {
         const item = queued[index];
         if (!item) return;
-        setQueued((current) => current.filter((_, i) => i !== index));
+        setQueued((current) => {
+          const next = current.filter((_, i) => i !== index);
+          const target = sessionRef.current || activeSession;
+          if (target) {
+            const cached = sessionStates.current.get(target);
+            if (cached) cached.queued = next;
+          }
+          return next;
+        });
         fillPrompt(item.text);
       }}
-      onQueuedRemove={(index) => setQueued((current) => current.filter((_, i) => i !== index))}
+      onQueuedRemove={(index) => setQueued((current) => {
+        const next = current.filter((_, i) => i !== index);
+        const target = sessionRef.current || activeSession;
+        if (target) {
+          const cached = sessionStates.current.get(target);
+          if (cached) cached.queued = next;
+        }
+        return next;
+      })}
       rootRef={dock}
       running={running}
       disabled={loading}
@@ -1244,7 +1825,7 @@ export function App() {
         if (!agentCwd.current) return;
         void (async () => {
           try {
-            await window.harness.agent.command("prompt", { message: `/permissions ${mode}` });
+            await window.harness.agent.command("prompt", { message: `/permissions ${mode}` }, sessionRef.current);
             setToast(mode === "full" ? t("toast.sandboxOff") : t("toast.permissionChanged"));
           } catch (error) {
             setToast(friendlyAgentError(error));
@@ -1261,6 +1842,14 @@ export function App() {
       skillCommands={agentSkills}
       stats={stats}
       onCompact={() => void compactContext()}
+      onChange={(text) => {
+        draftRef.current = text;
+        const target = sessionRef.current || activeSession;
+        if (target) {
+          const cached = sessionStates.current.get(target);
+          if (cached) cached.draft = text;
+        }
+      }}
       placement={home ? "hero" : "dock"}
     />
   );
@@ -1327,6 +1916,7 @@ export function App() {
                       key={session.id}
                       session={session}
                       active={isSameSession(session, activeSession)}
+                      running={isSessionInSet(session, runningSessions) || (isSameSession(session, activeSession) && running)}
                       onOpen={() => openSession(session)}
                       onPin={() => void pinSession(session)}
                       onRename={(title) => void renameSession(session, title)}
@@ -1415,35 +2005,42 @@ export function App() {
                   <div className="home-recents-head">
                     <span>{t("nav.recentActive")}</span>
                   </div>
-                  {homeRecents.map((session) => (
-                    <button
-                      key={session.id}
-                      type="button"
-                      className="home-recent"
-                      onClick={() => openSession(session)}
-                    >
-                      <div className="home-recent-main">
-                        <Icon path="M19 3H5a2 2 0 0 0-2 2v14l4-4h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z" size={14} />
-                        <span>{session.title || t("common.unnamedSession")}</span>
-                      </div>
-                      <small>{relativeTime(session.updatedAt, t)}</small>
-                    </button>
-                  ))}
+                  {homeRecents.map((session) => {
+                    const isRunning = isSessionInSet(session, runningSessions) || (isSameSession(session, activeSession) && running);
+                    return (
+                      <button
+                        key={session.id}
+                        type="button"
+                        className="home-recent"
+                        onClick={() => openSession(session)}
+                      >
+                        <div className="home-recent-main">
+                          <Icon path="M19 3H5a2 2 0 0 0-2 2v14l4-4h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z" size={14} />
+                          <span>{session.title || t("common.unnamedSession")}</span>
+                          {isRunning && (
+                            <span className="session-running-badge" title="Running">
+                              <span className="session-running-dot" />
+                            </span>
+                          )}
+                        </div>
+                        <small>{relativeTime(session.updatedAt, t)}</small>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
           )}
           {!home && groups.length === 0 && (
-            <div className={loading ? "session-pane loading" : "session-pane"}>
-              {loading ? (
-                <div className="session-loading" role="status" aria-live="polite">
-                  <Dots />
-                  <span className="shimmer">{t("chat.loadingSession")}</span>
-                </div>
-              ) : (
+            loading ? (
+              <ConversationSkeleton
+                title={sessions.find((session) => isSameSession(session, activeSession))?.title}
+              />
+            ) : (
+              <div className="session-pane">
                 <p className="session-pane-empty">{t("chat.emptySession")}</p>
-              )}
-            </div>
+              </div>
+            )
           )}
           {groups.length > 0 && (
             <div className="messages">
@@ -1493,6 +2090,7 @@ export function App() {
               {uiRequest && (
                 <ApprovalCard
                   request={uiRequest}
+                  sessionPath={sessionRef.current}
                   lastTurn={[...messages].reverse().find((item) => item.role === "user" && item.text.trim() !== "/undo")?.text}
                   onRespond={uiRequest.id === "harness:undo" ? async (response) => {
                     if (response.confirmed !== true) {
@@ -1506,6 +2104,11 @@ export function App() {
                   } : undefined}
                   onDone={() => {
                     setUiRequest(undefined);
+                    const target = sessionRef.current || activeSession;
+                    if (target) {
+                      const cached = sessionStates.current.get(target);
+                      if (cached) cached.uiRequest = undefined;
+                    }
                   }}
                   onError={setToast}
                 />
@@ -1558,7 +2161,7 @@ export function App() {
               setModel(nextModel);
               applyThinkingForModel(nextModel);
               setLoginOpen(false);
-              await window.harness.agent.stop().catch(() => undefined);
+              await window.harness.agent.stop(sessionRef.current).catch(() => undefined);
               if (workspace || agentCwd.current) {
                 void startAgent(workspace, sessionRef.current, Boolean(workspace), false, permission);
               }

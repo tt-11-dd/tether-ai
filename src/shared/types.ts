@@ -74,6 +74,7 @@ export interface AgentStartOptions {
   extraModels?: string[];
   /** Extra host paths merged into workspace-write sandbox (absolute). */
   writableRoots?: string[];
+  tempId?: string;
 }
 
 export interface AgentSessionStats {
@@ -109,7 +110,7 @@ export interface AgentSnapshot {
   skills?: AgentSkillCommand[];
 }
 
-export type AgentEvent = Record<string, unknown> & { type: string };
+export type AgentEvent = Record<string, unknown> & { type: string; sessionPath?: string; tempId?: string };
 
 export type ExtensionUiRequest = {
   type: "extension_ui_request";
@@ -193,11 +194,12 @@ export interface DesktopApi {
   };
   agent: {
     start(options: AgentStartOptions): Promise<AgentSnapshot>;
-    stop(): Promise<void>;
-    command<T = unknown>(type: string, data?: Record<string, unknown>): Promise<T>;
-    respondToUi(id: string, response: Record<string, unknown>): Promise<void>;
+    stop(sessionPath?: string): Promise<void>;
+    command<T = unknown>(type: string, data?: Record<string, unknown>, sessionPath?: string): Promise<T>;
+    respondToUi(id: string, response: Record<string, unknown>, sessionPath?: string): Promise<void>;
     onEvent(listener: (event: AgentEvent) => void): () => void;
-    onError(listener: (message: string) => void): () => void;
+    onError(listener: (message: string, sessionPath?: string) => void): () => void;
+    runningSessions?(): Promise<string[]>;
   };
   onAppCommand(listener: (command: string) => void): () => void;
 }

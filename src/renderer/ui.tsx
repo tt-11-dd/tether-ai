@@ -157,6 +157,63 @@ export function Dots() {
   );
 }
 
+export function ConversationSkeleton({ title }: { title?: string }) {
+  const { t } = useI18n();
+  return (
+    <div className="messages skeleton-messages" aria-busy="true" aria-label={t("chat.loadingSession")}>
+      <div className="user-turn skeleton-user-turn">
+        {title ? (
+          <article className="user skeleton-user-known">
+            <span>{title}</span>
+          </article>
+        ) : (
+          <article className="user skeleton-user-placeholder">
+            <div className="skeleton-line skeleton-user-line-1" />
+            <div className="skeleton-line skeleton-user-line-2" />
+          </article>
+        )}
+      </div>
+
+      <article className="turn skeleton-turn">
+        <div className="skeleton-assistant-header">
+          <div className="skeleton-avatar" />
+          <div className="skeleton-line skeleton-assistant-name" />
+        </div>
+
+        <div className="skeleton-thought-bar">
+          <span className="skeleton-thought-dot" />
+          <div className="skeleton-line skeleton-thought-text" />
+        </div>
+
+        <div className="skeleton-paragraph">
+          <div className="skeleton-line" style={{ width: "94%" }} />
+          <div className="skeleton-line" style={{ width: "88%" }} />
+          <div className="skeleton-line" style={{ width: "91%" }} />
+          <div className="skeleton-line" style={{ width: "66%" }} />
+        </div>
+
+        <div className="skeleton-card">
+          <div className="skeleton-card-header">
+            <div className="skeleton-line" style={{ width: "120px", height: "11px" }} />
+            <div className="skeleton-line" style={{ width: "45px", height: "11px" }} />
+          </div>
+          <div className="skeleton-card-body">
+            <div className="skeleton-line" style={{ width: "84%", height: "12px" }} />
+            <div className="skeleton-line" style={{ width: "62%", height: "12px", marginLeft: "16px" }} />
+            <div className="skeleton-line" style={{ width: "48%", height: "12px", marginLeft: "16px" }} />
+            <div className="skeleton-line" style={{ width: "32%", height: "12px" }} />
+          </div>
+        </div>
+
+        <div className="skeleton-paragraph" style={{ marginTop: "16px" }}>
+          <div className="skeleton-line" style={{ width: "85%" }} />
+          <div className="skeleton-line" style={{ width: "44%" }} />
+        </div>
+      </article>
+    </div>
+  );
+}
+
 function formatDuration(start?: number, end?: number) {
   if (!start) return "";
   const seconds = Math.max(0, ((end ?? Date.now()) - start) / 1000);
@@ -1607,15 +1664,11 @@ function serializePrompt(root: HTMLElement): string {
       if (node.dataset.url) push(node.dataset.url);
       else if (node.dataset.file) push(`@${node.dataset.file}`);
       else if (node.tagName === "BR") out += "\n";
-      else if (!node.dataset.image) walk(node);
+      else walk(node);
     }
   };
   walk(root);
   return out;
-}
-
-function collectPromptImages(root: HTMLElement): string[] {
-  return [...root.querySelectorAll<HTMLElement>("[data-image]")].map((node) => node.dataset.image!).filter(Boolean);
 }
 
 function caretOffset(root: HTMLElement): number {
@@ -1633,7 +1686,7 @@ function caretOffset(root: HTMLElement): number {
       offset += node.textContent?.length ?? 0;
       return false;
     }
-    if (node instanceof HTMLElement && (node.dataset.url || node.dataset.file || node.dataset.image)) {
+    if (node instanceof HTMLElement && (node.dataset.url || node.dataset.file)) {
       offset += promptTokenLength(node);
       return node === endNode || node.contains(endNode);
     }
@@ -1664,7 +1717,7 @@ function placeCaret(root: HTMLElement, offset: number): void {
       left -= size;
       return false;
     }
-    if (node instanceof HTMLElement && (node.dataset.url || node.dataset.file || node.dataset.image)) {
+    if (node instanceof HTMLElement && (node.dataset.url || node.dataset.file)) {
       const size = promptTokenLength(node);
       if (left <= size) {
         range.setStartAfter(node);
@@ -1692,79 +1745,26 @@ function placeCaret(root: HTMLElement, offset: number): void {
   sel.addRange(range);
 }
 
-function promptSvg(path: string, size: number): SVGSVGElement {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("width", String(size));
-  svg.setAttribute("height", String(size));
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "1.75");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-  svg.setAttribute("aria-hidden", "true");
-  const item = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  item.setAttribute("d", path);
-  svg.append(item);
-  return svg;
-}
-
-function makeUploadChip(item: { id: string; name: string; dataUri: string }): HTMLSpanElement {
-  const chip = document.createElement("span");
-  chip.className = "prompt-upload";
-  chip.contentEditable = "false";
-  chip.dataset.image = item.dataUri;
-  chip.dataset.uploadId = item.id;
-  chip.tabIndex = -1;
-  chip.setAttribute("role", "button");
-  const img = document.createElement("img");
-  img.src = item.dataUri;
-  img.alt = "";
-  chip.append(img);
-  const close = document.createElement("span");
-  close.dataset.remove = "1";
-  close.append(promptSvg("M18 6L6 18M6 6l12 12", 11));
-  chip.append(close);
-  return chip;
-}
-
-function insertNodeAtCaret(root: HTMLElement, node: Node): void {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0 || !root.contains(sel.anchorNode)) {
-    root.append(node);
-    return;
-  }
-  const range = sel.getRangeAt(0);
-  range.deleteContents();
-  range.insertNode(node);
-  range.setStartAfter(node);
-  range.collapse(true);
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-
 function droppedAbsPath(file: File): string {
   const path = (file as File & { path?: string }).path;
   return typeof path === "string" ? path : "";
 }
 
 function hydratePrompt(root: HTMLElement, text: string): void {
-  const images = [...root.querySelectorAll<HTMLElement>("[data-image]")];
   root.replaceChildren();
   if (text) root.append(document.createTextNode(text));
-  for (const image of images) root.append(image);
 }
 
 function flattenPromptBlocks(root: HTMLElement): void {
   for (const el of [...root.querySelectorAll(".inspect-file")]) el.remove();
   for (const block of [...root.querySelectorAll<HTMLElement>("div, p")]) {
-    if (block.dataset.url || block.dataset.file || block.dataset.image) continue;
+    if (block.dataset.url || block.dataset.file) continue;
     block.replaceWith(...block.childNodes);
   }
 }
 
 function isPromptEmpty(root: HTMLElement): boolean {
-  return !serializePrompt(root).trim() && collectPromptImages(root).length === 0;
+  return !serializePrompt(root).trim();
 }
 
 export function PromptBar({
@@ -1791,6 +1791,7 @@ export function PromptBar({
   onCompact,
   onQueuedEdit,
   onQueuedRemove,
+  onChange,
   skillCommands = [],
   placement = "dock",
 }: {
@@ -1818,11 +1819,13 @@ export function PromptBar({
   onCompact?(): void;
   onQueuedEdit?(index: number): void;
   onQueuedRemove?(index: number): void;
+  onChange?(text: string): void;
   skillCommands?: AgentSkillCommand[];
   placement?: "dock" | "hero";
 }) {
   const { t } = useI18n();
   const [value, setValue] = useState("");
+  const [attachments, setAttachments] = useState<Array<{ id: string; name: string; dataUri: string }>>([]);
   const [cursor, setCursor] = useState(0);
   const [steerOpen, setSteerOpen] = useState(false);
   const steerItems = (steering ?? []).slice(-MAX_STEER_ROWS);
@@ -1840,6 +1843,7 @@ export function PromptBar({
 
   useEffect(() => {
     setValue(fillText ?? "");
+    setAttachments([]);
   }, [fillToken]);
 
   useEffect(() => {
@@ -1864,12 +1868,15 @@ export function PromptBar({
     const root = area.current;
     if (!root) return "";
     flattenPromptBlocks(root);
-    if (isPromptEmpty(root) && !root.querySelector("[data-url], [data-file], [data-image]")) root.replaceChildren();
+    if (isPromptEmpty(root) && !root.querySelector("[data-url], [data-file]")) root.replaceChildren();
     const next = serializePrompt(root);
     setBlank(isPromptEmpty(root));
     setCursor(caretOffset(root));
     skipHydrate.current = true;
-    if (next !== value) setValue(next);
+    if (next !== value) {
+      setValue(next);
+      onChange?.(next);
+    }
     return next;
   };
 
@@ -1917,24 +1924,32 @@ export function PromptBar({
   }, [value]);
 
   const addUploads = async (list: FileList | File[]) => {
-    const root = area.current;
-    if (!root) return;
     const next: Array<{ id: string; name: string; dataUri: string }> = [];
     for (const file of [...list]) {
       if (!file.type.startsWith("image/")) continue;
-      next.push({
-        id: `${file.name}-${file.size}-${file.lastModified}-${Math.random()}`,
-        name: file.name,
-        dataUri: await readDataUri(file, t),
-      });
+      try {
+        const dataUri = await readDataUri(file, t);
+        next.push({
+          id: `${file.name}-${file.size}-${file.lastModified}-${Math.random()}`,
+          name: file.name,
+          dataUri,
+        });
+      } catch {
+        // ignore read error
+      }
     }
     if (next.length === 0) return;
-    const room = MAX_UPLOAD_IMAGES - collectPromptImages(root).length;
-    root.focus();
-    for (const item of next.slice(0, Math.max(0, room))) {
-      insertNodeAtCaret(root, makeUploadChip(item));
-    }
-    emit();
+    setAttachments((prev) => {
+      const room = MAX_UPLOAD_IMAGES - prev.length;
+      if (room <= 0) return prev;
+      return [...prev, ...next.slice(0, room)];
+    });
+    area.current?.focus();
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((item) => item.id !== id));
+    area.current?.focus();
   };
 
   const insertFile = (file: string, confirm = false) => {
@@ -1984,11 +1999,13 @@ export function PromptBar({
     const root = area.current;
     if (!root || disabled) return;
     const text = serializePrompt(root).trim();
-    const refs = collectPromptImages(root);
+    const refs = attachments.map((item) => item.dataUri);
     if (!text && refs.length === 0 && !steering?.length) return;
     root.replaceChildren();
     setBlank(true);
     setValue("");
+    setAttachments([]);
+    onChange?.("");
     onSubmit(text, refs.length ? refs : undefined);
   };
 
@@ -2178,6 +2195,28 @@ export function PromptBar({
             sendNow();
           }}
         >
+        {attachments.length > 0 && (
+          <div className="prompt-attachments">
+            {attachments.map((item) => (
+              <div key={item.id} className="prompt-attachment-card" title={item.name}>
+                <img src={item.dataUri} alt={item.name} />
+                <button
+                  type="button"
+                  className="prompt-attachment-remove"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    removeAttachment(item.id);
+                  }}
+                  title={t("composer.removeImage")}
+                  aria-label={t("composer.removeImage")}
+                >
+                  <Icon path="M18 6L6 18M6 6l12 12" size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div
           ref={area}
           className={blank ? "prompt-input empty" : "prompt-input"}
@@ -2192,19 +2231,8 @@ export function PromptBar({
             event.dataTransfer.dropEffect = "copy";
             event.currentTarget.contentEditable = "false";
           }}
-          onMouseDown={(event) => {
-            if ((event.target as HTMLElement).closest(".prompt-upload")) event.preventDefault();
-          }}
           onInput={emit}
           onKeyUp={() => area.current && setCursor(caretOffset(area.current))}
-          onClick={(event) => {
-            const remove = (event.target as HTMLElement).closest("[data-remove]");
-            if (!remove) return;
-            event.preventDefault();
-            remove.closest(".prompt-upload")?.remove();
-            emit();
-            area.current?.focus();
-          }}
           onKeyDown={onKey}
           onPaste={(event) => {
             const images = [...event.clipboardData.files].filter((file) => file.type.startsWith("image/"));
@@ -2267,7 +2295,7 @@ export function PromptBar({
             type="button"
             className="prompt-attach"
             aria-label={t("composer.uploadImage")}
-            disabled={(area.current ? collectPromptImages(area.current).length : 0) >= MAX_UPLOAD_IMAGES}
+            disabled={attachments.length >= MAX_UPLOAD_IMAGES}
             onClick={() => picker.current?.click()}
           >
             <Icon path="M12 5v14M5 12h14" size={15} />
@@ -2294,7 +2322,12 @@ export function PromptBar({
               <i />
             </button>
           ) : (
-            <button type="submit" className="send" disabled={disabled || (blank && !steering?.length)} aria-label={t("composer.send")}>
+            <button
+              type="submit"
+              className="send"
+              disabled={disabled || (blank && attachments.length === 0 && !steering?.length)}
+              aria-label={t("composer.send")}
+            >
               <Icon path="M12 19V5M5 12l7-7 7 7" size={15} />
             </button>
           )}
@@ -2618,19 +2651,21 @@ export function ApprovalCard({
   onDone,
   onError,
   onRespond,
+  sessionPath,
 }: {
   request: ExtensionUiRequest;
   lastTurn?: string;
   onDone(): void;
   onError(message: string): void;
   onRespond?(response: Record<string, unknown>): void | Promise<void>;
+  sessionPath?: string;
 }) {
   const { t } = useI18n();
   const [value, setValue] = useState(request.prefill ?? "");
   const respond = async (response: Record<string, unknown>) => {
     try {
       if (onRespond) await onRespond(response);
-      else await window.harness.agent.respondToUi(request.id, response);
+      else await window.harness.agent.respondToUi(request.id, response, sessionPath);
       onDone();
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));

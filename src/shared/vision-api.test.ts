@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isVisionHandoff, isVisionReadable, mergeVisionResult, mimeFromImagePath, mineruResult, mineruUpload, modelSupportsVision, parseVisionStore, resolveVisionSettings, serializeVisionStore, toPromptImages, visibleUserText, visionAgentPrompt, visionEngineDetails, visionError, visionHandoffPaths, visionRequest, visionResultSections, visionSnapshot, visionText, visionTitle, visionToolChips, visionToolTitle, visionUploadUrl } from "./vision-api";
+import { isVisionHandoff, isVisionReadable, mergeVisionResult, mimeFromImagePath, mineruResult, mineruUpload, modelSupportsVision, normalizeVisionEndpoint, parseVisionStore, resolveVisionSettings, serializeVisionStore, toPromptImages, visibleUserText, visionAgentPrompt, visionEngineDetails, visionError, visionHandoffPaths, visionRequest, visionResultSections, visionSnapshot, visionText, visionTitle, visionToolChips, visionToolTitle, visionUploadUrl } from "./vision-api";
 
 describe("modelSupportsVision", () => {
   it("accepts known vision models", () => {
@@ -112,6 +112,34 @@ describe("resolveVisionSettings", () => {
       provider: "deepseek",
       endpoint: "https://api.deepseek.com/chat/completions",
     }).endpoint).toBe("https://api.deepseek.com/chat/completions");
+  });
+
+  it("normalizes base URLs without /chat/completions for custom providers", () => {
+    expect(resolveVisionSettings({
+      provider: "custom",
+      endpoint: "https://api.deepseek.com/v1",
+      model: "deepseek-v4-flash-vision-exp",
+    })).toEqual({
+      provider: "custom",
+      endpoint: "https://api.deepseek.com/v1/chat/completions",
+      model: "deepseek-v4-flash-vision-exp",
+    });
+  });
+});
+
+describe("normalizeVisionEndpoint", () => {
+  it("appends /chat/completions to base URLs", () => {
+    expect(normalizeVisionEndpoint("https://api.deepseek.com/v1")).toBe("https://api.deepseek.com/v1/chat/completions");
+    expect(normalizeVisionEndpoint("https://api.deepseek.com/v1/")).toBe("https://api.deepseek.com/v1/chat/completions");
+    expect(normalizeVisionEndpoint("https://api.deepseek.com")).toBe("https://api.deepseek.com/chat/completions");
+  });
+
+  it("preserves endpoints that already have /chat/completions", () => {
+    expect(normalizeVisionEndpoint("https://api.deepseek.com/v1/chat/completions")).toBe("https://api.deepseek.com/v1/chat/completions");
+  });
+
+  it("handles empty and default fallback", () => {
+    expect(normalizeVisionEndpoint("")).toBe("https://open.bigmodel.cn/api/paas/v4/chat/completions");
   });
 });
 

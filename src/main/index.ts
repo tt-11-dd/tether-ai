@@ -32,7 +32,7 @@ import {
   type ApiKeyProviderId,
   type SupportedProviderId,
 } from "tether-agent-core";
-import { AgentHost } from "./agent-host";
+import { AgentHostManager } from "./agent-host-manager";
 import { isPathInsideRoot } from "./workspace-path";
 import { listLocalSkills, revealSkillPath } from "./skills-fs";
 import { apiBaseUrl, listOpenAiModels } from "../shared/openai-models";
@@ -123,7 +123,7 @@ if (!fs.existsSync(userDataPath) && fs.existsSync(legacyUserDataPath)) {
 process.env.TETHER_CREDENTIALS_STORE = "file";
 
 let mainWindow: BrowserWindow | undefined;
-let agentHost: AgentHost | undefined;
+let hostManager: AgentHostManager | undefined;
 let activeAgentCwd: string | undefined;
 let activeSessionPath: string | undefined;
 let workspaceWatcher: fs.FSWatcher | undefined;
@@ -251,9 +251,10 @@ function createWindow(): void {
     },
   });
 
-  agentHost = new AgentHost(
+  hostManager = new AgentHostManager(
     (event) => mainWindow?.webContents.send("agent:event", event),
-    (message) => mainWindow?.webContents.send("agent:error", message),
+    (message, sessionPath) =>
+      mainWindow?.webContents.send("agent:error", message, sessionPath),
   );
 
   mainWindow.once("ready-to-show", () => {
@@ -272,7 +273,7 @@ function createWindow(): void {
     mainWindow = undefined;
     // macOS keeps the app alive after the window closes; still reap the RPC tree
     // so sandbox shells don't keep burning RAM in the background.
-    void agentHost?.stop();
+    void hostManager?.stopAll();
   });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (isSafeExternalUrl(url)) void shell.openExternal(url);
@@ -731,13 +732,6 @@ function registerIpc(): void {
     const tasksDir = path.resolve(path.join(userDataPath, "tasks"));
     const cwd = options.cwd ? path.resolve(options.cwd) : tasksDir;
     await fsp.mkdir(cwd, { recursive: true });
-    if (
-      options.resume &&
-      agentHost!.isRunning() &&
-      (!options.sessionPath || options.sessionPath === activeSessionPath)
-    ) {
-      return { ...(await agentHost!.snapshot()), cwd: activeAgentCwd ?? cwd };
-    }
     activeAgentCwd = cwd;
     if (options.project || cwd !== tasksDir) await recentWorkspaces.touch(cwd);
     const {
@@ -769,9 +763,10 @@ function registerIpc(): void {
     const profiles = await loadChatProfiles();
     const maxTokens = activeCustomProfile(profiles)?.maxTokens;
     const baseUrl = rawUrl ? apiBaseUrl(rawUrl) : undefined;
-    const snapshot = await agentHost!.start({
+    const { snapshot } = await hostManager!.getOrCreateHost({
       ...startOptions,
       ...(sessionPath ? { sessionPath } : {}),
+      resume: options.resume,
       cwd,
       sandbox,
       visionExtension: visionExtensionPath(),
@@ -780,36 +775,57 @@ function registerIpc(): void {
       ...(baseUrl ? { baseUrl } : {}),
       ...(maxTokens ? { maxTokens } : {}),
     });
-    activeSessionPath = sessionFileOf(snapshot);
-    return { ...snapshot, cwd };
+    activeSessionPath = sessionFileOf(snapshot) ?? sessionPath;
+    return { ...snapshot, cwd: snapshot.cwd ?? cwd };
   });
-  ipcMain.handle("agent:stop", () => {
-    activeSessionPath = undefined;
-    return agentHost!.stop();
+  ipcMain.handle("agent:stop", (_event, sessionPath?: string) => {
+    if (!sessionPath) activeSessionPath = undefined;
+    return hostManager!.stop(sessionPath);
   });
   ipcMain.handle(
     "agent:command",
-    async (_event, type: string, data?: Record<string, unknown>) => {
+    async (
+      _event,
+      type: string,
+      data?: Record<string, unknown>,
+      sessionPath?: string,
+    ) => {
       if (!ALLOWED_AGENT_COMMANDS.has(type))
         throw new Error(`Unsupported agent command: ${type}`);
-      const result = await agentHost!.request(type, data);
+      const host = hostManager!.getHost(sessionPath);
+      if (!host) throw new Error("No workspace session is active");
+      const result = await host.request(type, data);
       if (
         type === "new_session" ||
         type === "get_state" ||
         type === "get_session_stats"
       ) {
         const file = sessionFileFromUnknown(result);
-        if (file) activeSessionPath = file;
+        if (file) {
+          activeSessionPath = file;
+          host.sessionPath = file;
+          hostManager!.setActiveSessionPath(file);
+        }
       }
       return result;
     },
   );
   ipcMain.handle(
     "agent:ui-response",
-    (_event, id: string, response: Record<string, unknown>) => {
-      return agentHost!.respondToUi(id, response);
+    (
+      _event,
+      id: string,
+      response: Record<string, unknown>,
+      sessionPath?: string,
+    ) => {
+      const host = hostManager!.getHost(sessionPath);
+      if (!host) throw new Error("No workspace session is active");
+      return host.respondToUi(id, response);
     },
   );
+  ipcMain.handle("agent:running-sessions", () => {
+    return hostManager!.getRunningSessions();
+  });
 }
 
 async function readHomeJson(name: string): Promise<unknown> {
@@ -1324,7 +1340,7 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   quitting = true;
   workspaceWatcher?.close();
-  void Promise.resolve(agentHost?.stop())
+  void Promise.resolve(hostManager?.stopAll())
     .catch(() => undefined)
     .finally(() => app.exit(0));
 });

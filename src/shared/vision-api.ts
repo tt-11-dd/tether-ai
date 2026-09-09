@@ -30,14 +30,19 @@ export const DEFAULT_VISION_CONFIG: Omit<VisionConfig, "apiKey"> = {
   model: VISION_MODEL,
 };
 
+/** Normalize vision endpoint: ensure /chat/completions is present for OpenAI-compatible gateways. */
+export function normalizeVisionEndpoint(url?: string): string {
+  const trimmed = (url || "").trim();
+  if (!trimmed) return VISION_ENDPOINT;
+  if (STALE_VISION_ENDPOINTS.has(trimmed)) return VISION_ENDPOINT;
+  const clean = trimmed.replace(/\/+$/, "");
+  if (/\/chat\/completions$/i.test(clean)) return clean;
+  return `${clean}/chat/completions`;
+}
+
 /** `{base}/chat/completions` for DeepSeek official or OpenAI-compatible gateways. */
 export function deepseekVisionEndpoint(baseUrl = DEEPSEEK_VISION_BASE): string {
-  const root = baseUrl
-    .trim()
-    .replace(/\/+$/, "")
-    .replace(/\/chat\/completions$/i, "")
-    .replace(/\/+$/, "");
-  return `${root || DEEPSEEK_VISION_BASE}/chat/completions`;
+  return normalizeVisionEndpoint(baseUrl || DEEPSEEK_VISION_BASE);
 }
 
 export function resolveVisionSettings(
@@ -56,7 +61,7 @@ export function resolveVisionSettings(
   const model = raw?.model?.trim() ?? "";
   return {
     provider,
-    endpoint: !endpoint || STALE_VISION_ENDPOINTS.has(endpoint) ? VISION_ENDPOINT : endpoint,
+    endpoint: normalizeVisionEndpoint(endpoint),
     model: !model || STALE_VISION_MODELS.has(model) ? VISION_MODEL : model,
   };
 }
@@ -128,7 +133,7 @@ export function visionSnapshot(
   const official = isDeepSeekUrl(url.replace(/\/+$/, "").replace(/\/chat\/completions$/i, "").replace(/\/+$/, ""));
   return {
     provider: "custom",
-    endpoint: url,
+    endpoint: normalizeVisionEndpoint(url),
     model: profile.model.trim() || (official ? DEEPSEEK_VISION_MODEL : ""),
     apiKey: profile.apiKey.trim(),
   };
