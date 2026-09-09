@@ -1109,6 +1109,19 @@ textarea::selection,
   padding: 28px 28px var(--dock-clearance);
   margin: 0 auto;
 }
+.messages:not(.skeleton-messages) {
+  animation: messagesFadeIn 0.16s ease-out;
+}
+@keyframes messagesFadeIn {
+  from {
+    opacity: 0.88;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 .empty {
   /* Hero column tracks the viewport like the reading column, so 1080p+ stops looking pinched. */
   width: min(100%, 880px, max(640px, 46vw));
@@ -1268,7 +1281,7 @@ textarea::selection,
   margin: 0 auto;
   pointer-events: none;
   user-select: none;
-  animation: skeletonFadeIn 0.15s ease-out;
+  animation: skeletonFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes skeletonShimmer {
@@ -1283,7 +1296,7 @@ textarea::selection,
 @keyframes skeletonFadeIn {
   from {
     opacity: 0;
-    transform: translateY(2px);
+    transform: translateY(3px);
   }
   to {
     opacity: 1;
@@ -1292,7 +1305,7 @@ textarea::selection,
 }
 
 .skeleton-user-turn {
-  margin-bottom: 24px;
+  margin-bottom: 22px;
 }
 
 .skeleton-user-known {
@@ -1301,41 +1314,41 @@ textarea::selection,
   color: var(--ink);
   font-size: 14px;
   line-height: 1.55;
-  padding: 10px 14px;
+  padding: 9px 13px;
   border-radius: 16px 16px 6px 16px;
   max-width: 100%;
-  opacity: 0.88;
+  opacity: 0.9;
 }
 
 .skeleton-user-placeholder {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 6px;
-  padding: 10px 14px;
+  gap: 7px;
+  padding: 9px 13px;
   background: var(--surface);
   box-shadow: var(--shadow-hairline);
   border-radius: 16px 16px 6px 16px;
 }
 
 .skeleton-line {
-  height: 13px;
-  border-radius: 6px;
+  height: 9px;
+  border-radius: 4.5px;
   background: linear-gradient(
     90deg,
-    var(--hover) 0%,
-    var(--hover-2) 50%,
-    var(--hover) 100%
+    color-mix(in srgb, var(--ink) 5.5%, transparent) 0%,
+    color-mix(in srgb, var(--ink) 11.5%, transparent) 50%,
+    color-mix(in srgb, var(--ink) 5.5%, transparent) 100%
   );
   background-size: 200% 100%;
-  animation: skeletonShimmer 1.8s ease-in-out infinite;
+  animation: skeletonShimmer 2s ease-in-out infinite;
 }
 
 .skeleton-user-line-1 {
-  width: 160px;
+  width: 150px;
 }
 .skeleton-user-line-2 {
-  width: 95px;
+  width: 88px;
 }
 
 .skeleton-turn {
@@ -1345,45 +1358,45 @@ textarea::selection,
 .skeleton-assistant-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 9px;
+  margin-bottom: 12px;
 }
 
 .skeleton-avatar {
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
   flex: none;
   background: linear-gradient(
     90deg,
-    var(--hover) 0%,
-    var(--hover-2) 50%,
-    var(--hover) 100%
+    color-mix(in srgb, var(--ink) 6%, transparent) 0%,
+    color-mix(in srgb, var(--ink) 12%, transparent) 50%,
+    color-mix(in srgb, var(--ink) 6%, transparent) 100%
   );
   background-size: 200% 100%;
-  animation: skeletonShimmer 1.8s ease-in-out infinite;
+  animation: skeletonShimmer 2s ease-in-out infinite;
 }
 
 .skeleton-assistant-name {
-  width: 68px;
-  height: 11px;
+  width: 62px;
+  height: 9px;
 }
 
 .skeleton-thought-bar {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
+  gap: 7px;
+  padding: 4px 10px;
   border-radius: 999px;
   background: var(--surface);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-hairline);
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .skeleton-thought-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--brand);
   opacity: 0.75;
@@ -1391,24 +1404,24 @@ textarea::selection,
 }
 
 .skeleton-thought-text {
-  width: 76px;
-  height: 10px;
+  width: 68px;
+  height: 8px;
 }
 
 .skeleton-paragraph {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 13px;
   margin-bottom: 16px;
 }
 
 .skeleton-card {
-  background: var(--surface);
-  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 80%, var(--inset));
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
   border-radius: 10px;
-  padding: 12px 16px;
-  margin: 16px 0;
-  box-shadow: var(--shadow-hairline);
+  padding: 11px 14px;
+  margin: 14px 0 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
 .skeleton-card-header {
@@ -1416,14 +1429,19 @@ textarea::selection,
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--line);
-  padding-bottom: 8px;
-  margin-bottom: 10px;
+  padding-bottom: 7px;
+  margin-bottom: 9px;
 }
 
 .skeleton-card-body {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 9px;
+}
+
+.skeleton-card-body .skeleton-line {
+  height: 8px;
+  border-radius: 4px;
 }
 
 .loading-state {
@@ -3098,6 +3116,7 @@ textarea::selection,
   box-shadow: var(--shadow-card);
   pointer-events: auto;
   overflow: visible;
+  transition: box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
 }
 .prompt:focus-within {
   box-shadow: var(--shadow-overlay);
@@ -3184,6 +3203,17 @@ textarea::selection,
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   flex-shrink: 0;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
+  animation: promptAttachmentPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes promptAttachmentPop {
+  from {
+    opacity: 0;
+    transform: scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 .prompt-attachment-card:hover {
   transform: translateY(-1px);

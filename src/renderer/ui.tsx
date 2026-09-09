@@ -186,28 +186,28 @@ export function ConversationSkeleton({ title }: { title?: string }) {
         </div>
 
         <div className="skeleton-paragraph">
-          <div className="skeleton-line" style={{ width: "94%" }} />
-          <div className="skeleton-line" style={{ width: "88%" }} />
-          <div className="skeleton-line" style={{ width: "91%" }} />
-          <div className="skeleton-line" style={{ width: "66%" }} />
+          <div className="skeleton-line" style={{ width: "92%" }} />
+          <div className="skeleton-line" style={{ width: "86%" }} />
+          <div className="skeleton-line" style={{ width: "89%" }} />
+          <div className="skeleton-line" style={{ width: "56%" }} />
         </div>
 
         <div className="skeleton-card">
           <div className="skeleton-card-header">
-            <div className="skeleton-line" style={{ width: "120px", height: "11px" }} />
-            <div className="skeleton-line" style={{ width: "45px", height: "11px" }} />
+            <div className="skeleton-line" style={{ width: "110px" }} />
+            <div className="skeleton-line" style={{ width: "40px" }} />
           </div>
           <div className="skeleton-card-body">
-            <div className="skeleton-line" style={{ width: "84%", height: "12px" }} />
-            <div className="skeleton-line" style={{ width: "62%", height: "12px", marginLeft: "16px" }} />
-            <div className="skeleton-line" style={{ width: "48%", height: "12px", marginLeft: "16px" }} />
-            <div className="skeleton-line" style={{ width: "32%", height: "12px" }} />
+            <div className="skeleton-line" style={{ width: "82%" }} />
+            <div className="skeleton-line" style={{ width: "60%", marginLeft: "14px" }} />
+            <div className="skeleton-line" style={{ width: "46%", marginLeft: "14px" }} />
+            <div className="skeleton-line" style={{ width: "28%" }} />
           </div>
         </div>
 
         <div className="skeleton-paragraph" style={{ marginTop: "16px" }}>
-          <div className="skeleton-line" style={{ width: "85%" }} />
-          <div className="skeleton-line" style={{ width: "44%" }} />
+          <div className="skeleton-line" style={{ width: "84%" }} />
+          <div className="skeleton-line" style={{ width: "42%" }} />
         </div>
       </article>
     </div>
