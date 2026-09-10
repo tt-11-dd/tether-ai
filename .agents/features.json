@@ -1,0 +1,92 @@
+[
+  {
+    "id": "session-routing",
+    "description": "修复多会话路由与索引一致性：agent:command 写回 sessionPath 时统一走 AgentHost.setSessionPath（重建索引、发 session_created、更新 manager 的 host map），不再裸赋值字段；AgentHostManager.getHost 无参兜底只在「没有 active 会话且恰好一个 running host」时生效，避免多会话并发时命令打到错误会话。验收：pnpm typecheck 通过，agent-host-manager.test.ts 覆盖兜底三种场景，pnpm test 全绿。",
+    "passes": true
+  },
+  {
+    "id": "ipc-error-i18n",
+    "description": "把主进程与 shared 里面向用户的硬编码报错（先上传至少一张图片、先填写 API URL 和 Key、Selected workspace is not a folder、No workspace session is active、resolveInWorkspace 的路径越界、openai-models 的 4 条 URL/Key 校验）接入现有 i18n，zh 与 en 同步补 key。验收：en locale 下这些报错不再出现中文，pnpm typecheck 通过（MessageKey 类型守护 zh/en 对齐），pnpm test 全绿。",
+    "passes": true
+  },
+  {
+    "id": "uploads-boundary",
+    "description": "图片上传加边界：vision:stage 对单张体积与总张数设上限，并对 base64 解码失败给出明确报错；启动时清理 userData/uploads 中过期文件，避免目录无限膨胀。验收：pnpm typecheck 通过，pnpm test 全绿。",
+    "passes": true
+  },
+  {
+    "id": "vision-config-idempotent",
+    "description": "agent:start 里的 syncDeepSeekVisionConfig 改为内容不变就不写盘，避免每条消息开始都重写 vision-config.json。验收：pnpm typecheck 通过，pnpm test 全绿。",
+    "passes": true
+  },
+  {
+    "id": "repo-hygiene",
+    "description": "仓库卫生：把误入库的 .tether-tmp/upload.png 移出版本控制，并在 .gitignore 补上 .tether-tmp/。验收：git ls-files 不再包含该文件，git status 干净（除本条目改动）。",
+    "passes": true
+  },
+  {
+    "id": "dev-script-cross-platform",
+    "description": "predev 的 rm -rf 改成跨平台的 node 调用，使 Windows 本地开发也能跑 pnpm dev（dev 里的 env -u 若无法跨平台则补等价方案或记录限制）。验收：pnpm typecheck 通过，predev 在 macOS 上仍能正确清空 dist-electron。",
+    "passes": true
+  },
+  {
+    "id": "eslint",
+    "description": "可选：接入最小配置的 ESLint（含 eslint-plugin-react-hooks），让 stale closure、未使用变量这类问题在 CI 里暴露。需要新增 devDependencies，动手前先与用户确认。",
+    "passes": false
+  },
+  {
+    "id": "dead-css",
+    "description": "可选：清理 styles.css 中 33 个未被 JSX 引用的类与 .mcp-row 重复定义，删除前逐个 grep 复核，避免误删动态拼接的类名。验收：pnpm build 通过，界面无可见变化。",
+    "passes": true
+  },
+  {
+    "id": "feature-plan-scope",
+    "description": "任务规划面板按会话作用域显示：项目级 .agents/features.json 只在该会话的工具调用确实触及 .agents/features.json 或 .agents/progress.md 时作为回退显示，项目首页与普通会话不再显示整份跨会话清单；计划批准判断只依据本会话计划。验收：pnpm typecheck 通过，conversation.test.ts 覆盖判定分支，pnpm test 全绿。",
+    "passes": true
+  },
+  {
+    "id": "drawer-rerender",
+    "description": "修复流式期间打开文件抽屉导致窗口卡死：FileDrawer 与 Markdown 改为 memo，FileDrawer 内的 tokenizeCode / splitView 移入 useMemo，App 的 onClose 用 useCallback 稳定；InspectPanel 的 filterMentionPaths 与 edits 过滤移入 useMemo。验收：pnpm typecheck 通过，pnpm test 全绿，pnpm build 通过。",
+    "passes": true
+  },
+  {
+    "id": "drawer-missing-file",
+    "description": "修复点击改动文件时抽屉空白：workspace:read 用 missing 标记区分「文件不存在」与「空文件」（ENOENT 不再伪装成空内容）；FileDrawer 在文件不属于当前项目根时自动回退显示本轮改动并给出提示，空文件显示占位文案；openSession 打开会话时把 workspace 同步到该会话的 cwd，避免相对路径按错误的项目根解析。验收：pnpm typecheck / pnpm test / pnpm build 全绿。",
+    "passes": true
+  },
+  {
+    "id": "drawer-content-robust",
+    "description": "加固文件抽屉的内容判定：抽出纯函数 drawerContent(result, hasPatch) 做三态判断（missing 明确为 true / 明确为 false / 字段缺失），字段缺失时显示空白而不是断言「空文件」；主进程 read 的正常返回也显式带上 missing:false；missing 时关闭 markdown/html 预览以确保 diff 可见，提示条在 diff 打开时同样显示。验收：conversation.test.ts 覆盖四种结果组合，pnpm typecheck / test / build 全绿。",
+    "passes": true
+  },
+  {
+    "id": "composer-plain-paste",
+    "description": "输入框粘贴只保留纯文本：拦截 paste 事件取 text/plain，经 plainTextToPromptHtml 转义并把换行转成 <br> 后用 insertHTML 插入（保留编辑器 undo 栈），不再把外部应用的字体/颜色/链接带进 composer；图片粘贴分支行为不变。验收：conversation.test.ts 覆盖转义、换行、缩进与空行，pnpm typecheck / test / build 全绿。",
+    "passes": true
+  },
+  {
+    "id": "panel-workspace-fallback",
+    "description": "修复首次进入软件直接点会话时右侧面板消失：openSession 同步 workspace 改为无条件（只要会话有 cwd 就 setWorkspace，同值由 React bail out）；右侧面板的挂载条件从 workspace 改为 panelCwd = workspace ?? 当前会话的 cwd，并把该值传给 InspectPanel 的 workspace/folder，使面板挂载不再依赖 state 同步时序。验收：pnpm typecheck / test / build 全绿。",
+    "passes": true
+  },
+  {
+    "id": "cross-review-hardening",
+    "description": "对本轮全部改动做交叉自查：修掉 FileDrawer 未跟随 panelCwd（真 bug）、panelCwd 优先级反了（应为会话 cwd 优先）、openSession 的多余 workspace 依赖、setOpenProjects 非幂等；把 isSamePath / isSameSession 从 App.tsx 抽到 conversation.ts 并补 5 个用例；用真实会话文件做端到端回放确认分组与判定正确。验收：pnpm typecheck / test / build 全绿，真实会话回放无异常。",
+    "passes": true
+  },
+  {
+    "id": "mainflow-scan",
+    "description": "对全部改动做「是否触及主流程」扫描并补漏：修掉 2 处 agent.command 缺 sessionPath（切换 effort/思考级别会静默失败）；把 workspace 当路径根的另外 5 处消费点统一为 panelCwd（含撤销恢复、agent 重启、composer @ 列表、features.json 读取），并把 panelCwd 定义前移避免依赖数组 TDZ。验收：pnpm typecheck / test / build 全绿，主流程未改动清单已记录在 progress。",
+    "passes": true
+  },
+  {
+    "id": "impact-audit",
+    "description": "不等提问，主动做全量影响面审计：9 个面（agent.command 参数、路径根语义、i18n 键完整性与漏翻、新增函数的消费点、read 的 missing 链路、todos/chatTodos、memo 组件的 props 稳定性、CI 引用的脚本、死代码/死键）逐一机械验证。再修 2 处 startAgent(workspace)（撤销上一轮 / 压缩上下文时会把 agent 起在错误目录）。验收：typecheck / test / build 全绿，9 个面的结论写入 progress。",
+    "passes": true
+  },
+  {
+    "id": "preview-cwd",
+    "description": "修复 HTML 预览 Not found：预览 iframe 走自定义协议，主进程只用 activeAgentCwd 解析，与会话目录 panelCwd 不同源。第一版把工作区放进 URL userinfo，Electron 实机实测发现 Chromium 会把 userinfo 整个剥掉（方案完全无效），改为 pathname 前缀 harness-preview://workspace/~/<双重编码 cwd>/<file>，实测确认前缀与相对资源都保留。验收：typecheck、89 用例、vite build、tsup 全通过，并用 Electron 实机验证 URL 前缀保留。",
+    "passes": true
+  }
+]

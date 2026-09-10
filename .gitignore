@@ -4,3 +4,5 @@ dist-electron
 release
 .DS_Store
 *.log
+# Local scratch space for Tether runs (staged uploads, throwaway artifacts).
+.tether-tmp/

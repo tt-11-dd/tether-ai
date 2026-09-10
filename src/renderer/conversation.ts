@@ -1,4 +1,4 @@
-import type { AgentEvent, PermissionMode } from "../shared/types";
+import type { AgentEvent, PermissionMode, SessionSummary } from "../shared/types";
 import { sameUserSkillTurn } from "../shared/skills";
 import { parseWebSearchCard } from "../shared/integrations";
 import { DEFAULT_LOCALE, t, type Locale, type MessageKey } from "../shared/i18n";
@@ -23,7 +23,8 @@ export function isTransientStreamError(error: unknown): boolean {
 export function friendlyAgentError(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
   const detail = raw
-    .replace(/^Error invoking remote method 'agent:(?:command|start)':\s*/i, "")
+    // Any IPC call can reject here, not just agent:command / agent:start.
+    .replace(/^Error invoking remote method '[^']+':\s*/i, "")
     .replace(/^Error:\s*/i, "")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
@@ -1273,6 +1274,46 @@ export function traceRows(work: WorkItem[], tools: ToolActivity[], fallback = ""
   return rows;
 }
 
+/** What the file drawer should render for one `workspace.read` result. */
+export type DrawerContent =
+  | { kind: "missing"; showPatch: boolean }
+  | { kind: "binary" }
+  | { kind: "empty" }
+  | { kind: "text"; body: string }
+  | { kind: "unknown" };
+
+/**
+ * Decide the drawer body from a read result.
+ *
+ * `missing` is only trusted when the host actually sent it: an older main process reported a
+ * deleted file as `content: ""`, which is indistinguishable from a genuinely empty file, so a
+ * missing field degrades to `unknown` (blank) instead of claiming "empty file".
+ */
+export function drawerContent(
+  result: { content: string; binary: boolean; missing?: boolean },
+  hasPatch: boolean,
+): DrawerContent {
+  if (result.missing === true) return { kind: "missing", showPatch: hasPatch };
+  if (result.binary) return { kind: "binary" };
+  if (result.content !== "") return { kind: "text", body: result.content };
+  return result.missing === false ? { kind: "empty" } : { kind: "unknown" };
+}
+
+/**
+ * Composer markup for pasted text.
+ *
+ * Pasting rich content used to drop the source app's fonts, colors and links straight into the
+ * composer. Only the plain-text flavor is kept, escaped, with newlines as `<br>` (the composer is
+ * `white-space: pre-wrap` and `serializePrompt` turns `<br>` back into `\n`).
+ */
+export function plainTextToPromptHtml(text: string): string {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"))
+    .join("<br>");
+}
+
 function toolRow(tool: ToolActivity, index: number): TraceRow {
   const base = { id: `row-${index}-${tool.id}`, status: tool.status, tool, mono: true };
   const name = tool.name.toLowerCase();
@@ -1352,6 +1393,30 @@ function writtenLines(tool: ToolActivity): number {
 /** Windows hands back `D:\code\app`, so both separators have to count as one. */
 export function baseName(file: string): string {
   return file.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
+}
+
+/**
+ * Compare two workspace/session paths.
+ *
+ * Tether ships for macOS and Windows, where volumes are case-insensitive and separators differ,
+ * so `/Users/A/B` and `c:\users\a\b` styles have to be treated as the same location. A missing
+ * value never matches anything (not even another missing value).
+ */
+export function isSamePath(a?: string, b?: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
+}
+
+/** A session row/event matches the active thread by id, runtime path or partitioned storage path. */
+export function isSameSession(session: SessionSummary, active?: string): boolean {
+  return Boolean(
+    active &&
+      (session.id === active ||
+        session.path === active ||
+        isSamePath(session.path, active) ||
+        isSamePath(session.storagePath, active)),
+  );
 }
 
 /** Markdown thinking reads badly inside a one-line chip, so drop its syntax. */
@@ -1558,6 +1623,34 @@ export function collectTodos(messages: ChatMessage[]): SessionTodo[] {
   }
   if (checks.length) return checks;
   return [];
+}
+
+const FEATURE_PLAN_FILES = [".agents/features.json", ".agents/progress.md"];
+
+/**
+ * True when this conversation itself works on the project's cross-session plan files.
+ *
+ * `.agents/features.json` is project-scoped, so showing it for every thread leaked one
+ * conversation's backlog into unrelated chats and into the empty project home. It belongs only
+ * to a thread that actually opened those files.
+ */
+export function sessionTracksFeaturePlan(messages: ChatMessage[]): boolean {
+  return sessionTools(messages).some((tool) => {
+    const text = toolArgsText(tool.args);
+    return text ? FEATURE_PLAN_FILES.some((file) => text.includes(file)) : false;
+  });
+}
+
+/** Tool args cover `path` / `file_path` / `command` / patch bodies, so match on the whole payload. */
+function toolArgsText(args: unknown): string {
+  if (typeof args === "string") return args;
+  if (!args) return "";
+  try {
+    return JSON.stringify(args) ?? "";
+  } catch {
+    // Tool args come from parsed JSON events; a cycle here would be a bug elsewhere.
+    return "";
+  }
 }
 
 /** Plan mode finished a turn with an incomplete structured plan — show approval UI. */

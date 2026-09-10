@@ -7,6 +7,47 @@ export const PREVIEW_HOST = "workspace";
 /** Staged image uploads live outside the workspace, so they get their own preview host. */
 export const UPLOADS_HOST = "uploads";
 
+/** Marks the workspace segment in a preview URL: `harness-preview://workspace/~/<cwd>/<file>`. */
+export const PREVIEW_CWD_SEGMENT = "~";
+
+/**
+ * HTML previews load through their own origin so relative assets still resolve. The workspace has
+ * to travel inside the path, because Chromium strips userinfo from custom-scheme requests, and a
+ * query string is dropped the moment the page resolves a relative asset.
+ *
+ * The cwd is encoded twice so that one containing "/" still occupies a single path segment.
+ * Measured against a real Electron renderer, not assumed.
+ */
+export function previewFileUrl(file: string, workspace?: string): string {
+  const path = file.replace(/^\/+/, "").split("/").map(encodeURIComponent).join("/");
+  const cwd = workspace?.trim();
+  if (!cwd) return `${PREVIEW_SCHEME}://${PREVIEW_HOST}/${path}`;
+  const encoded = encodeURIComponent(encodeURIComponent(cwd));
+  return `${PREVIEW_SCHEME}://${PREVIEW_HOST}/${PREVIEW_CWD_SEGMENT}/${encoded}/${path}`;
+}
+
+/**
+ * Splits a preview pathname into the workspace it carries (if any) and the file inside it.
+ * A pathname without the `~` marker keeps the old behaviour: no workspace, so the host falls
+ * back to the active agent cwd.
+ */
+export function parsePreviewPath(pathname: string): {
+  workspace?: string;
+  path: string;
+} {
+  const segments = pathname.split("/").filter((part) => part.length > 0);
+  let workspace: string | undefined;
+  if (segments[0] === PREVIEW_CWD_SEGMENT && segments.length >= 3) {
+    try {
+      workspace = decodeURIComponent(decodeURIComponent(segments[1]!)).trim() || undefined;
+    } catch {
+      workspace = undefined;
+    }
+    segments.splice(0, 2);
+  }
+  return { workspace, path: decodeURIComponent(segments.join("/")) };
+}
+
 export const PROVIDER_IDS = [
   "deepseek",
   "openai-codex",
@@ -146,7 +187,7 @@ export interface DesktopApi {
     choose(): Promise<string | null>;
     recent(): Promise<WorkspaceItem[]>;
     forget(path: string): Promise<WorkspaceItem[]>;
-    read(path: string, cwd?: string): Promise<{ path: string; content: string; binary: boolean }>;
+    read(path: string, cwd?: string): Promise<{ path: string; content: string; binary: boolean; missing?: boolean }>;
     open(path: string, cwd?: string): Promise<void>;
     reveal(path: string, cwd?: string): Promise<void>;
     list(cwd?: string): Promise<string[]>;

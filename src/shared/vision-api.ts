@@ -150,6 +150,11 @@ export function serializeVisionStore(profiles: CustomApiProfile[], activeProfile
   };
 }
 
+/** Exact text persisted to the vision config file; shared so writers can skip identical writes. */
+export function serializeVisionConfigFile(config: VisionConfig): string {
+  return `${JSON.stringify(config, null, 2)}\n`;
+}
+
 /** OpenAI-compatible chat.completions with data-URI image_url. */
 export function visionRequest(prompt: string, images: string[], options?: { model?: string }) {
   const refs = images.filter(Boolean).slice(0, MAX_VISION_IMAGES);

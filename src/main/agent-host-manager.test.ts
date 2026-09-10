@@ -223,5 +223,76 @@ describe("AgentHostManager", () => {
     expect(hostsMap.has("temp_123")).toBe(false);
     expect(hostsMap.has(hTemp.sessionPath!)).toBe(false);
   });
+
+  it("getHost returns undefined when the active path lost its host, instead of another running one", () => {
+    const manager = new AgentHostManager(vi.fn(), vi.fn());
+    const mockHost = (sessionPath: string) => {
+      return {
+        sessionPath: path.resolve(sessionPath),
+        isRunning: () => true,
+        isBusy: () => true,
+      } as unknown as AgentHost;
+    };
+
+    const other = mockHost("/other.jsonl");
+    const hostsMap = (manager as unknown as { hosts: Map<string, AgentHost> }).hosts;
+    hostsMap.set(other.sessionPath!, other);
+    // Active conversation was stopped or pruned; only an unrelated host remains.
+    manager.setActiveSessionPath("/gone.jsonl");
+
+    expect(manager.getHost()).toBeUndefined();
+  });
+
+  it("getHost falls back to the only running host when no session is active", () => {
+    const manager = new AgentHostManager(vi.fn(), vi.fn());
+    const mockHost = (sessionPath: string, running: boolean) => {
+      return {
+        sessionPath: path.resolve(sessionPath),
+        isRunning: () => running,
+        isBusy: () => true,
+      } as unknown as AgentHost;
+    };
+
+    const only = mockHost("/solo.jsonl", true);
+    const stopped = mockHost("/stopped.jsonl", false);
+    const hostsMap = (manager as unknown as { hosts: Map<string, AgentHost> }).hosts;
+    hostsMap.set(stopped.sessionPath!, stopped);
+    hostsMap.set(only.sessionPath!, only);
+    // The same host is keyed twice in practice (tempId + resolved path); it stays one candidate.
+    hostsMap.set("temp_keyed_twice", only);
+
+    expect(manager.getHost()).toBe(only);
+  });
+
+  it("getHost returns undefined when no session is active and several hosts run", () => {
+    const manager = new AgentHostManager(vi.fn(), vi.fn());
+    const mockHost = (sessionPath: string) => {
+      return {
+        sessionPath: path.resolve(sessionPath),
+        isRunning: () => true,
+        isBusy: () => true,
+      } as unknown as AgentHost;
+    };
+
+    const first = mockHost("/first.jsonl");
+    const second = mockHost("/second.jsonl");
+    const hostsMap = (manager as unknown as { hosts: Map<string, AgentHost> }).hosts;
+    hostsMap.set(first.sessionPath!, first);
+    hostsMap.set(second.sessionPath!, second);
+
+    expect(manager.getHost()).toBeUndefined();
+  });
+
+  it("getHost returns undefined when no session is active and no host runs", () => {
+    const manager = new AgentHostManager(vi.fn(), vi.fn());
+    const hostsMap = (manager as unknown as { hosts: Map<string, AgentHost> }).hosts;
+    hostsMap.set("/dead.jsonl", {
+      sessionPath: path.resolve("/dead.jsonl"),
+      isRunning: () => false,
+      isBusy: () => false,
+    } as unknown as AgentHost);
+
+    expect(manager.getHost()).toBeUndefined();
+  });
 });
 

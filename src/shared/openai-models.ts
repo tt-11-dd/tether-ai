@@ -1,3 +1,5 @@
+import { DEFAULT_LOCALE, t, type Locale } from "./i18n";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -8,9 +10,9 @@ export function apiBaseUrl(base: string): string {
 }
 
 /** `{base}/models`；base 若是 chat completions 地址则退回到同一前缀。 */
-export function modelsUrl(base: string): string {
+export function modelsUrl(base: string, locale: Locale = DEFAULT_LOCALE): string {
   const root = apiBaseUrl(base);
-  if (!root) throw new Error("先填写 API URL");
+  if (!root) throw new Error(t(locale, "error.needApiUrl"));
   return root.endsWith("/models") ? root : `${root}/models`;
 }
 
@@ -34,17 +36,18 @@ export async function listOpenAiModels(
   baseUrl: string,
   apiKey: string,
   fetchImpl: typeof fetch = fetch,
+  locale: Locale = DEFAULT_LOCALE,
 ): Promise<string[]> {
-  if (!apiKey.trim()) throw new Error("先填写 API key");
-  const url = modelsUrl(baseUrl);
+  if (!apiKey.trim()) throw new Error(t(locale, "error.needApiKey"));
+  const url = modelsUrl(baseUrl, locale);
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error("API URL 无效");
+    throw new Error(t(locale, "error.invalidApiUrl"));
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new Error("只支持 http(s) 地址");
+    throw new Error(t(locale, "error.httpOnly"));
   }
   const response = await fetchImpl(url, {
     method: "GET",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isVisionHandoff, isVisionReadable, mergeVisionResult, mimeFromImagePath, mineruResult, mineruUpload, modelSupportsVision, normalizeVisionEndpoint, parseVisionStore, resolveVisionSettings, serializeVisionStore, toPromptImages, visibleUserText, visionAgentPrompt, visionEngineDetails, visionError, visionHandoffPaths, visionRequest, visionResultSections, visionSnapshot, visionText, visionTitle, visionToolChips, visionToolTitle, visionUploadUrl } from "./vision-api";
+import { isVisionHandoff, isVisionReadable, mergeVisionResult, mimeFromImagePath, mineruResult, mineruUpload, modelSupportsVision, normalizeVisionEndpoint, parseVisionStore, resolveVisionSettings, serializeVisionConfigFile, serializeVisionStore, toPromptImages, visibleUserText, visionAgentPrompt, visionEngineDetails, visionError, visionHandoffPaths, visionRequest, visionResultSections, visionSnapshot, visionText, visionTitle, visionToolChips, visionToolTitle, visionUploadUrl } from "./vision-api";
 
 describe("modelSupportsVision", () => {
   it("accepts known vision models", () => {
@@ -265,5 +265,24 @@ describe("visionError", () => {
   it("prefers the API message", () => {
     expect(visionError({ error: { message: "invalid key" } }, 401)).toBe("invalid key");
     expect(visionError({}, 500)).toBe("图片识别失败（500）");
+  });
+});
+
+describe("serializeVisionConfigFile", () => {
+  const config = {
+    provider: "deepseek" as const,
+    endpoint: "https://api.deepseek.com/v1/chat/completions",
+    model: "deepseek-vl",
+    apiKey: "sk-test",
+  };
+
+  it("writes pretty JSON with a trailing newline so the writer can compare text", () => {
+    const text = serializeVisionConfigFile(config);
+    expect(text.endsWith("\n")).toBe(true);
+    expect(JSON.parse(text)).toEqual(config);
+  });
+
+  it("is stable for the same config, so an identical file is never rewritten", () => {
+    expect(serializeVisionConfigFile(config)).toBe(serializeVisionConfigFile({ ...config }));
   });
 });

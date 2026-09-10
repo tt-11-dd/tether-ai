@@ -64,12 +64,14 @@ export class AgentHostManager {
     if (this.activeSessionPath) {
       const activeHost = this.hosts.get(this.activeSessionPath);
       if (activeHost) return activeHost;
+      // The active path is known but its host is gone (stopped or pruned). Falling back to
+      // "whichever host runs first" would route the call into an unrelated conversation.
+      return undefined;
     }
-    // Fallback: return the first running host if any when no sessionPath was specified
-    for (const host of this.hosts.values()) {
-      if (host.isRunning()) return host;
-    }
-    return undefined;
+    // No active session: a single running host is unambiguous, several would be a guess.
+    // One host is often keyed twice (tempId + resolved path), so de-duplicate first.
+    const running = [...new Set(this.hosts.values())].filter((host) => host.isRunning());
+    return running.length === 1 ? running[0] : undefined;
   }
 
   async getOrCreateHost(

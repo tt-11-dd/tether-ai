@@ -2,13 +2,13 @@ import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type Keyboa
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { PREVIEW_HOST, PREVIEW_SCHEME, type AgentSessionStats, type ExtensionUiRequest, type PermissionMode } from "../shared/types";
+import { previewFileUrl, type AgentSessionStats, type ExtensionUiRequest, type PermissionMode } from "../shared/types";
 import { skillUserDisplay } from "../shared/skills";
 import { visibleUserText, visionResultSections, visionToolChips } from "../shared/vision-api";
 import { DEEPSEEK_PRESET, activeCustomProfile, defaultCustomProfile, isChatProfileValid, isDeepSeekUrl, isVisionProfileValid, type CustomApiProfile } from "../shared/chat-profiles";
 import { applyTheme, readStoredTheme, THEMES, type ThemeId } from "../shared/theme";
 import { effortLabelKey, pickEffortOptions, reasoningLevelsAvailable } from "../shared/thinking";
-import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, delegateProgress, delegateStatusLabel, filterMentionPaths, formatCommand, isRecoverableRequestError, liveStatus, omitFinalReply, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, assistantReplyText, webSearchCard, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
+import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, delegateProgress, delegateStatusLabel, drawerContent, filterMentionPaths, formatCommand, isRecoverableRequestError, liveStatus, omitFinalReply, plainTextToPromptHtml, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, assistantReplyText, webSearchCard, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
 import type { AgentSkillCommand } from "../shared/skills";
 import { PROJECT_SKILL_ROOTS, USER_SKILL_ROOTS, skillSlashCommand } from "../shared/skills";
@@ -1061,7 +1061,11 @@ function copyMarkdownPlain(event: { preventDefault(): void; clipboardData: DataT
   event.clipboardData?.setData("text/plain", selected);
 }
 
-function Markdown({ children, streaming }: { children: string; streaming?: boolean }) {
+/**
+ * Memoized: while a turn streams the chat re-renders on every token, and re-running the markdown
+ * normalization plus ReactMarkdown parsing for an unchanged body is pure waste.
+ */
+const Markdown = memo(function Markdown({ children, streaming }: { children: string; streaming?: boolean }) {
   const source = compactFencedCode(
     stripEmptyMarkdown(repairMarkdownTables(streaming ? closeOpenFences(children) : children)),
   );
@@ -1085,7 +1089,7 @@ function Markdown({ children, streaming }: { children: string; streaming?: boole
       {source}
     </ReactMarkdown>
   );
-}
+});
 
 /** Drop blank lines inside fenced code so SVG/XML dumps don't look double-spaced. */
 function compactFencedCode(text: string): string {
@@ -1243,7 +1247,7 @@ export function InspectPanel({
   const [prefix, setPrefix] = useState("");
   const [tick, setTick] = useState(0);
   const dragging = useRef(false);
-  const edits = files.filter((file) => file.kind === "edit");
+  const edits = useMemo(() => files.filter((file) => file.kind === "edit"), [files]);
   useEffect(() => window.harness.workspace.onChanged(() => {
     if (workspace) setTick((value) => value + 1);
   }), [workspace]);
@@ -1263,7 +1267,12 @@ export function InspectPanel({
       gone = true;
     };
   }, [workspace, refresh, tick]);
-  const visible = filterMentionPaths(entries, prefix).filter((file) => file !== prefix);
+  // `entries` can hold thousands of workspace paths, and this panel re-renders on every streaming
+  // token — running the filter there scanned the whole list (and sorted it) dozens of times a second.
+  const visible = useMemo(
+    () => filterMentionPaths(entries, prefix).filter((file) => file !== prefix),
+    [entries, prefix],
+  );
   if (!workspace && todos.length === 0 && !planApproval) return null;
   return (
     <aside className="inspect">
@@ -1482,9 +1491,17 @@ function ChangeSummary({ files, onOpen }: { files: FileChange[]; onOpen?(file: F
   );
 }
 
-export function FileDrawer({ file, workspace, onClose }: { file: FileChange; workspace?: string; onClose(): void }) {
+/**
+ * Memoized, and the expensive per-render work is cached.
+ *
+ * While a turn streams, App re-renders on every single token. Without this, an open drawer
+ * re-tokenized the whole file and rebuilt tens of thousands of elements on each token, which
+ * locked the window up. `file`/`workspace` keep their identity between tokens, so the memo holds.
+ */
+export const FileDrawer = memo(function FileDrawer({ file, workspace, onClose }: { file: FileChange; workspace?: string; onClose(): void }) {
   const { t } = useI18n();
   const [body, setBody] = useState(() => t("preview.reading"));
+  const [missing, setMissing] = useState(false);
   const [wide, setWide] = useState(false);
   const markdown = /\.(md|markdown)$/i.test(file.path);
   const html = /\.html?$/i.test(file.path);
@@ -1496,10 +1513,30 @@ export function FileDrawer({ file, workspace, onClose }: { file: FileChange; wor
   }, [file.path, markdown]);
   useEffect(() => {
     let gone = false;
+    setMissing(false);
     setBody(t("preview.reading"));
     void window.harness.workspace.read(file.path, workspace).then(
       (result) => {
-        if (!gone) setBody(result.binary ? t("preview.binary") : result.content);
+        if (gone) return;
+        const next = drawerContent(result, Boolean(file.patch));
+        if (next.kind === "missing") {
+          // The file is gone, or it belongs to another project root. The patch travels with the
+          // conversation, so show that instead of an empty pane.
+          setMissing(true);
+          setBody("");
+          if (next.showPatch) {
+            // A markdown/html file would otherwise keep rendering the preview pane, which is what
+            // made the diff invisible even though the toggle said it was on.
+            setRendered(false);
+            setDiffOpen(true);
+          }
+          return;
+        }
+        if (next.kind === "text") setBody(next.body);
+        else if (next.kind === "binary") setBody(t("preview.binary"));
+        else if (next.kind === "empty") setBody(t("preview.empty"));
+        // "unknown" means the host did not report presence: stay blank rather than guess.
+        else setBody("");
       },
       (error: unknown) => {
         if (!gone) setBody(error instanceof Error ? error.message : String(error));
@@ -1508,9 +1545,14 @@ export function FileDrawer({ file, workspace, onClose }: { file: FileChange; wor
     return () => {
       gone = true;
     };
-  }, [file.path, workspace, t]);
+  }, [file.path, workspace, t, file.patch]);
   const preview = rendered && (markdown || html);
   const diff = Boolean(file.patch && diffOpen && !preview);
+  const lines = useMemo(() => tokenizeCode(body, file.path), [body, file.path]);
+  const diffRows = useMemo(
+    () => (diff && file.patch ? splitView(file.patch) : []),
+    [diff, file.patch],
+  );
   return (
     <aside className={wide ? "drawer wide" : "drawer"}>
       <header>
@@ -1572,9 +1614,14 @@ export function FileDrawer({ file, workspace, onClose }: { file: FileChange; wor
           <Icon path="M7 7l10 10M17 7L7 17" size={15} />
         </button>
       </header>
+      {missing && (
+        <p className="drawer-missing">
+          {file.patch ? t("preview.missingPatch") : t("preview.missing")}
+        </p>
+      )}
       {diff && (
         <div className="file-diff">
-          {splitView(file.patch!).map((row, index) => (
+          {diffRows.map((row, index) => (
             <div key={index} className={`diff-line ${row.kind}`}>
               <i>{row.left ?? ""}</i>
               <i>{row.right ?? ""}</i>
@@ -1588,7 +1635,7 @@ export function FileDrawer({ file, workspace, onClose }: { file: FileChange; wor
         <iframe
           className="file-frame"
           title={t("preview.title", { path: file.path })}
-          src={previewUrl(file.path)}
+          src={previewFileUrl(file.path, workspace)}
           sandbox="allow-scripts allow-same-origin allow-forms"
         />
       ) : preview ? (
@@ -1597,7 +1644,7 @@ export function FileDrawer({ file, workspace, onClose }: { file: FileChange; wor
         </div>
       ) : (
         <pre className="file-code" key={file.path}>
-          {tokenizeCode(body, file.path).map((tokens, index) => (
+          {lines.map((tokens, index) => (
             <span key={index} className="code-line">
               <i>{index + 1}</i>
               <span>
@@ -1613,7 +1660,7 @@ export function FileDrawer({ file, workspace, onClose }: { file: FileChange; wor
       )}
     </aside>
   );
-}
+});
 
 function splitView(patch: string) {
   let oldNo = 0;
@@ -1623,12 +1670,6 @@ function splitView(patch: string) {
     left: row.kind === "add" ? undefined : ++oldNo,
     right: row.kind === "del" ? undefined : ++nextNo,
   }));
-}
-
-/** Served by the main process from the workspace, so relative assets and page storage both work. */
-function previewUrl(file: string): string {
-  const path = file.replace(/^\/+/, "").split("/").map(encodeURIComponent).join("/");
-  return `${PREVIEW_SCHEME}://${PREVIEW_HOST}/${path}`;
 }
 
 function mentionAt(text: string, cursor: number): { start: number; query: string } | undefined {
@@ -1878,6 +1919,18 @@ export function PromptBar({
       onChange?.(next);
     }
     return next;
+  };
+
+  /**
+   * Insert pasted text as plain content. `insertHTML` is used instead of a manual Range because it
+   * keeps the composer's own undo stack, and the markup is escaped, so no foreign styling survives.
+   */
+  const pastePlainText = (text: string) => {
+    const root = area.current;
+    if (!root) return;
+    root.focus();
+    document.execCommand("insertHTML", false, plainTextToPromptHtml(text));
+    emit();
   };
 
   const [tick, setTick] = useState(0);
@@ -2241,6 +2294,12 @@ export function PromptBar({
               void addUploads(images);
               return;
             }
+            // Pasting rich content would drag fonts, colors and links in from the source app, and
+            // the composer is a plain-text prompt — take only the text flavor.
+            const text = event.clipboardData.getData("text/plain");
+            if (!text) return;
+            event.preventDefault();
+            pastePlainText(text);
           }}
         />
         {slash && (

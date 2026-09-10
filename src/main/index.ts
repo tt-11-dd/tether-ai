@@ -62,6 +62,7 @@ import {
   parseVisionStore,
   resolveVisionRuntime,
   resolveVisionSettings,
+  serializeVisionConfigFile,
   serializeVisionStore,
   visionSnapshot,
   visionTitle,
@@ -77,6 +78,7 @@ import {
 import { getLatestUpdate } from "./update-check";
 import {
   PREVIEW_SCHEME,
+  parsePreviewPath,
   UPLOADS_HOST,
   type AgentSnapshot,
   type AgentStartOptions,
@@ -105,6 +107,12 @@ const ALLOWED_AGENT_COMMANDS = new Set([
   "compact",
   "set_auto_compaction",
 ]);
+
+const MAX_STAGE_IMAGES = 4;
+const MAX_STAGE_IMAGE_MB = 12;
+const MAX_STAGE_IMAGE_BYTES = MAX_STAGE_IMAGE_MB * 1024 * 1024;
+/** Staged images are one-shot; sweep anything older than this so the folder cannot grow forever. */
+const STAGED_UPLOAD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const legacyUserDataPath = path.join(app.getPath("appData"), "DSHarness");
@@ -387,11 +395,12 @@ function registerIpc(): void {
         const resolved = await resolveInWorkspace(relativePath, workspacePath);
         const buffer = await fsp.readFile(resolved);
         if (buffer.includes(0))
-          return { path: relativePath, binary: true, content: "" };
+          return { path: relativePath, binary: true, content: "", missing: false };
         const text = buffer.toString("utf8");
         return {
           path: relativePath,
           binary: false,
+          missing: false,
           content:
             text.length > 200_000 ? `${text.slice(0, 200_000)}\n…` : text,
         };
@@ -402,7 +411,9 @@ function registerIpc(): void {
           "code" in error &&
           error.code === "ENOENT"
         ) {
-          return { path: relativePath, binary: false, content: "" };
+          // "Not found here" is not "empty file": the renderer resolves relative paths against
+          // the active project, which can differ from the one that produced the change.
+          return { path: relativePath, binary: false, content: "", missing: true };
         }
         throw error;
       }
@@ -524,9 +535,10 @@ function registerIpc(): void {
   );
   ipcMain.handle("vision:stage", async (_event, images: string[]) => {
     const refs = Array.isArray(images)
-      ? images.filter((item) => typeof item === "string" && item).slice(0, 4)
+      ? images.filter((item) => typeof item === "string" && item).slice(0, MAX_STAGE_IMAGES)
       : [];
-    if (refs.length === 0) throw new Error("先上传至少一张图片");
+    if (refs.length === 0)
+      throw new Error(t(appLocale, "error.noImage"));
     const dir = visionUploadsDir();
     await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
     const stamp = Date.now();
@@ -535,6 +547,13 @@ function registerIpc(): void {
         const match = item.match(/^data:([^;]+);base64,(.+)$/);
         const mime = match?.[1] ?? "image/png";
         const data = match?.[2] ?? item.replace(/^data:[^;]+;base64,/, "");
+        const bytes = Buffer.from(data, "base64");
+        if (bytes.length === 0)
+          throw new Error(t(appLocale, "error.invalidImage"));
+        if (bytes.length > MAX_STAGE_IMAGE_BYTES)
+          throw new Error(
+            t(appLocale, "error.imageTooLarge", { mb: MAX_STAGE_IMAGE_MB }),
+          );
         const ext =
           mime.includes("jpeg") || mime.includes("jpg")
             ? "jpg"
@@ -544,7 +563,7 @@ function registerIpc(): void {
                 ? "gif"
                 : "png";
         const file = path.join(dir, `${stamp}-${index + 1}.${ext}`);
-        await fsp.writeFile(file, Buffer.from(data, "base64"), { mode: 0o600 });
+        await fsp.writeFile(file, bytes, { mode: 0o600 });
         return file;
       }),
     );
@@ -717,8 +736,8 @@ function registerIpc(): void {
     "auth:list-models",
     async (_event, baseUrl: string, apiKey: string) => {
       if (typeof baseUrl !== "string" || typeof apiKey !== "string")
-        throw new Error("先填写 API URL 和 Key");
-      return listOpenAiModels(baseUrl, apiKey);
+        throw new Error(t(appLocale, "error.needUrlAndKey"));
+      return listOpenAiModels(baseUrl, apiKey, fetch, appLocale);
     },
   );
   ipcMain.handle(
@@ -793,7 +812,7 @@ function registerIpc(): void {
       if (!ALLOWED_AGENT_COMMANDS.has(type))
         throw new Error(`Unsupported agent command: ${type}`);
       const host = hostManager!.getHost(sessionPath);
-      if (!host) throw new Error("No workspace session is active");
+      if (!host) throw new Error(t(appLocale, "error.noActiveSession"));
       const result = await host.request(type, data);
       if (
         type === "new_session" ||
@@ -803,7 +822,9 @@ function registerIpc(): void {
         const file = sessionFileFromUnknown(result);
         if (file) {
           activeSessionPath = file;
-          host.sessionPath = file;
+          // Route through the setter: a bare field write left the session index cold and the
+          // manager's host map keyed by the old path, so later lookups fell back to guessing.
+          host.setSessionPath(file);
           hostManager!.setActiveSessionPath(file);
         }
       }
@@ -819,7 +840,7 @@ function registerIpc(): void {
       sessionPath?: string,
     ) => {
       const host = hostManager!.getHost(sessionPath);
-      if (!host) throw new Error("No workspace session is active");
+      if (!host) throw new Error(t(appLocale, "error.noActiveSession"));
       return host.respondToUi(id, response);
     },
   );
@@ -925,7 +946,7 @@ const recentWorkspaces = {
     const resolved = path.resolve(workspacePath);
     const stat = await fsp.stat(resolved);
     if (!stat.isDirectory())
-      throw new Error("Selected workspace is not a folder");
+      throw new Error(t(appLocale, "error.notAFolder"));
     const current = await this.list();
     const next = [
       {
@@ -954,14 +975,15 @@ const recentWorkspaces = {
 
 async function servePreview(request: Request): Promise<Response> {
   const url = new URL(request.url);
-  const name = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+  const parsed = parsePreviewPath(url.pathname);
+  const name = parsed.path;
   let target: string;
   if (url.host === UPLOADS_HOST) {
     // basename only: this host serves staged uploads, never an arbitrary path on disk.
     target = path.join(visionUploadsDir(), path.basename(name));
   } else {
     try {
-      target = await resolveInWorkspace(name);
+      target = await resolveInWorkspace(name, parsed.workspace);
     } catch (error) {
       return new Response(
         error instanceof Error ? error.message : "Forbidden",
@@ -1027,6 +1049,34 @@ function visionUploadsDir(): string {
   return path.join(userDataPath, "uploads");
 }
 
+/**
+ * Staged uploads live outside the workspace and are only referenced by a timestamped name, so
+ * after their turn they are unreachable leftovers. Sweep stale ones on startup.
+ */
+async function pruneStagedUploads(): Promise<void> {
+  const dir = visionUploadsDir();
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await fsp.readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  const cutoff = Date.now() - STAGED_UPLOAD_TTL_MS;
+  await Promise.all(
+    entries
+      .filter((entry) => entry.isFile())
+      .map(async (entry) => {
+        const file = path.join(dir, entry.name);
+        try {
+          const stat = await fsp.stat(file);
+          if (stat.mtimeMs < cutoff) await fsp.rm(file, { force: true });
+        } catch {
+          // Raced with another removal, or the file vanished; nothing to do.
+        }
+      }),
+  );
+}
+
 function visionExtensionPath(): string {
   return path.join(currentDirectory, "../extensions/vision.js");
 }
@@ -1084,11 +1134,16 @@ async function syncDeepSeekVisionConfig(): Promise<void> {
   const current = await loadVisionConfig();
   if (current.provider !== "deepseek") return;
   const next = await materializeDeepSeekVision(current.apiKey);
-  await fsp.writeFile(
-    visionConfigPath(),
-    `${JSON.stringify(next, null, 2)}\n`,
-    { mode: 0o600 },
-  );
+  const serialized = serializeVisionConfigFile(next);
+  // This runs at the start of every message: skipping an identical write stops a long session
+  // from rewriting the same few hundred bytes on every turn.
+  const file = visionConfigPath();
+  try {
+    if ((await fsp.readFile(file, "utf8")) === serialized) return;
+  } catch {
+    // Missing or unreadable config: fall through and write a fresh one.
+  }
+  await fsp.writeFile(file, serialized, { mode: 0o600 });
 }
 
 async function resolveInWorkspace(
@@ -1099,27 +1154,27 @@ async function resolveInWorkspace(
     typeof workspacePath === "string" && workspacePath.trim()
       ? workspacePath
       : activeAgentCwd;
-  if (!candidate) throw new Error("No workspace session is active");
+  if (!candidate) throw new Error(t(appLocale, "error.noActiveSession"));
   const root = path.resolve(candidate);
   const allowed =
     path.resolve(activeAgentCwd ?? "") === root ||
     (await recentWorkspaces.list()).some(
       (item) => path.resolve(item.path) === root,
     );
-  if (!allowed) throw new Error("Folder is not an opened project");
+  if (!allowed) throw new Error(t(appLocale, "error.folderNotOpened"));
   const resolved = path.resolve(root, relativePath);
   if (!isPathInsideRoot(root, resolved))
-    throw new Error("Path outside workspace");
+    throw new Error(t(appLocale, "error.pathOutsideWorkspace"));
   // Lexical check alone loses to symlinks (e.g. workspace/link → ~/.ssh). Re-check after realpath.
   let realRoot: string;
   try {
     realRoot = await fsp.realpath(root);
   } catch {
-    throw new Error("Workspace path is not accessible");
+    throw new Error(t(appLocale, "error.workspaceInaccessible"));
   }
   const realPath = await realpathExistingOrJoin(resolved);
   if (!isPathInsideRoot(realRoot, realPath))
-    throw new Error("Path outside workspace");
+    throw new Error(t(appLocale, "error.pathOutsideWorkspace"));
   return resolved;
 }
 
@@ -1129,19 +1184,20 @@ async function realpathExistingOrJoin(target: string): Promise<string> {
     return await fsp.realpath(target);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT")
-      throw new Error("Path outside workspace");
+      throw new Error(t(appLocale, "error.pathOutsideWorkspace"));
   }
   const parts: string[] = [];
   let cursor = target;
   while (true) {
     parts.unshift(path.basename(cursor));
     const parent = path.dirname(cursor);
-    if (parent === cursor) throw new Error("Path outside workspace");
+    if (parent === cursor)
+      throw new Error(t(appLocale, "error.pathOutsideWorkspace"));
     try {
       return path.join(await fsp.realpath(parent), ...parts);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT")
-        throw new Error("Path outside workspace");
+        throw new Error(t(appLocale, "error.pathOutsideWorkspace"));
       cursor = parent;
     }
   }
@@ -1318,6 +1374,7 @@ async function addSkillManifests(root: string, files: string[]): Promise<void> {
 app.whenReady().then(async () => {
   await initializeTetherHome();
   await loadLocale();
+  void pruneStagedUploads();
   protocol.handle(PREVIEW_SCHEME, servePreview);
   registerIpc();
   installMenu();

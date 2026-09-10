@@ -42,6 +42,9 @@ import {
   planAwaitingApproval,
   sessionTools,
   sessionTerminals,
+  sessionTracksFeaturePlan,
+  isSamePath,
+  isSameSession,
   turnAnchorId,
   turnAnchors,
   type ChatMessage,
@@ -89,26 +92,6 @@ function sessionFileOf(snapshot: AgentSnapshot): string | undefined {
   if (typeof snapshot.stats?.sessionFile === "string") return snapshot.stats.sessionFile;
   if (typeof snapshot.state.sessionFile === "string") return snapshot.state.sessionFile;
   return undefined;
-}
-
-function isSamePath(a?: string, b?: string): boolean {
-  if (!a || !b) return false;
-  if (a === b) return true;
-  try {
-    return a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
-  } catch {
-    return false;
-  }
-}
-
-function isSameSession(session: SessionSummary, active?: string) {
-  return Boolean(
-    active &&
-      (session.id === active ||
-        session.path === active ||
-        isSamePath(session.path, active) ||
-        isSamePath(session.storagePath, active)),
-  );
 }
 
 function isSessionInSet(session: SessionSummary, set: Set<string>): boolean {
@@ -465,6 +448,15 @@ export function App() {
   const [fullscreen, setFullscreen] = useState(false);
   const [openProjects, setOpenProjects] = useState<Record<string, boolean>>({});
   const [preview, setPreview] = useState<FileChange>();
+  const closePreview = useCallback(() => setPreview(undefined), []);
+  // The open thread owns the working paths: right panel, file drawer, composer file list, undo and
+  // agent restarts all follow the thread's own cwd. The selected project is only a fallback for the
+  // home screen, or for a thread whose cwd is unknown.
+  const activeThread = useMemo(
+    () => sessions.find((session) => isSameSession(session, activeSession)),
+    [sessions, activeSession],
+  );
+  const panelCwd = activeThread?.cwd ?? workspace;
   const [featureTodos, setFeatureTodos] = useState<SessionTodo[]>([]);
   const [agentSkills, setAgentSkills] = useState<AgentSkillCommand[]>([]);
   const [stoppedJobs, setStoppedJobs] = useState<string[]>([]);
@@ -568,7 +560,7 @@ export function App() {
         setModel(stateResp.model.id);
         modelRef.current = stateResp.model.id;
       }
-      await window.harness.agent.command("set_thinking_level", { level: next }).catch(() => undefined);
+      await window.harness.agent.command("set_thinking_level", { level: next }, sessionRef.current).catch(() => undefined);
     } catch {
       // Agent may not be ready yet.
     }
@@ -578,7 +570,7 @@ export function App() {
     effortRef.current = next;
     setEffort(next);
     writeStoredEffort(next);
-    void window.harness.agent.command("set_thinking_level", { level: next }).catch(() => undefined);
+    void window.harness.agent.command("set_thinking_level", { level: next }, sessionRef.current).catch(() => undefined);
   }, []);
 
   const groups = useMemo(() => groupConversation(messages), [messages]);
@@ -591,8 +583,16 @@ export function App() {
   );
   const workingFiles = useMemo(() => collectWorkingFiles(tools, mentionedFiles(messages)), [messages, tools]);
   const chatTodos = useMemo(() => collectTodos(messages), [messages]);
-  const todos = chatTodos.length ? chatTodos : featureTodos;
-  const planApproval = planAwaitingApproval(permission, running, todos);
+  // `.agents/features.json` is project-scoped: only a thread that actually opened it may show it,
+  // otherwise one conversation's backlog leaks into every other thread and into the project home.
+  const tracksFeaturePlan = useMemo(() => sessionTracksFeaturePlan(messages), [messages]);
+  const projectTodos = useMemo(
+    () => (tracksFeaturePlan ? featureTodos : []),
+    [tracksFeaturePlan, featureTodos],
+  );
+  const todos = chatTodos.length ? chatTodos : projectTodos;
+  // Approval follows this conversation's own plan, never the project backlog.
+  const planApproval = planAwaitingApproval(permission, running, chatTodos);
   const darwin = window.harness.platform === "darwin";
   const connected = providers.find((item) => item.id === "deepseek");
   const waiting = running && (groups.length === 0 || groups.at(-1)?.type === "user");
@@ -888,6 +888,17 @@ export function App() {
   const openSession = useCallback((session: SessionSummary) => {
     // Allow re-open when the row is highlighted but the transcript failed to load.
     if (isSameSession(session, activeSession) && messages.length > 0 && !loading) return;
+    // A thread can be opened before any project is selected (the home screen's recent list does
+    // exactly that), or while another project is active. The workspace has to follow the thread,
+    // otherwise the right panel never mounts and relative paths resolve against the wrong root.
+    // `setWorkspace` bails out on an identical value, so this is safe to do unconditionally.
+    if (session.cwd) {
+      setWorkspace(session.cwd);
+      // Returning the same object keeps React from re-rendering when it is already expanded.
+      setOpenProjects((current) =>
+        current[session.cwd] ? current : { ...current, [session.cwd]: true },
+      );
+    }
     saveCurrentSessionToCache();
     stick.current = true;
     let cached =
@@ -955,8 +966,8 @@ export function App() {
       }
     }
     await window.harness.agent.stop(sessionRef.current).catch(() => undefined);
-    return startAgent(workspace, sessionRef.current, Boolean(workspace), true);
-  }, [startAgent, syncAgentThinking, workspace]);
+    return startAgent(panelCwd, sessionRef.current, Boolean(panelCwd), true);
+  }, [panelCwd, startAgent, syncAgentThinking]);
 
   const switchModel = useCallback((next: string) => {
     setModel(next);
@@ -1098,7 +1109,7 @@ export function App() {
   }, [updateSessions, workspace]);
 
   const applyUndo = useCallback(async (files: RestoreFile[]) => {
-    await window.harness.workspace.restore(files, workspace);
+    await window.harness.workspace.restore(files, panelCwd);
     setMessages((current) => dropLastTurn(current));
     const stats = await window.harness.agent.command<{ sessionFile?: string }>("get_session_stats").catch(() => undefined);
     if (typeof stats?.sessionFile === "string") {
@@ -1106,7 +1117,7 @@ export function App() {
       setActiveSession(stats.sessionFile);
     }
     void window.harness.sessions.list().then(updateSessions);
-  }, [updateSessions, workspace]);
+  }, [panelCwd, updateSessions]);
 
   const stopJobs = useCallback(async (message: string) => {
     const data = await window.harness.agent.command<{ commands: Array<{ name: string }> }>("get_commands", undefined, sessionRef.current);
@@ -1118,7 +1129,7 @@ export function App() {
   const undoLastTurn = useCallback(async () => {
     if (running) return;
     if (!agentCwd.current) {
-      const started = await startAgent(workspace, sessionRef.current, true, true);
+      const started = await startAgent(panelCwd, sessionRef.current, true, true);
       if (!started) {
         setToast(t("toast.noActiveSession"));
         return;
@@ -1141,19 +1152,19 @@ export function App() {
     } catch (error) {
       setToast(error instanceof Error ? error.message : String(error));
     }
-  }, [running, startAgent, t, workspace]);
+  }, [panelCwd, running, startAgent, t]);
 
   const compactContext = useCallback(async () => {
     if (running) {
       setToast(t("toast.waitBeforeCompact"));
       return;
     }
-    if (!agentCwd.current && !workspace && !sessionRef.current) {
+    if (!agentCwd.current && !panelCwd && !sessionRef.current) {
       setToast(t("toast.nothingToCompact"));
       return;
     }
     if (!agentCwd.current) {
-      const started = await startAgent(workspace, sessionRef.current, true, true);
+      const started = await startAgent(panelCwd, sessionRef.current, true, true);
       if (!started) {
         setToast(t("toast.noCompactSession"));
         return;
@@ -1189,7 +1200,7 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, [locale, running, startAgent, t, workspace]);
+  }, [locale, panelCwd, running, startAgent, t]);
 
   const approvePlan = useCallback(async () => {
     if (loading || running) return;
@@ -1712,13 +1723,13 @@ export function App() {
   }, [newThread, openFolder, t, workspace]);
 
   useEffect(() => {
-    if (!workspace) {
+    if (!workspace || !tracksFeaturePlan) {
       setFeatureTodos([]);
       return;
     }
     let gone = false;
     const timer = window.setTimeout(() => {
-      void window.harness.workspace.read(".agents/features.json", workspace).then(
+      void window.harness.workspace.read(".agents/features.json", panelCwd).then(
         (result) => {
           if (!gone) setFeatureTodos(result.binary ? [] : parseFeaturesJson(result.content));
         },
@@ -1731,7 +1742,7 @@ export function App() {
       gone = true;
       window.clearTimeout(timer);
     };
-  }, [workspace, running, workingFiles.length]);
+  }, [panelCwd, tracksFeaturePlan, running, workingFiles.length]);
 
   const home = groups.length === 0 && !activeSession && !loading;
 
@@ -1807,7 +1818,7 @@ export function App() {
       rootRef={dock}
       running={running}
       disabled={loading}
-      workspace={workspace}
+      workspace={panelCwd}
       onPickWorkspace={() => void openFolder()}
       model={model}
       models={[...new Set([model, ...chatModels].filter(Boolean))].map((id) => ({ value: id, label: id }))}
@@ -1932,16 +1943,16 @@ export function App() {
 
       <Chat
         home={home}
-        title={sessions.find((session) => isSameSession(session, activeSession))?.title || (workspace ? baseName(workspace) : undefined)}
+        title={activeThread?.title || (workspace ? baseName(workspace) : undefined)}
         composer={home ? undefined : composer}
         nav={<TurnNav items={anchors} />}
-        inspect={workspace ? (
+        inspect={panelCwd ? (
           <InspectPanel
             files={workingFiles}
             todos={todos}
             terminals={terminals}
-            folder={baseName(workspace)}
-            workspace={workspace}
+            folder={baseName(panelCwd)}
+            workspace={panelCwd}
             refresh={running}
             running={running}
             planApproval={planApproval}
@@ -2123,7 +2134,7 @@ export function App() {
           </button>
         )}
       </Chat>
-      {preview && <FileDrawer file={preview} workspace={workspace} onClose={() => setPreview(undefined)} />}
+      {preview && <FileDrawer file={preview} workspace={panelCwd} onClose={closePreview} />}
 
       {sandboxAsk && (
         <div
@@ -2162,8 +2173,8 @@ export function App() {
               applyThinkingForModel(nextModel);
               setLoginOpen(false);
               await window.harness.agent.stop(sessionRef.current).catch(() => undefined);
-              if (workspace || agentCwd.current) {
-                void startAgent(workspace, sessionRef.current, Boolean(workspace), false, permission);
+              if (panelCwd || agentCwd.current) {
+                void startAgent(panelCwd, sessionRef.current, Boolean(panelCwd), false, permission);
               }
             }
           }}

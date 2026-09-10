@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, approvalTitle, assistantErrorRecovered, assistantGroupSucceeded, assistantReplyText, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, delegateProgress, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, isRecoverableRequestError, isTransientStreamError, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, planAwaitingApproval, recoverableFailStreaks, repairMarkdownTables, sessionTerminals, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, terminalLabel, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative, type ChatMessage } from "./conversation";
+import { applyAgentEvent, approvalTitle, assistantErrorRecovered, assistantGroupSucceeded, assistantReplyText, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, delegateProgress, drawerContent, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, isRecoverableRequestError, isSamePath, isSameSession, isTransientStreamError, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, plainTextToPromptHtml, planAwaitingApproval, recoverableFailStreaks, repairMarkdownTables, sessionTerminals, sessionTracksFeaturePlan, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, terminalLabel, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative, type ChatMessage } from "./conversation";
+import type { SessionSummary } from "../shared/types";
 
 describe("conversation events", () => {
   it("calculates prompt cache hit rate from reported token usage", () => {
@@ -109,6 +110,15 @@ describe("conversation events", () => {
     expect(friendlyAgentError("504 <html><head><title>504 Gateway Time-out</title></head><body bgcolor=\"white\"><center><h1>504 Gateway Time-out</h1></center></body></html>")).toContain("超时");
     expect(isTransientStreamError("Stream ended without finish_reason")).toBe(true);
     expect(friendlyAgentError("Stream ended without finish_reason")).toBe("");
+  });
+
+  it("strips the Electron IPC wrapper for any remote method", () => {
+    expect(
+      friendlyAgentError("Error invoking remote method 'vision:stage': Error: 单张图片不能超过 12 MB"),
+    ).toBe("单张图片不能超过 12 MB");
+    expect(
+      friendlyAgentError("Error invoking remote method 'agent:command': Error: 401 Unauthorized"),
+    ).toContain("API Key");
   });
 
   it("marks intermittent network/timeouts as recoverable", () => {
@@ -1199,5 +1209,136 @@ describe("conversation events", () => {
     expect(baseName("D:\\code\\agnes-images")).toBe("agnes-images");
     expect(baseName("D:\\code\\agnes-images\\")).toBe("agnes-images");
     expect(baseName("src/renderer/ui.tsx")).toBe("ui.tsx");
+  });
+});
+
+describe("sessionTracksFeaturePlan", () => {
+  const withTool = (name: string, args: unknown): ChatMessage => ({
+    id: "m1",
+    role: "assistant",
+    text: "",
+    images: [],
+    work: [],
+    tools: [{ id: "t1", name, title: "", status: "complete", args }],
+  });
+
+  it("is false for threads that never touched the plan files", () => {
+    expect(sessionTracksFeaturePlan([])).toBe(false);
+    expect(sessionTracksFeaturePlan([withTool("read", { path: "src/main/index.ts" })])).toBe(false);
+    expect(sessionTracksFeaturePlan([withTool("bash", { command: "pnpm test" })])).toBe(false);
+  });
+
+  it("detects relative and absolute paths to the plan files", () => {
+    expect(sessionTracksFeaturePlan([withTool("read", { path: ".agents/features.json" })])).toBe(true);
+    expect(
+      sessionTracksFeaturePlan([withTool("read", { file_path: "/Users/x/proj/.agents/features.json" })]),
+    ).toBe(true);
+  });
+
+  it("detects the plan files behind a shell command or a patch body", () => {
+    expect(sessionTracksFeaturePlan([withTool("bash", { command: "cat .agents/progress.md" })])).toBe(true);
+    expect(
+      sessionTracksFeaturePlan([withTool("patch", { input: "*** Update File: .agents/features.json" })]),
+    ).toBe(true);
+  });
+
+  it("ignores other .agents paths such as skills", () => {
+    expect(
+      sessionTracksFeaturePlan([withTool("read", { path: ".agents/skills/tether-ui/SKILL.md" })]),
+    ).toBe(false);
+  });
+});
+
+describe("drawerContent", () => {
+  it("reports a missing file and whether a patch can stand in for it", () => {
+    expect(drawerContent({ content: "", binary: false, missing: true }, true))
+      .toEqual({ kind: "missing", showPatch: true });
+    expect(drawerContent({ content: "", binary: false, missing: true }, false))
+      .toEqual({ kind: "missing", showPatch: false });
+  });
+
+  it("never claims a file is empty when the host did not report presence", () => {
+    // Older main processes returned `content: ""` for a deleted file and sent no `missing` field,
+    // which is exactly how a removed file used to show up as "（空文件）".
+    expect(drawerContent({ content: "", binary: false }, true)).toEqual({ kind: "unknown" });
+    expect(drawerContent({ content: "", binary: false }, false)).toEqual({ kind: "unknown" });
+  });
+
+  it("calls a file empty only when the host confirmed it exists", () => {
+    expect(drawerContent({ content: "", binary: false, missing: false }, false)).toEqual({ kind: "empty" });
+  });
+
+  it("passes text through and flags binary reads", () => {
+    expect(drawerContent({ content: "hello", binary: false, missing: false }, false))
+      .toEqual({ kind: "text", body: "hello" });
+    expect(drawerContent({ content: "", binary: true, missing: false }, false)).toEqual({ kind: "binary" });
+  });
+});
+
+describe("plainTextToPromptHtml", () => {
+  it("turns newlines into <br> and leaves plain text alone", () => {
+    expect(plainTextToPromptHtml("第一行\n第二行")).toBe("第一行<br>第二行");
+    expect(plainTextToPromptHtml("a\r\nb\rc")).toBe("a<br>b<br>c");
+    expect(plainTextToPromptHtml("")).toBe("");
+  });
+
+  it("escapes markup so pasted HTML cannot become rich content", () => {
+    expect(plainTextToPromptHtml("<b>x</b> & y")).toBe("&lt;b&gt;x&lt;/b&gt; &amp; y");
+    expect(plainTextToPromptHtml('<img src=x onerror="alert(1)">'))
+      .toBe("&lt;img src=x onerror=\"alert(1)\"&gt;");
+  });
+
+  it("keeps indentation and blank lines from pasted code", () => {
+    expect(plainTextToPromptHtml("  indented\n\nnext")).toBe("  indented<br><br>next");
+  });
+});
+
+describe("isSamePath", () => {
+  it("never matches when either side is missing", () => {
+    expect(isSamePath(undefined, "/a")).toBe(false);
+    expect(isSamePath("/a", undefined)).toBe(false);
+    expect(isSamePath(undefined, undefined)).toBe(false);
+    expect(isSamePath("", "/a")).toBe(false);
+  });
+
+  it("matches identical paths and ignores separator style plus case", () => {
+    expect(isSamePath("/Users/code/tether-ai", "/Users/code/tether-ai")).toBe(true);
+    // macOS and Windows volumes are case-insensitive, so both spellings are the same location.
+    expect(isSamePath("C:\\code\\App", "c:/code/app")).toBe(true);
+    expect(isSamePath("/Users/Code/App/", "/users/code/app/")).toBe(true);
+  });
+
+  it("does not confuse sibling paths", () => {
+    expect(isSamePath("/a/b", "/a/bc")).toBe(false);
+    expect(isSamePath("/a/b", "/a/c")).toBe(false);
+  });
+});
+
+describe("isSameSession", () => {
+  const session: SessionSummary = {
+    path: "/Users/x/.tether/sessions/2026-09-10T06-05-31-157Z_01a0.jsonl",
+    storagePath: "/Users/x/.tether/sessions/2026/09/10/2026-09-10T06-05-31-157Z_01a0.jsonl",
+    id: "01a0",
+    cwd: "/Users/x/project",
+    title: "t",
+    createdAt: "2026-09-10T06:05:31.157Z",
+    updatedAt: "2026-09-10T06:05:31.157Z",
+    messageCount: 0,
+    pinned: false,
+    archived: false,
+  };
+
+  it("matches by id, runtime path or partitioned storage path", () => {
+    expect(isSameSession(session, "01a0")).toBe(true);
+    expect(isSameSession(session, session.path)).toBe(true);
+    expect(isSameSession(session, session.storagePath)).toBe(true);
+    expect(isSameSession(session, session.storagePath.toUpperCase())).toBe(true);
+  });
+
+  it("is false without an active id, and for another thread", () => {
+    expect(isSameSession(session, undefined)).toBe(false);
+    expect(isSameSession(session, "")).toBe(false);
+    expect(isSameSession(session, "other")).toBe(false);
+    expect(isSameSession(session, "/Users/x/other.jsonl")).toBe(false);
   });
 });
