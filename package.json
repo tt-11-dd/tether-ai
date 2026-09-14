@@ -1,7 +1,7 @@
 {
   "name": "tether",
   "productName": "Tether",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
   "description": "Tether — a local AI coding agent workbench",
   "license": "MIT",
@@ -48,5 +48,8 @@
   },
   "engines": {
     "node": ">=22.19.0"
+  },
+  "overrides": {
+    "fast-uri": "^3.1.6"
   }
 }
