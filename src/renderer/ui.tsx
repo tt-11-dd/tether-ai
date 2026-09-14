@@ -8,7 +8,7 @@ import { visibleUserText, visionResultSections, visionToolChips } from "../share
 import { DEEPSEEK_PRESET, activeCustomProfile, defaultCustomProfile, isChatProfileValid, isDeepSeekUrl, isVisionProfileValid, type CustomApiProfile } from "../shared/chat-profiles";
 import { applyTheme, readStoredTheme, THEMES, type ThemeId } from "../shared/theme";
 import { effortLabelKey, pickEffortOptions, reasoningLevelsAvailable } from "../shared/thinking";
-import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, delegateProgress, delegateStatusLabel, drawerContent, filterMentionPaths, formatCommand, isRecoverableRequestError, liveStatus, omitFinalReply, plainTextToPromptHtml, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolSummary, toolWritePreview, traceRows, turnWork, assistantReplyText, webSearchCard, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
+import { approvalTitle, baseName, cacheHitRate, collectFileChanges, collapseThinking, delegateProgress, delegateStatusLabel, drawerContent, filterMentionPaths, formatCommand, isRecoverableRequestError, liveStatus, omitFinalReply, plainTextToPromptHtml, repairMarkdownTables, splitHttpUrls, splitPatch, stripEmptyMarkdown, spliceFileMention, terminalLabel, toolCommand, toolPath, toolSummary, toolWritePreview, formatToolOutputPreview, traceRows, turnWork, assistantReplyText, webSearchCard, workspaceRelative, type ChatImage, type ChatMessage, type FileChange, type SessionFile, type SessionTerminal, type SessionTodo, type ToolActivity, type TraceRow, type WorkItem } from "./conversation";
 import { tokenizeCode } from "./highlight";
 import type { AgentSkillCommand } from "../shared/skills";
 import { PROJECT_SKILL_ROOTS, USER_SKILL_ROOTS, skillSlashCommand } from "../shared/skills";
@@ -179,11 +179,6 @@ export function ConversationSkeleton({ title }: { title?: string }) {
         <div className="skeleton-assistant-header">
           <div className="skeleton-avatar" />
           <div className="skeleton-line skeleton-assistant-name" />
-        </div>
-
-        <div className="skeleton-thought-bar">
-          <span className="skeleton-thought-dot" />
-          <div className="skeleton-line skeleton-thought-text" />
         </div>
 
         <div className="skeleton-paragraph">
@@ -689,6 +684,7 @@ export function Thinking({
   onRetry?(): void;
 }) {
   const { t, locale } = useI18n();
+  const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(() => Boolean(error && errorTone === "strong"));
   const [dismissedError, setDismissedError] = useState(false);
   const [born] = useState(() => Date.now());
@@ -717,7 +713,7 @@ export function Thinking({
   const expandable = live || hasBody;
   if (!expandable && !live) return null;
   return (
-    <div className={live ? (open ? "trace live open" : "trace live") : open ? "trace open" : "trace"}>
+    <div ref={rootRef} className={live ? (open ? "trace live open" : "trace live") : open ? "trace open" : "trace"}>
       <button type="button" className="trace-toggle" onClick={() => expandable && setOpen((value) => !value)}>
         {live ? <Dots /> : <img className="trace-logo" src={logo} alt="" width={18} height={10} />}
         <span className={live ? "shimmer trace-label" : "trace-label"}>
@@ -757,6 +753,23 @@ export function Thinking({
                   <button type="button" className="ghost" onClick={onRetry}>{t("common.continue")}</button>
                 )}
               </div>
+            </div>
+          )}
+          {rows.length >= 3 && !live && (
+            <div className="trace-collapse-footer">
+              <button
+                type="button"
+                className="trace-collapse-bottom"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpen(false);
+                  rootRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                }}
+                title={t("think.collapse")}
+              >
+                <Icon path="M18 15l-6-6-6 6" size={11} />
+                <span>{t("think.collapse")}</span>
+              </button>
             </div>
           )}
         </div>
@@ -805,6 +818,9 @@ function traceDetail(row: TraceRow): ReactNode {
   if (row.kind === "think") {
     return row.text ? <div className="trace-detail-text markdown"><Markdown>{row.text}</Markdown></div> : null;
   }
+  if (row.tools && row.tools.length > 1) {
+    return <GroupedToolsDetail tools={row.tools} kind={row.kind} />;
+  }
   const tool = row.tool;
   if (!tool) return null;
   if (tool.name === "delegate") {
@@ -831,7 +847,7 @@ function traceDetail(row: TraceRow): ReactNode {
     return <WebSearchDetail card={web} />;
   }
   const preview = toolWritePreview(tool, 24);
-  const body = preview || tool.output?.trim() || "";
+  const body = preview || formatToolOutputPreview(tool.output);
   if (!body) return null;
   return (
     <pre className="trace-detail-code">
@@ -839,6 +855,54 @@ function traceDetail(row: TraceRow): ReactNode {
         <span key={index} className={line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : ""}>{line}</span>
       ))}
     </pre>
+  );
+}
+
+function GroupedToolsDetail({ tools, kind }: { tools: ToolActivity[]; kind: TraceRow["kind"] }) {
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(0);
+
+  return (
+    <div className="grouped-tools-box">
+      <div className="grouped-tools-list">
+        {tools.map((tool, idx) => {
+          const file = toolPath(tool);
+          const name = file ? baseName(file) : (tool.title || tool.name);
+          const isSelected = selectedIdx === idx;
+          const output = formatToolOutputPreview(tool.output);
+          const lines = output ? output.split("\n") : [];
+          const isRunning = tool.status === "running";
+          const isError = tool.status === "error";
+
+          return (
+            <div key={tool.id} className={`grouped-tool-item ${isSelected ? "selected" : ""}`}>
+              <button
+                type="button"
+                className="grouped-tool-row"
+                onClick={() => setSelectedIdx(isSelected ? null : idx)}
+              >
+                <span className={`grouped-tool-icon ${tool.status}`}>
+                  <Icon path={kind === "read" ? "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6" : "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3"} size={12} />
+                </span>
+                <span className="grouped-tool-name">{name}</span>
+                {file && file !== name && <span className="grouped-tool-path">{file}</span>}
+                {lines.length > 0 && <span className="grouped-tool-meta">{lines.length} 行</span>}
+                {isRunning && <span className="terminal-badge running"><i /></span>}
+                {isError && <span className="terminal-badge error">✕</span>}
+                <Icon className={`grouped-tool-chevron chevron ${isSelected ? "open" : ""}`} path="M6 9l6 6 6-6" size={11} />
+              </button>
+              {isSelected && output && (
+                <pre className="trace-detail-code grouped-code-preview">
+                  {lines.slice(0, 30).map((line, i) => (
+                    <span key={i} className={line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : ""}>{line}</span>
+                  ))}
+                  {lines.length > 30 && <span className="grouped-more-hint">…（剩余 {lines.length - 30} 行）</span>}
+                </pre>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -974,14 +1038,43 @@ function TerminalBlock({ command, tool }: { command: string; tool: ToolActivity 
   const { t } = useI18n();
   const [showOutput, setShowOutput] = useState(tool.status === "error");
   const [expandedAll, setExpandedAll] = useState(false);
+  const [copied, setCopied] = useState(false);
   const rawOutput = tool.output?.trim() ?? "";
   const hasOutput = Boolean(rawOutput);
   const isRunning = tool.status === "running";
   const isError = tool.status === "error";
 
-  const lines = rawOutput ? rawOutput.split("\n") : [];
+  const lines = useMemo(() => (rawOutput ? rawOutput.split("\n") : []), [rawOutput]);
   const isTooLong = lines.length > 40;
-  const displayOutput = isTooLong && !expandedAll ? `${lines.slice(0, 40).join("\n")}\n…` : rawOutput;
+
+  const { displayOutput, isTailView } = useMemo(() => {
+    if (!isTooLong || expandedAll) {
+      return { displayOutput: rawOutput, isTailView: false };
+    }
+    if (isError) {
+      const lowerLines = lines.map((l) => l.toLowerCase());
+      let errorIdx = -1;
+      for (let idx = lines.length - 1; idx >= 0; idx--) {
+        if (/error:|failed|fail|exception|err!|syntaxerror|typeerror|fatal/i.test(lowerLines[idx]!)) {
+          errorIdx = idx;
+          break;
+        }
+      }
+      if (errorIdx !== -1) {
+        const start = Math.max(0, Math.min(lines.length - 35, errorIdx - 10));
+        const snippet = lines.slice(start, start + 35).join("\n");
+        return { displayOutput: `…\n${snippet}${start + 35 < lines.length ? "\n…" : ""}`, isTailView: true };
+      }
+      return { displayOutput: `…\n${lines.slice(-35).join("\n")}`, isTailView: true };
+    }
+    return { displayOutput: `${lines.slice(0, 35).join("\n")}\n…`, isTailView: false };
+  }, [rawOutput, lines, isTooLong, expandedAll, isError]);
+
+  const copyOutput = async () => {
+    await navigator.clipboard.writeText(rawOutput || command);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
     <div className={`terminal-box ${tool.status}`}>
@@ -995,8 +1088,26 @@ function TerminalBlock({ command, tool }: { command: string; tool: ToolActivity 
         <div className="terminal-actions">
           {isRunning && <span className="terminal-badge running"><i />{t("terminal.running")}</span>}
           {isError && <span className="terminal-badge error">{t("terminal.failed")}</span>}
+          {!isRunning && !isError && tool.status === "complete" && (
+            <span className="terminal-badge success">
+              <Icon path="M9 12l2 2 4-4" size={11} />
+              {t("terminal.success")}
+            </span>
+          )}
           {!isRunning && !isError && tool.endedAt && tool.startedAt && (
             <span className="terminal-time">{formatDuration(tool.startedAt, tool.endedAt)}</span>
+          )}
+          {hasOutput && (
+            <button
+              type="button"
+              className={`terminal-action-btn ${copied ? "copied" : ""}`}
+              title={copied ? t("terminal.copied") : t("terminal.copyOutput")}
+              aria-label={copied ? t("terminal.copied") : t("terminal.copyOutput")}
+              onClick={copyOutput}
+            >
+              <Icon path={copied ? "M9 12l2 2 4-4" : "M8 4v12h10V4H8zM6 8H4v12h10v-2"} size={11} />
+              {copied && <span>{t("terminal.copied")}</span>}
+            </button>
           )}
           {hasOutput && (
             <button
@@ -1017,6 +1128,12 @@ function TerminalBlock({ command, tool }: { command: string; tool: ToolActivity 
       </div>
       {showOutput && hasOutput && (
         <div className={`terminal-output ${isError ? "error" : ""}`}>
+          {isTailView && !expandedAll && (
+            <div className="terminal-tail-hint">
+              <Icon path="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" size={12} />
+              <span>{t("terminal.showingTail", { n: lines.length })}</span>
+            </div>
+          )}
           <pre>{displayOutput}</pre>
           {isTooLong && (
             <button
@@ -1713,6 +1830,10 @@ function serializePrompt(root: HTMLElement): string {
   return out;
 }
 
+function isPromptEmpty(root: HTMLElement): boolean {
+  return !serializePrompt(root).trim();
+}
+
 function caretOffset(root: HTMLElement): number {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0 || !sel.anchorNode || !root.contains(sel.anchorNode)) return serializePrompt(root).length;
@@ -1805,8 +1926,149 @@ function flattenPromptBlocks(root: HTMLElement): void {
   }
 }
 
-function isPromptEmpty(root: HTMLElement): boolean {
-  return !serializePrompt(root).trim();
+function MentionFilesMenu({
+  matches,
+  picked,
+  query,
+  workspace,
+  listing,
+  onSelect,
+  onNavigate,
+  menuRef,
+}: {
+  matches: string[];
+  picked: number;
+  query: string;
+  workspace?: string;
+  listing?: boolean;
+  onSelect(file: string, confirm?: boolean): void;
+  onNavigate(dir: string): void;
+  menuRef: Ref<HTMLDivElement>;
+}) {
+  const { t } = useI18n();
+  const rootName = workspace ? baseName(workspace) : t("inspect.workspace");
+
+  const lastSlash = query.lastIndexOf("/");
+  const currentDir = lastSlash >= 0 ? query.slice(0, lastSlash + 1) : "";
+  const filter = lastSlash >= 0 ? query.slice(lastSlash + 1) : query;
+
+  const segments = currentDir ? currentDir.split("/").filter(Boolean) : [];
+  const parentDir = currentDir ? currentDir.replace(/[^/]+\/$/, "") : "";
+
+  const FOLDER_ICON = "M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z";
+
+  return (
+    <div
+      className="slash-menu files"
+      ref={menuRef}
+      onMouseDown={(event) => event.preventDefault()}
+      onWheel={(event) => event.stopPropagation()}
+    >
+      <div className="mention-header">
+        <div className="mention-crumbs">
+          <button
+            type="button"
+            className={`mention-crumb ${!currentDir && !filter ? "active" : ""}`}
+            onClick={() => onNavigate("")}
+            title={rootName}
+          >
+            <Icon path={FOLDER_ICON} size={12} />
+            <span className="mention-crumb-name">{rootName}</span>
+          </button>
+          {segments.map((seg, idx) => {
+            const segPath = segments.slice(0, idx + 1).join("/") + "/";
+            const isLast = idx === segments.length - 1 && !filter;
+            return (
+              <span key={segPath} className="mention-crumb-item">
+                <span className="mention-crumb-sep">/</span>
+                <button
+                  type="button"
+                  className={`mention-crumb ${isLast ? "active" : ""}`}
+                  onClick={() => onNavigate(segPath)}
+                >
+                  {seg}
+                </button>
+              </span>
+            );
+          })}
+          {filter && (
+            <span className="mention-crumb-item">
+              <span className="mention-crumb-sep">/</span>
+              <span className="mention-crumb-filter">{filter}</span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="mention-list">
+        {matches.length === 0 && (
+          <p className="slash-empty">{listing ? t("composer.listingFiles") : t("composer.noFiles")}</p>
+        )}
+        {matches.map((file, index) => {
+          const isDir = file.endsWith("/");
+          const isCurrentDir = isDir && file === currentDir;
+          const isSelected = index === picked;
+
+          let displayName = file;
+          let pathHint = "";
+          if (isCurrentDir) {
+            displayName = t("composer.selectCurrentDir");
+          } else if (currentDir && file.startsWith(currentDir)) {
+            displayName = file.slice(currentDir.length);
+          } else if (!currentDir && !isDir) {
+            const slashIdx = file.lastIndexOf("/");
+            if (slashIdx >= 0) {
+              displayName = file.slice(slashIdx + 1);
+              pathHint = file.slice(0, slashIdx + 1);
+            }
+          }
+
+          return (
+            <div
+              key={file}
+              className={`mention-row ${isSelected ? "on" : ""} ${isDir ? "is-dir" : "is-file"} ${isCurrentDir ? "is-current-dir" : ""}`}
+              onClick={() => onSelect(file, !isDir || isCurrentDir)}
+            >
+              <span className="mention-row-icon">
+                <Icon path={isDir ? FOLDER_ICON : fileGlyph(file)} size={13} />
+              </span>
+              <span className="mention-row-name" title={file}>
+                {displayName}
+              </span>
+              {pathHint && <span className="mention-row-path">{pathHint}</span>}
+              {isCurrentDir && (
+                <span className="mention-dir-badge">@{file}</span>
+              )}
+              {isDir && !isCurrentDir && (
+                <Icon className="mention-drill-chevron" path="M9 18l6-6-6-6" size={10} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mention-footer">
+        <span className="mention-footer-item">
+          <kbd>↑↓</kbd>
+          <span>{t("composer.hintNavigate")}</span>
+        </span>
+        <span className="mention-footer-dot">·</span>
+        <span className="mention-footer-item">
+          <kbd>↵</kbd>
+          <span>{t("composer.hintEnter")}</span>
+        </span>
+        <span className="mention-footer-dot">·</span>
+        <span className="mention-footer-item">
+          <kbd>⇧↵</kbd>
+          <span>{t("composer.hintRef")}</span>
+        </span>
+        <span className="mention-footer-dot">·</span>
+        <span className="mention-footer-item">
+          <kbd>esc</kbd>
+        </span>
+      </div>
+    </div>
+  );
 }
 
 export function PromptBar({
@@ -2032,6 +2294,30 @@ export function PromptBar({
     });
   };
 
+  const navigateMentionDir = (dirPath: string) => {
+    const root = area.current;
+    if (!mention || !root) return;
+    const next = `${value.slice(0, mention.start)}@${dirPath}${value.slice(cursor)}`;
+    const caret = mention.start + dirPath.length + 1;
+    setValue(next);
+    setCursor(caret);
+    setPicked(0);
+    requestAnimationFrame(() => {
+      root.focus();
+      placeCaret(root, caret);
+    });
+  };
+
+  useEffect(() => {
+    setPicked(0);
+  }, [mention?.query]);
+
+  useEffect(() => {
+    if (!menu.current) return;
+    const activeEl = menu.current.querySelector<HTMLElement>(".on");
+    activeEl?.scrollIntoView({ block: "nearest" });
+  }, [picked]);
+
   const slash = skillCommands.length > 0 && (value === "/" || /^\/[^\s]*$/.test(value));
   const commands = skillCommands
     .map((skill) => ({ id: skillSlashCommand(skill.name) }))
@@ -2091,6 +2377,24 @@ export function PromptBar({
       }
     }
     if (matches.length > 0) {
+      if (event.key === "ArrowLeft" && mention) {
+        const lastSlash = mention.query.lastIndexOf("/");
+        if (lastSlash >= 0) {
+          event.preventDefault();
+          const currentDir = mention.query.slice(0, lastSlash + 1);
+          const parentDir = currentDir.replace(/[^/]+\/$/, "");
+          navigateMentionDir(parentDir);
+          return;
+        }
+      }
+      if (event.key === "ArrowRight") {
+        const target = matches[picked];
+        if (target && target.endsWith("/") && target !== mention?.query) {
+          event.preventDefault();
+          insertFile(target, false);
+          return;
+        }
+      }
       if (event.key === "ArrowDown") {
         event.preventDefault();
         setPicked((current) => (current + 1) % matches.length);
@@ -2103,7 +2407,21 @@ export function PromptBar({
       }
       if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
         event.preventDefault();
-        insertFile(matches[picked] ?? matches[0]!, event.key === "Enter");
+        const target = matches[picked] ?? matches[0]!;
+        if (target) {
+          const isDir = target.endsWith("/");
+          const isCurrentDir = isDir && mention?.query === target;
+          const seal = event.key === "Enter" ? (!isDir || isCurrentDir) : false;
+          insertFile(target, seal);
+        }
+        return;
+      }
+      if (event.key === "Enter" && event.shiftKey) {
+        event.preventDefault();
+        const target = matches[picked] ?? matches[0]!;
+        if (target) {
+          insertFile(target, true);
+        }
         return;
       }
       if (event.key === "Escape") {
@@ -2319,25 +2637,16 @@ export function PromptBar({
           </div>
         )}
         {mention && !slash && (
-          <div
-            className="slash-menu files"
-            ref={menu}
-            onMouseDown={(event) => event.preventDefault()}
-            onWheel={(event) => event.stopPropagation()}
-          >
-            {matches.length === 0 && <p className="slash-empty">{listing ? t("composer.listingFiles") : t("composer.noFiles")}</p>}
-            {matches.map((file, index) => (
-              <button
-                key={file}
-                type="button"
-                className={index === picked ? "on" : ""}
-                onClick={() => insertFile(file)}
-              >
-                <span>{file}</span>
-                {file.endsWith("/") && mention.query === file && <small>{t("composer.selectDir")}</small>}
-              </button>
-            ))}
-          </div>
+          <MentionFilesMenu
+            matches={matches}
+            picked={picked}
+            query={mention.query}
+            workspace={workspace}
+            listing={listing}
+            onSelect={insertFile}
+            onNavigate={navigateMentionDir}
+            menuRef={menu}
+          />
         )}
         <div className="prompt-bar">
           <input

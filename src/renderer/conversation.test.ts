@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { visionAgentPrompt } from "../shared/vision-api";
-import { applyAgentEvent, approvalTitle, assistantErrorRecovered, assistantGroupSucceeded, assistantReplyText, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, delegateProgress, drawerContent, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, isRecoverableRequestError, isSamePath, isSameSession, isTransientStreamError, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, plainTextToPromptHtml, planAwaitingApproval, recoverableFailStreaks, repairMarkdownTables, sessionTerminals, sessionTracksFeaturePlan, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, terminalLabel, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative, type ChatMessage } from "./conversation";
+import { applyAgentEvent, approvalTitle, assistantErrorRecovered, assistantGroupSucceeded, assistantReplyText, baseName, cacheHitRate, collectFileChanges, collectTodos, collectWorkingFiles, delegateProgress, drawerContent, dropLastTurn, filterMentionPaths, formatCommand, formatThinking, friendlyAgentError, groupConversation, hasNewCheckpointUndo, isRecoverableRequestError, isSamePath, isSameSession, isTransientStreamError, lastTurnRestoreFiles, liveStatus, mentionedFiles, normalizeFilePath, normalizeMessages, omitFinalReply, optimisticUserMessage, parseFeaturesJson, plainTextToPromptHtml, planAwaitingApproval, recoverableFailStreaks, repairMarkdownTables, sessionTerminals, sessionTracksFeaturePlan, splitHttpUrls, splitPromptChips, splitPatch, stripEmptyMarkdown, terminalLabel, thoughtSteps, toolErrorText, toolSummary, toolWritePreview, formatToolOutputPreview, takeTrailingUrl, isHttpUrl, urlChipLabel, spliceFileMention, traceRows, turnAnchorId, turnAnchors, turnWork, undoDialogTitle, workspaceRelative, type ChatMessage } from "./conversation";
 import type { SessionSummary } from "../shared/types";
 
 describe("conversation events", () => {
@@ -935,6 +935,46 @@ describe("conversation events", () => {
     expect(traceRows(messages[0]!.work, messages[0]!.tools).map((row) => row.kind === "tool" ? row.chip : undefined).filter(Boolean)).toEqual([
       "3/4 · 校验",
     ]);
+  });
+
+  it("collapses consecutive read and search tools into aggregated rows", () => {
+    const tools = [
+      { id: "1", name: "read", title: "read a.ts", status: "complete" as const, args: { path: "a.ts" } },
+      { id: "2", name: "read", title: "read b.ts", status: "complete" as const, args: { path: "b.ts" } },
+      { id: "3", name: "read", title: "read c.ts", status: "complete" as const, args: { path: "c.ts" } },
+      { id: "4", name: "write", title: "write d.ts", status: "complete" as const, args: { path: "d.ts" } },
+      { id: "5", name: "grep_search", title: "grep foo", status: "complete" as const, args: { query: "foo" } },
+      { id: "6", name: "find_files", title: "find *.ts", status: "complete" as const, args: { pattern: "*.ts" } },
+    ];
+    const work = tools.map((t) => ({ type: "tool" as const, id: `w-${t.id}`, toolId: t.id }));
+    const rows = traceRows(work, tools);
+    expect(rows.map((r) => [r.label, r.chip, r.tools?.length])).toEqual([
+      ["查阅 3 个文件", "a.ts · b.ts · +1", 3],
+      ["写入文件", "d.ts", undefined],
+      ["执行 2 次搜索", "foo · *.ts", 2],
+    ]);
+    expect(rows[0]!.tools?.map((t) => t.id)).toEqual(["1", "2", "3"]);
+    expect(rows[2]!.tools?.map((t) => t.id)).toEqual(["5", "6"]);
+  });
+
+  it("normalizes common leading spaces and aligns line numbers when first line was trimmed", () => {
+    // Case 1: First line lost its padding at runtime but subsequent lines still had it
+    const trimmedFirst = "1\timport fs from \"node:fs\";\n    2\timport fsp from \"node:fs/promises\";\n    3\timport path from \"node:path\";\n";
+    expect(formatToolOutputPreview(trimmedFirst)).toBe(
+      "1\timport fs from \"node:fs\";\n2\timport fsp from \"node:fs/promises\";\n3\timport path from \"node:path\";"
+    );
+
+    // Case 2: Three digit line numbers (140 vs 141)
+    const threeDigits = "140\tlet a = false;\n   141\tlet b = true;\n";
+    expect(formatToolOutputPreview(threeDigits)).toBe(
+      "140\tlet a = false;\n141\tlet b = true;"
+    );
+
+    // Case 3: Mixed single and double digits
+    const withDoubleDigits = "     1\tfirst\n    10\ttenth\n";
+    expect(formatToolOutputPreview(withDoubleDigits)).toBe(
+      " 1\tfirst\n10\ttenth"
+    );
   });
 
   it("parses features.json into session todos", () => {

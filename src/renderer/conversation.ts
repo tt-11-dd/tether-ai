@@ -632,13 +632,47 @@ function patchTarget(input: string): { action: "add" | "update" | "delete"; path
 }
 
 /** Code the model is writing, so the trace can show it instead of a one-line tool title. */
+/**
+ * Clean up tool text output for trace previews without eating the first line's indentation.
+ * Also normalizes excessive common padding from unix-style numbered lines (`     1\t`).
+ */
+export function formatToolOutputPreview(raw?: string): string {
+  if (!raw) return "";
+  const text = raw.replace(/^[\r\n]+/, "").trimEnd();
+  const lines = text.split("\n");
+
+  const linePattern = /^(\s*)(\d+)(\t.*)$/;
+  const codeLines = lines.filter((l) => linePattern.test(l));
+
+  if (codeLines.length >= 2 || (lines.length === 1 && linePattern.test(lines[0]))) {
+    let maxDigits = 0;
+    for (const line of lines) {
+      const m = line.match(linePattern);
+      if (m) {
+        maxDigits = Math.max(maxDigits, m[2].length);
+      }
+    }
+    return lines.map((line) => {
+      const m = line.match(linePattern);
+      if (!m) return line;
+      const num = m[2].padStart(maxDigits, " ");
+      return `${num}${m[3]}`;
+    }).join("\n");
+  }
+
+  return text;
+}
+
 export function toolWritePreview(tool: ToolActivity, limit = 80): string {
   if (tool.status === "error" || !/write|edit|patch/i.test(tool.name)) return "";
   const args = isRecord(tool.args) ? tool.args : {};
   const patch = stringField(args, "input");
   if (patch.trim()) {
-    const lines = splitPatch(patch)
-      .filter((row) => row.kind !== "meta")
+    const patchRows = splitPatch(patch).filter((row) => row.kind !== "meta");
+    const firstChangeIdx = patchRows.findIndex((r) => r.kind === "add" || r.kind === "del");
+    const startIdx = firstChangeIdx > 3 ? firstChangeIdx - 2 : 0;
+    const lines = patchRows
+      .slice(startIdx)
       .map((row) => (row.kind === "add" ? `+${row.next}` : row.kind === "del" ? `-${row.old}` : ` ${row.next}`));
     return clipLines(lines, limit);
   }
@@ -1230,11 +1264,13 @@ export interface TraceRow {
   /** Thinking markdown, for `think` rows. */
   text?: string;
   tool?: ToolActivity;
+  /** Grouped child tools for aggregated read/search batches. */
+  tools?: ToolActivity[];
 }
 
 /**
  * Flatten a turn into compact `label + chip` rows: consecutive thinking beats collapse into one
- * row carrying the rest as its detail, and every tool call becomes its own row.
+ * row carrying the rest as its detail, and consecutive read/search tool calls aggregate into one row.
  */
 export function traceRows(work: WorkItem[], tools: ToolActivity[], fallback = ""): TraceRow[] {
   const rows: TraceRow[] = [];
@@ -1271,7 +1307,61 @@ export function traceRows(work: WorkItem[], tools: ToolActivity[], fallback = ""
     const steps = todosFromPlanTool(lastPlan.tool);
     if (steps?.length) lastPlan.chip = formatPlanChip(overlayPlanProgress(steps, work, tools, lastPlan.tool.id));
   }
-  return rows;
+  return collapseConsecutiveTraceRows(rows);
+}
+
+function collapseConsecutiveTraceRows(rows: TraceRow[]): TraceRow[] {
+  const result: TraceRow[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    const current = rows[i]!;
+    if (current.kind !== "read" && current.kind !== "search") {
+      result.push(current);
+      i++;
+      continue;
+    }
+
+    const group: TraceRow[] = [current];
+    let j = i + 1;
+    while (j < rows.length && rows[j]!.kind === current.kind) {
+      group.push(rows[j]!);
+      j++;
+    }
+
+    if (group.length === 1) {
+      result.push(current);
+      i++;
+      continue;
+    }
+
+    const aggregatedTools = group.map((r) => r.tool).filter(Boolean) as ToolActivity[];
+    const chips = [...new Set(group.map((r) => r.chip).filter(Boolean))];
+    const chipText = chips.length <= 2
+      ? chips.join(" · ")
+      : `${chips.slice(0, 2).join(" · ")} · +${chips.length - 2}`;
+
+    const hasRunning = group.some((r) => r.status === "running");
+    const hasError = group.some((r) => r.status === "error");
+    const status = hasRunning ? "running" : hasError ? "error" : "complete";
+
+    const label = current.kind === "read"
+      ? ct("trace.readN", { n: group.length })
+      : ct("trace.searchN", { n: group.length });
+
+    result.push({
+      id: `group-${current.id}-${group.length}`,
+      kind: current.kind,
+      label,
+      chip: chipText,
+      mono: current.mono,
+      status,
+      tools: aggregatedTools,
+      tool: current.tool,
+    });
+
+    i = j;
+  }
+  return result;
 }
 
 /** What the file drawer should render for one `workspace.read` result. */
@@ -1745,7 +1835,7 @@ function isPlanProgressWork(tool: ToolActivity): boolean {
   return /write|edit|patch/.test(name);
 }
 
-function toolPath(tool: ToolActivity): string {
+export function toolPath(tool: ToolActivity): string {
   const args = isRecord(tool.args) ? tool.args : {};
   const details = isRecord(tool.details) ? tool.details : {};
   return stringField(args, "path") || stringField(args, "file_path") || stringField(args, "target_file") || stringField(details, "path");
