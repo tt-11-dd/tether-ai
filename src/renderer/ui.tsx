@@ -14,6 +14,7 @@ import type { AgentSkillCommand } from "../shared/skills";
 import { PROJECT_SKILL_ROOTS, USER_SKILL_ROOTS, skillSlashCommand } from "../shared/skills";
 import { useI18n } from "./i18n";
 import type { MessageKey } from "../shared/i18n";
+import { UpdatePanel } from "./UpdatePanel";
 import logo from "./logo.svg";
 
 const MAX_UPLOAD_IMAGES = 4;
@@ -3462,6 +3463,7 @@ export function Login({
                 <p className="about-intro">{t("about.intro")}</p>
                 <p className="about-origin-name">{t("about.originName")}</p>
                 <p className="about-origin">{t("about.origin")}</p>
+                <UpdatePanel />
               </div>
             )}
           </div>
@@ -3480,14 +3482,6 @@ export function Login({
             )}
             {pane === "about" && (
               <>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => void window.harness.app.checkUpdate()}
-                >
-                  <Icon path="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" size={14} />
-                  <span>{t("about.checkUpdate")}</span>
-                </button>
                 <button
                   type="button"
                   className="ghost"

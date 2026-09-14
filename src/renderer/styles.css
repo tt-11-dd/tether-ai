@@ -4146,6 +4146,8 @@ kbd {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* The update card sits below the origin text; a short window has to scroll to reach it. */
+  overflow-y: auto;
 }
 .about-hero {
   display: flex;
@@ -4207,6 +4209,80 @@ kbd {
   font-weight: 600;
   color: var(--ink);
   text-align: left;
+}
+.update-card {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--inset);
+  box-shadow: var(--shadow-hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+.update-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.update-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.update-current {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.update-line {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  word-break: break-word;
+}
+.update-card.phase-failed .update-line {
+  color: var(--red);
+}
+.update-progress {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--hover-2);
+  overflow: hidden;
+}
+.update-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--brand);
+  transition: width 160ms ease-out;
+}
+/* Without content-length the bar has no percentage to show, so it breathes instead. */
+.update-progress.indeterminate span {
+  width: 35%;
+  animation: update-progress-sweep 1.2s ease-in-out infinite;
+}
+@keyframes update-progress-sweep {
+  0% {
+    transform: translateX(-40%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.update-actions .ghost,
+.update-actions .primary {
+  height: 30px;
+  font-size: 12.5px;
 }
 .skills-section {
   margin-top: 4px;

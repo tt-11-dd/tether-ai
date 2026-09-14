@@ -166,6 +166,38 @@ export type ExtensionUiRequest = {
   [key: string]: unknown;
 };
 
+/**
+ * In-app updates read GitHub Releases directly: the release index is the update feed, and the
+ * installer for this machine is one of its assets, so no update server and no signed feed exist.
+ */
+export type UpdateCheckResult =
+  | { status: "latest"; current: string }
+  | {
+      status: "available";
+      version: string;
+      releaseUrl: string;
+      asset?: { name: string; size?: number };
+      /** False when this platform has no published installer this app can run. */
+      installable: boolean;
+    }
+  | { status: "failed"; error: string };
+
+export interface UpdateProgress {
+  received: number;
+  total?: number;
+  percent?: number;
+}
+
+export type UpdateDownloadState =
+  | { status: "idle" }
+  | { status: "downloading"; version: string; progress: UpdateProgress }
+  | { status: "ready"; version: string }
+  | { status: "failed"; error: string };
+
+export type UpdateInstallResult =
+  | { ok: true; action: "restarting" | "opened-installer" }
+  | { ok: false; cancelled?: boolean; error?: string };
+
 export interface DesktopApi {
   platform: NodeJS.Platform;
   app: {
@@ -173,7 +205,17 @@ export interface DesktopApi {
     openExternal(url: string): Promise<void>;
     revealPath(skillName: string, hint?: string): Promise<void>;
     listSkills(): Promise<Array<{ name: string; path: string }>>;
-    checkUpdate(): Promise<void>;
+    checkUpdate(): Promise<UpdateCheckResult>;
+    downloadUpdate(): Promise<
+      { ok: true; version: string } | { ok: false; cancelled?: boolean; error?: string }
+    >;
+    cancelUpdate(): Promise<UpdateDownloadState>;
+    installUpdate(): Promise<UpdateInstallResult>;
+    updateState(): Promise<UpdateDownloadState>;
+    /** The startup check's finding, so a renderer that mounted late still learns about it. */
+    updateNotice(): Promise<{ version: string; releaseUrl: string } | undefined>;
+    onUpdateProgress(listener: (progress: UpdateProgress) => void): () => void;
+    onUpdateAvailable(listener: (info: { version: string; releaseUrl: string }) => void): () => void;
     getLocale(): Promise<Locale>;
     setLocale(locale: Locale): Promise<void>;
   };

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   app,
@@ -75,7 +76,8 @@ import {
   t,
   type Locale,
 } from "../shared/i18n";
-import { getLatestUpdate } from "./update-check";
+import { getLatestUpdate, pickReleaseAsset, type ReleaseAsset } from "./update-check";
+import { downloadUpdate, installPlan } from "./update-install";
 import {
   PREVIEW_SCHEME,
   parsePreviewPath,
@@ -84,6 +86,10 @@ import {
   type AgentStartOptions,
   type ProviderStatus,
   type SessionSummary,
+  type UpdateCheckResult,
+  type UpdateDownloadState,
+  type UpdateInstallResult,
+  type UpdateProgress,
   type WorkspaceItem,
 } from "../shared/types";
 import { PROJECT_SKILL_ROOTS } from "../shared/skills";
@@ -170,62 +176,234 @@ function applyDockIcon(): void {
   void app.dock?.setIcon(image);
 }
 
-async function checkForUpdates(manual = false): Promise<void> {
-  if (!manual && (!app.isPackaged || updateCheckStarted)) return;
-  updateCheckStarted = true;
+type PendingUpdate = {
+  version: string;
+  releaseUrl: string;
+  asset?: ReleaseAsset;
+};
 
+let pendingUpdate: PendingUpdate | undefined;
+let updateDownloadState: UpdateDownloadState = { status: "idle" };
+let updateDownloadController: AbortController | undefined;
+let updateDownloadTask: Promise<DownloadOutcome> | undefined;
+let downloadedUpdateFile: string | undefined;
+/** Kept after the startup event so a renderer that subscribed late can still fetch it. */
+let startupUpdateNotice: { version: string; releaseUrl: string } | undefined;
+
+/** Downloads live in the OS temp area: they are disposable, and the installers are large. */
+function updateDownloadDirectory(): string {
+  return path.join(app.getPath("temp"), "tether-update");
+}
+
+/**
+ * The asset name comes from the release, so it is remote input: `basename` keeps the download
+ * inside the update folder even if a name contains separators.
+ */
+function updateTargetFile(assetName: string): string {
+  return path.join(updateDownloadDirectory(), path.basename(assetName));
+}
+
+function clearUpdateDownloads(): void {
   try {
-    const update = await getLatestUpdate(app.getVersion(), (url, init) =>
+    fs.rmSync(updateDownloadDirectory(), { recursive: true, force: true });
+  } catch {
+    /* A leftover folder must never block startup. */
+  }
+}
+
+// Installers from a previous session are stale by definition: they were never installed.
+clearUpdateDownloads();
+
+function sendUpdateProgress(progress: UpdateProgress): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("app:update-progress", progress);
+}
+
+function updateErrorText(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  return t(appLocale, "update.failedDetail");
+}
+
+/**
+ * Resolves the release index into "is there an installer for this machine". GitHub Releases is the
+ * only update source, so this stays a single unauthenticated request.
+ */
+async function resolveUpdate(): Promise<UpdateCheckResult> {
+  const current = app.getVersion();
+  try {
+    const release = await getLatestUpdate(current, (url, init) =>
       net.fetch(url, init),
     );
-    const window = mainWindow;
-    if (!window || window.isDestroyed()) return;
-
-    const icon = nativeImage.createFromPath(appIconPath());
-    if (!update) {
-      if (manual) {
-        await dialog.showMessageBox(window, {
-          type: "info",
-          icon,
-          title: t(appLocale, "update.title"),
-          message: t(appLocale, "update.latest"),
-          detail: t(appLocale, "update.currentVersion", {
-            version: app.getVersion(),
-          }),
-          buttons: [t(appLocale, "update.ok")],
-          noLink: true,
-        });
-      }
-      return;
+    if (!release) {
+      pendingUpdate = undefined;
+      return { status: "latest", current };
     }
+    const asset = pickReleaseAsset(
+      release.assets,
+      process.platform,
+      process.arch,
+      release.version,
+    );
+    pendingUpdate = {
+      version: release.version,
+      releaseUrl: release.url,
+      ...(asset ? { asset } : {}),
+    };
+    return {
+      status: "available",
+      version: release.version,
+      releaseUrl: release.url,
+      ...(asset
+        ? {
+            asset: {
+              name: asset.name,
+              ...(asset.size !== undefined ? { size: asset.size } : {}),
+            },
+          }
+        : {}),
+      installable: Boolean(asset),
+    };
+  } catch (error) {
+    pendingUpdate = undefined;
+    return { status: "failed", error: updateErrorText(error) };
+  }
+}
 
+/** Startup stays silent and only announces availability; the renderer owns the update surface. */
+async function checkForUpdatesOnStartup(): Promise<void> {
+  if (!app.isPackaged || updateCheckStarted) return;
+  updateCheckStarted = true;
+  const result = await resolveUpdate();
+  if (result.status !== "available") return;
+  startupUpdateNotice = { version: result.version, releaseUrl: result.releaseUrl };
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("app:update-available", startupUpdateNotice);
+}
+
+type DownloadOutcome =
+  | { ok: true; version: string }
+  | { ok: false; cancelled?: boolean; error?: string };
+
+async function startUpdateDownload(): Promise<DownloadOutcome> {
+  if (updateDownloadController)
+    return { ok: false, error: t(appLocale, "update.busy") };
+
+  if (!pendingUpdate) {
+    const result = await resolveUpdate();
+    if (result.status !== "available") {
+      return {
+        ok: false,
+        error:
+          result.status === "failed"
+            ? result.error
+            : t(appLocale, "update.latest"),
+      };
+    }
+  }
+  const pending = pendingUpdate;
+  if (!pending?.asset) return { ok: false, error: t(appLocale, "update.detail") };
+
+  const file = updateTargetFile(pending.asset.name);
+  const controller = new AbortController();
+  updateDownloadController = controller;
+  const initial: UpdateProgress = {
+    received: 0,
+    ...(pending.asset.size !== undefined
+      ? { total: pending.asset.size, percent: 0 }
+      : {}),
+  };
+  updateDownloadState = {
+    status: "downloading",
+    version: pending.version,
+    progress: initial,
+  };
+  sendUpdateProgress(initial);
+
+  const task = runUpdateDownload(pending, pending.asset, file, controller).finally(() => {
+    updateDownloadController = undefined;
+    updateDownloadTask = undefined;
+  });
+  updateDownloadTask = task;
+  return task;
+}
+
+async function runUpdateDownload(
+  pending: PendingUpdate,
+  asset: ReleaseAsset,
+  file: string,
+  controller: AbortController,
+): Promise<DownloadOutcome> {
+  try {
+    const result = await downloadUpdate({
+      url: asset.url,
+      file,
+      fetchImpl: (url, init) => net.fetch(url, init),
+      signal: controller.signal,
+      onProgress: (progress) => {
+        updateDownloadState = {
+          status: "downloading",
+          version: pending.version,
+          progress,
+        };
+        sendUpdateProgress(progress);
+      },
+    });
+    downloadedUpdateFile = result.file;
+    updateDownloadState = { status: "ready", version: pending.version };
+    return { ok: true, version: pending.version };
+  } catch (error) {
+    downloadedUpdateFile = undefined;
+    // A user-initiated cancel returns to idle; anything else has to be reported.
+    if (controller.signal.aborted) {
+      updateDownloadState = { status: "idle" };
+      return { ok: false, cancelled: true };
+    }
+    updateDownloadState = { status: "failed", error: updateErrorText(error) };
+    return { ok: false, error: updateErrorText(error) };
+  }
+}
+
+async function cancelUpdateDownload(): Promise<UpdateDownloadState> {
+  updateDownloadController?.abort();
+  // Wait for the aborted download to release its controller, so an immediate retry is accepted.
+  await updateDownloadTask?.catch(() => undefined);
+  return updateDownloadState;
+}
+
+async function installDownloadedUpdate(): Promise<UpdateInstallResult> {
+  const file = downloadedUpdateFile;
+  if (!file) return { ok: false, error: t(appLocale, "update.notDownloaded") };
+  const plan = installPlan(process.platform, file);
+
+  if (plan.kind === "open-dmg") {
+    // An ad-hoc signed macOS build cannot be replaced by Squirrel, so the disk image is handed over.
+    const failure = await shell.openPath(plan.path);
+    if (failure) return { ok: false, error: failure };
+    return { ok: true, action: "opened-installer" };
+  }
+
+  const window = mainWindow;
+  if (window && !window.isDestroyed()) {
     const result = await dialog.showMessageBox(window, {
-      type: "info",
-      icon,
+      type: "question",
+      icon: nativeImage.createFromPath(appIconPath()),
       title: t(appLocale, "update.title"),
-      message: t(appLocale, "update.available", { version: update.version }),
-      detail: t(appLocale, "update.detail", { current: app.getVersion() }),
-      buttons: [t(appLocale, "update.download"), t(appLocale, "update.later")],
+      message: t(appLocale, "update.confirmInstall", {
+        version: pendingUpdate?.version ?? "",
+      }),
+      detail: t(appLocale, "update.confirmInstallDetail"),
+      buttons: [t(appLocale, "update.installRestart"), t(appLocale, "common.cancel")],
       defaultId: 0,
       cancelId: 1,
       noLink: true,
     });
-    if (result.response === 0) await shell.openExternal(update.url);
-  } catch (error) {
-    // Startup checks stay silent; a manual click deserves an answer.
-    if (!manual || !mainWindow || mainWindow.isDestroyed()) return;
-    await dialog.showMessageBox(mainWindow, {
-      type: "warning",
-      title: t(appLocale, "update.title"),
-      message: t(appLocale, "update.failed"),
-      detail:
-        error instanceof Error
-          ? error.message
-          : t(appLocale, "update.failedDetail"),
-      buttons: [t(appLocale, "update.ok")],
-      noLink: true,
-    });
+    if (result.response !== 0) return { ok: false, cancelled: true };
   }
+
+  // Detached: the installer outlives this process, which exits so its files can be replaced.
+  spawn(plan.command, plan.args, { detached: true, stdio: "ignore" }).unref();
+  app.quit();
+  return { ok: true, action: "restarting" };
 }
 
 function createWindow(): void {
@@ -267,7 +445,7 @@ function createWindow(): void {
 
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
-    void checkForUpdates();
+    void checkForUpdatesOnStartup();
   });
   // Fullscreen hides the macOS traffic lights, so the renderer must stop reserving room for them.
   const reportFullscreen = () =>
@@ -332,7 +510,12 @@ function installMenu(): void {
 
 function registerIpc(): void {
   ipcMain.handle("app:version", () => app.getVersion());
-  ipcMain.handle("app:check-update", () => checkForUpdates(true));
+  ipcMain.handle("app:check-update", () => resolveUpdate());
+  ipcMain.handle("app:update-download", () => startUpdateDownload());
+  ipcMain.handle("app:update-cancel", () => cancelUpdateDownload());
+  ipcMain.handle("app:update-install", () => installDownloadedUpdate());
+  ipcMain.handle("app:update-state", () => updateDownloadState);
+  ipcMain.handle("app:update-notice", () => startupUpdateNotice);
   ipcMain.handle("app:get-locale", () => appLocale);
   ipcMain.handle("app:set-locale", async (_event, locale: unknown) => {
     if (!isLocale(locale)) throw new Error("Unsupported locale");

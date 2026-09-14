@@ -1628,11 +1628,11 @@ export function collectTodos(messages: ChatMessage[]): SessionTodo[] {
 const FEATURE_PLAN_FILES = [".agents/features.json", ".agents/progress.md"];
 
 /**
- * True when this conversation itself works on the project's cross-session plan files.
+ * True when this conversation itself opened the project's cross-session plan files.
  *
- * `.agents/features.json` is project-scoped, so showing it for every thread leaked one
- * conversation's backlog into unrelated chats and into the empty project home. It belongs only
- * to a thread that actually opened those files.
+ * The inspect rail no longer falls back to `.agents/features.json`; that file is a
+ * project backlog, not this thread's plan. The helper remains so tests and future
+ * callers can still ask "did this thread touch the long-run files?".
  */
 export function sessionTracksFeaturePlan(messages: ChatMessage[]): boolean {
   return sessionTools(messages).some((tool) => {

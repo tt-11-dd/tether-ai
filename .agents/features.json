@@ -88,5 +88,10 @@
     "id": "preview-cwd",
     "description": "修复 HTML 预览 Not found：预览 iframe 走自定义协议，主进程只用 activeAgentCwd 解析，与会话目录 panelCwd 不同源。第一版把工作区放进 URL userinfo，Electron 实机实测发现 Chromium 会把 userinfo 整个剥掉（方案完全无效），改为 pathname 前缀 harness-preview://workspace/~/<双重编码 cwd>/<file>，实测确认前缀与相对资源都保留。验收：typecheck、89 用例、vite build、tsup 全通过，并用 Electron 实机验证 URL 前缀保留。",
     "passes": true
+  },
+  {
+    "id": "in-app-update",
+    "description": "应用内更新（不依赖代码签名、不需要更新服务器）：主进程把 GitHub Releases 索引当更新源，用 releaseAssetName/pickReleaseAsset 挑本机安装包（只接受 https asset），流式下载到临时目录并按 content-length 校验后才改名，Windows 走 NSIS `--updated` 静默安装后退出，macOS 因 ad-hoc 签名无法自动更新而改为向 Finder 打开 dmg；关于页新增 UpdatePanel（检查/进度/取消/安装/回退到 Releases 页），启动检查改为静默通知渲染层。验收：pnpm typecheck 通过，新增 12 个用例（asset 选取与 http 过滤、流式下载进度、截断与取消清理、安装计划、进度换算）全绿，pnpm build 通过。Windows 静默安装与 macOS 打开 dmg 需在对应系统上人工验证一次。",
+    "passes": true
   }
 ]

@@ -1249,6 +1249,34 @@ describe("sessionTracksFeaturePlan", () => {
   });
 });
 
+describe("inspect rail plan scope", () => {
+  // Tool ids must differ per message: `sessionTools` de-duplicates by tool id, and a shared id
+  // would silently drop the second row from both `collectTodos` and `sessionTracksFeaturePlan`.
+  const withTool = (name: string, args: unknown, id = "m1"): ChatMessage => ({
+    id,
+    role: "assistant",
+    text: "",
+    images: [],
+    work: [],
+    tools: [{ id: `tool-${id}`, name, title: "", status: "complete", args }],
+  });
+
+  it("keeps this thread's update_plan even if the agent also read features.json", () => {
+    const messages = [
+      withTool("read", { path: ".agents/features.json" }),
+      withTool("update_plan", { plan: [{ step: "修串话", status: "in_progress" }] }, "m2"),
+    ];
+    expect(sessionTracksFeaturePlan(messages)).toBe(true);
+    expect(collectTodos(messages).map((item) => item.text)).toEqual(["修串话"]);
+  });
+
+  it("does not invent a plan just because the thread opened the project backlog", () => {
+    const messages = [withTool("read", { path: ".agents/features.json" })];
+    expect(sessionTracksFeaturePlan(messages)).toBe(true);
+    expect(collectTodos(messages)).toEqual([]);
+  });
+});
+
 describe("drawerContent", () => {
   it("reports a missing file and whether a patch can stand in for it", () => {
     expect(drawerContent({ content: "", binary: false, missing: true }, true))

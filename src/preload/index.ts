@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { Locale } from "../shared/i18n";
-import type { AgentEvent, DesktopApi } from "../shared/types";
+import type {
+  AgentEvent,
+  DesktopApi,
+  UpdateProgress,
+} from "../shared/types";
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
   const handler = (_event: Electron.IpcRendererEvent, payload: T) => listener(payload);
@@ -16,6 +20,15 @@ const api: DesktopApi = {
     revealPath: (skillName, hint) => ipcRenderer.invoke("app:reveal-path", skillName, hint),
     listSkills: () => ipcRenderer.invoke("app:list-skills"),
     checkUpdate: () => ipcRenderer.invoke("app:check-update"),
+    downloadUpdate: () => ipcRenderer.invoke("app:update-download"),
+    cancelUpdate: () => ipcRenderer.invoke("app:update-cancel"),
+    installUpdate: () => ipcRenderer.invoke("app:update-install"),
+    updateState: () => ipcRenderer.invoke("app:update-state"),
+    updateNotice: () => ipcRenderer.invoke("app:update-notice"),
+    onUpdateProgress: (listener) =>
+      subscribe<UpdateProgress>("app:update-progress", listener),
+    onUpdateAvailable: (listener) =>
+      subscribe<{ version: string; releaseUrl: string }>("app:update-available", listener),
     getLocale: () => ipcRenderer.invoke("app:get-locale"),
     setLocale: (locale: Locale) => ipcRenderer.invoke("app:set-locale", locale),
   },

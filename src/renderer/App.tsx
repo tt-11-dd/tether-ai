@@ -38,11 +38,9 @@ import {
   mentionedFiles,
   normalizeMessages,
   optimisticUserMessage,
-  parseFeaturesJson,
   planAwaitingApproval,
   sessionTools,
   sessionTerminals,
-  sessionTracksFeaturePlan,
   isSamePath,
   isSameSession,
   turnAnchorId,
@@ -50,7 +48,6 @@ import {
   type ChatMessage,
   type FileChange,
   type RestoreFile,
-  type SessionTodo,
 } from "./conversation";
 import {
   ApprovalCard,
@@ -457,7 +454,6 @@ export function App() {
     [sessions, activeSession],
   );
   const panelCwd = activeThread?.cwd ?? workspace;
-  const [featureTodos, setFeatureTodos] = useState<SessionTodo[]>([]);
   const [agentSkills, setAgentSkills] = useState<AgentSkillCommand[]>([]);
   const [stoppedJobs, setStoppedJobs] = useState<string[]>([]);
   const sessionStates = useRef<Map<string, SessionCacheItem>>(new Map());
@@ -530,6 +526,7 @@ export function App() {
   const agentModelsRef = useRef<AgentSnapshot["models"]>([]);
   const startSeq = useRef(0);
   const permissionBeforePlan = useRef<Exclude<PermissionMode, "plan">>("auto");
+  const updateToastShown = useRef(false);
 
   const applyThinkingForModel = useCallback((modelId: string) => {
     const levels = levelsForModel(modelId, agentModelsRef.current);
@@ -583,15 +580,11 @@ export function App() {
   );
   const workingFiles = useMemo(() => collectWorkingFiles(tools, mentionedFiles(messages)), [messages, tools]);
   const chatTodos = useMemo(() => collectTodos(messages), [messages]);
-  // `.agents/features.json` is project-scoped: only a thread that actually opened it may show it,
-  // otherwise one conversation's backlog leaks into every other thread and into the project home.
-  const tracksFeaturePlan = useMemo(() => sessionTracksFeaturePlan(messages), [messages]);
-  const projectTodos = useMemo(
-    () => (tracksFeaturePlan ? featureTodos : []),
-    [tracksFeaturePlan, featureTodos],
-  );
-  const todos = chatTodos.length ? chatTodos : projectTodos;
-  // Approval follows this conversation's own plan, never the project backlog.
+  // The inspect rail is conversation-scoped. Project `.agents/features.json` is a
+  // cross-session backlog, so it must never fill in for a thread that has no plan
+  // of its own — even if this agent merely read those files while exploring.
+  const todos = chatTodos;
+  // Approval follows this conversation's own plan.
   const planApproval = planAwaitingApproval(permission, running, chatTodos);
   const darwin = window.harness.platform === "darwin";
   const connected = providers.find((item) => item.id === "deepseek");
@@ -998,7 +991,6 @@ export function App() {
     setRunning(false);
     setUiRequest(undefined);
     setPreview(undefined);
-    setFeatureTodos([]);
     setAgentSkills([]);
     agentCwd.current = undefined;
     return true;
@@ -1026,7 +1018,6 @@ export function App() {
     setRunning(false);
     setUiRequest(undefined);
     setPreview(undefined);
-    setFeatureTodos([]);
     setAgentSkills([]);
     setActiveSession(undefined);
     sessionRef.current = undefined;
@@ -1715,34 +1706,24 @@ export function App() {
       if (command === "fullscreen-on") setFullscreen(true);
       if (command === "fullscreen-off") setFullscreen(false);
     });
+    // The startup check never installs anything on its own; it just points at Settings → About.
+    const offUpdate = window.harness.app.onUpdateAvailable((info) => {
+      setToast(t("update.startupToast", { version: info.version }));
+    });
+    // The check may finish before this effect subscribes, so the notice is also pulled once.
+    if (!updateToastShown.current) {
+      updateToastShown.current = true;
+      void window.harness.app.updateNotice().then((info) => {
+        if (info) setToast(t("update.startupToast", { version: info.version }));
+      }).catch(() => undefined);
+    }
     return () => {
       offEvent();
       offError();
       offCommand();
+      offUpdate();
     };
   }, [newThread, openFolder, t, workspace]);
-
-  useEffect(() => {
-    if (!workspace || !tracksFeaturePlan) {
-      setFeatureTodos([]);
-      return;
-    }
-    let gone = false;
-    const timer = window.setTimeout(() => {
-      void window.harness.workspace.read(".agents/features.json", panelCwd).then(
-        (result) => {
-          if (!gone) setFeatureTodos(result.binary ? [] : parseFeaturesJson(result.content));
-        },
-        () => {
-          if (!gone) setFeatureTodos([]);
-        },
-      );
-    }, running ? 800 : 0);
-    return () => {
-      gone = true;
-      window.clearTimeout(timer);
-    };
-  }, [panelCwd, tracksFeaturePlan, running, workingFiles.length]);
 
   const home = groups.length === 0 && !activeSession && !loading;
 

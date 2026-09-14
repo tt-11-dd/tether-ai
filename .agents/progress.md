@@ -462,3 +462,62 @@ if (!agentCwd.current) {
 **验证**：tsc 通过；17 个测试文件 / 89 用例全绿；vite build 通过；tsup 通过；编译产物中存在 parsePreviewPath 与 PREVIEW_CWD_SEGMENT，且不含 url.username。
 
 **仍未验证**：resolveInWorkspace 的 allowed 检查（cwd 必须是 activeAgentCwd 或最近打开的项目）需要完整 app 才能跑，仅做逻辑审查。行为与 workspace:read 一致，故预览与抽屉要么同时可用、要么同时报同一错误。
+
+---
+
+## 条目 inspect-plan-session-scope：已完成（用户报告「右侧不属于本对话的任务规划串进来」）
+
+**现象**：同一项目下，当前对话右侧「任务规划」显示了别的对话 / 项目级 `.agents/features.json` 清单。
+
+**根因**：上一轮 `feature-plan-scope` 只挡住了项目首页和完全没碰过计划文件的会话。只要本对话读过或写过 `.agents/features.json` / `.agents/progress.md`（长任务 skill、探索仓库、甚至只是 `cat` 一下），`sessionTracksFeaturePlan` 为 true，右侧就会用**整份项目清单**填补 `chatTodos` 的空缺。项目清单是跨会话的，不是本对话的计划。
+
+**改了什么**：
+- `src/renderer/App.tsx`：右侧只使用 `collectTodos(messages)`。删除 `featureTodos` 状态、磁盘回退和对应 effect。
+- `src/renderer/conversation.ts`：保留 `sessionTracksFeaturePlan` 供测试/后续调用，注释改为「检测是否碰过长任务文件」，不再暗示它该驱动 UI。
+- `src/renderer/conversation.test.ts`：新增 2 个用例——读过 features.json 但没有本会话计划时 `collectTodos` 为空；同时有 `update_plan` 时仍只显示本会话步骤。
+
+**修复后的行为**：
+
+| 场景 | 修复前 | 修复后 |
+| --- | --- | --- |
+| 本会话有 update_plan / todo / checklist | 显示本会话计划 | 不变 |
+| 本会话读过 features.json，但没有自己的计划 | 显示整份项目清单 | 不显示 |
+| 本会话既读过 features.json 又有自己的计划 | 显示本会话计划 | 不变 |
+| 项目首页 / 从未碰过计划文件的会话 | 不显示 | 不变 |
+
+**验证**：接下来跑 conversation 相关测试和 typecheck。
+
+---
+
+## 条目 in-app-update：已完成（用户选择「路线 A：自研下载器」）
+
+**目标**：不买代码签名、不搭更新服务器，只把包传到 GitHub Releases，让应用内完成「检查 → 下载 → 安装」。
+
+**先确认的硬事实**（查 electron-builder / Electron 官方文档与 issue）：
+
+| 结论 | 影响 |
+| --- | --- |
+| GitHub Releases 是 electron-builder 的一等 publish provider，不需要自建服务器 | 更新源就用现在的 Release |
+| macOS 自动更新（Squirrel.Mac）要求代码签名，ad-hoc 签名不行 | mac 不可能静默自更新，只能下载后交给用户 |
+| mac 自动更新还需要 `zip` target 才能产出 `latest-mac.yml` | 要改打包配置，本方案不走这条路 |
+| Windows NSIS 安装版（`oneClick`）支持自动更新，但需要 `latest.yml` | 本方案不依赖 yml，直接下载 exe 运行 |
+
+**改了什么**：
+
+- `src/main/update-check.ts`：`getLatestUpdate` 现在带出 `assets`；新增 `releaseAssetName` / `pickReleaseAsset`（精确名优先、同版本改名兜底、`.exe.blockmap` 不会误命中、只接受 `https://` asset）。
+- `src/main/update-install.ts`（新）：`progressSnapshot`、`installPlan`、`downloadUpdate`。下载先写 `<file>.part`，按 `content-length` 校验后才 `rename`；取消或失败会删掉半成品，避免半个安装包看起来可装。
+- `src/main/index.ts`：删掉原来的「弹窗 + shell.openExternal」；新增 `resolveUpdate` / `startUpdateDownload` / `runUpdateDownload` / `cancelUpdateDownload` / `installDownloadedUpdate`；启动检查改为静默并保留 notice。IPC：`app:check-update`（改为返回结构化结果）、`app:update-download`、`app:update-cancel`、`app:update-install`、`app:update-state`、`app:update-notice`，事件 `app:update-progress` / `app:update-available`。
+- 安装动作：Windows `spawn(exe, ["--updated"], { detached: true })` 后 `app.quit()`（与 electron-updater 的 NSIS 流程一致）；macOS 走 `shell.openPath(dmg)`，提示用户拖入「应用程序」。
+- `src/renderer/UpdatePanel.tsx`（新）：关于页内联卡片，覆盖 idle / checking / latest / available / downloading / ready / installing / opened / failed 九个状态，含进度条（无 content-length 时走不确定态）、取消、安装、回退到 Releases 页。
+- `src/renderer/ui.tsx`：关于页脚去掉旧的「检查更新」按钮，正文挂 `<UpdatePanel />`；`.about-body` 加 `overflow-y: auto`，否则短窗口下卡片会被裁掉。
+- `src/renderer/App.tsx`：启动检查发现新版本时只弹 toast（指向「设置 → 关于」），并用 `updateNotice()` 兜住「事件早于 renderer 订阅」的竞态。
+- i18n：`update.*` 增补中英文案，移除已无引用的 `update.ok`。
+
+**验证**：`pnpm typecheck` 通过；`pnpm build`（tsup + vite）通过；新增 12 个用例（`update-check.test.ts` 6 个、`update-install.test.ts` 6 个）全绿，全套 200 用例中 199 通过。
+
+**本机环境限制（已实测确认不是代码问题）**：
+
+- `pnpm test` 默认 pool 在沙箱里以 `kill EPERM`（tinypool `ProcessWorker.terminate`）中断；连只跑 `src/shared/theme.test.ts` 也复现，故改用 `pnpm exec vitest run --pool=threads --poolOptions.threads.singleThread`。
+- 唯一失败用例 `src/main/skills-fs.test.ts` 是既有环境失败：在 `git worktree add HEAD` 的干净工作树里同样失败（`listLocalSkills` 扫到本机真实 `~/.cursor/skills-cursor` 等目录），与本次改动无关。
+
+**仍未验证**：Windows 上 NSIS `--updated` 的实际静默替换行为、macOS 上 `shell.openPath(dmg)` 的实际交互，都需要在对应系统各跑一次。mac 若要变成真正的静默更新，只有买 Developer ID 证书 + 公证（并给 mac 加 `zip` target）这一条路。
