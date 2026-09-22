@@ -68,6 +68,14 @@ import {
 } from "./ui";
 import logo from "./logo.svg";
 import { useI18n } from "./i18n";
+import {
+  createQueuedPrompt,
+  dispatchBlock,
+  queueHeldAfter,
+  restoreQueued,
+  withoutQueued,
+  type QueuedPrompt,
+} from "./queue";
 import type { MessageKey } from "../shared/i18n";
 
 const PERMISSIONS: PermissionMode[] = ["plan", "ask", "auto", "full"];
@@ -377,7 +385,7 @@ interface SessionCacheItem {
   messages: ChatMessage[];
   running: boolean;
   stats?: AgentSessionStats;
-  queued: Array<{ text: string; images?: string[] }>;
+  queued: QueuedPrompt[];
   uiRequest?: ExtensionUiRequest;
   agentSkills?: AgentSkillCommand[];
   cwd?: string;
@@ -429,7 +437,8 @@ export function App() {
   const fillPrompt = useCallback((text: string) => {
     setPromptFill((current) => ({ text, token: current.token + 1 }));
   }, []);
-  const [queued, setQueued] = useState<Array<{ text: string; images?: string[] }>>([]);
+  const [queued, setQueued] = useState<QueuedPrompt[]>([]);
+  const [queuePaused, setQueuePaused] = useState(false);
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -510,6 +519,33 @@ export function App() {
   queuedRef.current = queued;
   const queueFlush = useRef(false);
   const queueHeld = useRef(false);
+  const runningRef = useRef(false);
+  const loadingRef = useRef(false);
+  const interruptedRef = useRef(false);
+  const activeSessionRef = useRef(activeSession);
+  const tryDispatchRef = useRef<() => Promise<void>>(async () => {});
+  const sendMessageRef = useRef<(text?: string, images?: string[], queueItemId?: string) => Promise<boolean>>(async () => false);
+  activeSessionRef.current = activeSession;
+  runningRef.current = running;
+  loadingRef.current = loading;
+  const rememberQueue = useCallback((next: QueuedPrompt[]) => {
+    queuedRef.current = next;
+    const target = sessionRef.current || activeSessionRef.current;
+    if (target) {
+      const cached = sessionStates.current.get(target);
+      if (cached) cached.queued = next;
+    }
+    setQueued(next);
+  }, []);
+  const setHold = useCallback((held: boolean) => {
+    queueHeld.current = held;
+    const target = sessionRef.current || activeSessionRef.current;
+    if (target) {
+      const cached = sessionStates.current.get(target);
+      if (cached) cached.queueHeld = held;
+    }
+    setQueuePaused(held);
+  }, []);
   const stick = useRef(true);
   const dock = useRef<HTMLDivElement>(null);
   const live = useRef(false);
@@ -702,6 +738,7 @@ export function App() {
       return false;
     }
     if (!seedMessage && !resume) {
+      queuedRef.current = [];
       setQueued([]);
       // Opening a thread: clear the pane so we don't keep showing the welcome/home shell.
       if (sessionPath) {
@@ -915,10 +952,12 @@ export function App() {
     draftRef.current = targetDraft;
     fillPrompt(targetDraft);
     queueHeld.current = Boolean(cached?.queueHeld);
+    setQueuePaused(queueHeld.current);
     if (cached) {
       setMessages(cached.messages);
       setRunning(isRunning);
       setStats(cached.stats);
+      queuedRef.current = cached.queued ?? [];
       setQueued(cached.queued ?? []);
       setUiRequest(cached.uiRequest);
       if (cached.agentSkills) setAgentSkills(cached.agentSkills);
@@ -929,6 +968,7 @@ export function App() {
       setMessages([]);
       setRunning(isRunning);
       setStats(undefined);
+      queuedRef.current = [];
       setQueued([]);
       setUiRequest(undefined);
       setActiveSession(session.path);
@@ -977,6 +1017,7 @@ export function App() {
   const bindProject = useCallback(async (cwd: string): Promise<boolean> => {
     saveCurrentSessionToCache();
     queueHeld.current = false;
+    setQueuePaused(false);
     draftRef.current = "";
     stick.current = true;
     live.current = false;
@@ -985,6 +1026,7 @@ export function App() {
     setMessages([]);
     setStats(undefined);
     fillPrompt("");
+    queuedRef.current = [];
     setQueued([]);
     setActiveSession(undefined);
     sessionRef.current = undefined;
@@ -1007,6 +1049,7 @@ export function App() {
   const newThread = useCallback(async () => {
     saveCurrentSessionToCache();
     queueHeld.current = false;
+    setQueuePaused(false);
     draftRef.current = "";
     stick.current = true;
     live.current = false;
@@ -1014,6 +1057,7 @@ export function App() {
     setMessages([]);
     setStats(undefined);
     fillPrompt("");
+    queuedRef.current = [];
     setQueued([]);
     setRunning(false);
     setUiRequest(undefined);
@@ -1223,64 +1267,50 @@ export function App() {
     }
   }, [loading, running]);
 
-  const sendMessage = useCallback(async (preset?: string, images?: string[]) => {
+  const sendMessage = useCallback(async (preset?: string, images?: string[], queueItemId?: string): Promise<boolean> => {
     const text = (preset ?? "").trim();
     if (text === "/undo") {
-      if (running) return;
+      if (runningRef.current) return false;
       fillPrompt("");
       void undoLastTurn();
-      return;
+      return false;
     }
-    if (running) {
-      if ((!text && !images?.length) || text.startsWith("/")) return;
-      if (queued.length >= MAX_STEER_ROWS) {
+    if (runningRef.current) {
+      if (queueItemId || (!text && !images?.length) || text.startsWith("/")) return false;
+      if (queuedRef.current.length >= MAX_STEER_ROWS) {
         setToast(t("toast.steerLimit", { n: MAX_STEER_ROWS }));
-        return;
+        return false;
       }
       const followup = text || t("toast.defaultImagePrompt");
       fillPrompt("");
-      setQueued((current) => {
-        const next = [...current, { text: followup, images }];
-        const target = sessionRef.current || activeSession;
-        if (target) {
-          const cached = sessionStates.current.get(target);
-          if (cached) cached.queued = next;
-        }
-        return next;
-      });
+      rememberQueue([...queuedRef.current, createQueuedPrompt(followup, images)]);
       setToast(t("toast.steered"));
-      return;
+      return false;
     }
     let question = text;
     let attached = images;
     if (!question && !attached?.length) {
-      const next = queuedRef.current[0];
-      if (!next || loading || sending.current) return;
-      queueHeld.current = false;
-      setQueued((current) => {
-        const nextQ = current.slice(1);
-        const target = sessionRef.current || activeSession;
-        if (target) {
-          const cached = sessionStates.current.get(target);
-          if (cached) cached.queued = nextQ;
-        }
-        return nextQ;
-      });
-      question = next.text;
-      attached = next.images;
+      if (!queuedRef.current.length || loadingRef.current || sending.current) return false;
+      setHold(false);
+      queueMicrotask(() => void tryDispatchRef.current());
+      return false;
     }
-    if ((!question && !attached?.length) || loading || sending.current) return;
+    if (loadingRef.current || sending.current) return false;
     sending.current = true;
-    queueHeld.current = false;
+    setHold(false);
     draftRef.current = "";
-    const activeKey = sessionRef.current || activeSession;
+    const activeKey = sessionRef.current || activeSessionRef.current;
     if (activeKey) {
       const c = sessionStates.current.get(activeKey);
-      if (c) {
-        c.queueHeld = false;
-        c.draft = "";
-      }
+      if (c) c.draft = "";
     }
+    let taken: QueuedPrompt | undefined;
+    const failQueued = () => {
+      if (!taken) return;
+      rememberQueue(restoreQueued(queuedRef.current, taken));
+      taken = undefined;
+      setHold(true);
+    };
     question = question || t("toast.defaultImagePrompt");
     const thumbs = (attached ?? []).map((item) => {
       const match = item.match(/^data:([^;]+);base64,(.+)$/);
@@ -1294,15 +1324,24 @@ export function App() {
     try {
       let cwd = workspace ?? agentCwd.current;
       if (!cwd) {
+        if (queueItemId) {
+          setHold(true);
+          return false;
+        }
         const opened = await openFolder();
-        if (!opened) return;
+        if (!opened) return false;
         cwd = opened;
+      }
+      if (queueItemId) {
+        taken = queuedRef.current.find((item) => item.id === queueItemId);
+        if (taken) rememberQueue(withoutQueued(queuedRef.current, queueItemId));
       }
 
       // Paint the user turn immediately so first-send doesn't sit on the home screen.
       optimistic = optimisticUserMessage(question, false, thumbs);
       fillPrompt("");
       setMessages((current) => [...current, optimistic!]);
+      runningRef.current = true;
       setRunning(true);
 
       // If starting a brand new conversation without an active session file:
@@ -1345,8 +1384,10 @@ export function App() {
         const started = await startAgent(cwd, undefined, true, false, permission, optimistic, undefined, optimisticSessionId);
         if (!started) {
           setMessages((current) => current.filter((item) => item.id !== optimistic!.id));
-          fillPrompt(question);
+          runningRef.current = false;
           setRunning(false);
+          if (taken) failQueued();
+          else fillPrompt(question);
           if (optimisticSessionId) {
             optimisticSessionsRef.current.delete(optimisticSessionId);
             setRunningSessions((prev) => {
@@ -1360,12 +1401,14 @@ export function App() {
             }
             updateSessions();
           }
-          return;
+          return false;
         }
       } else if (!(await ensureModelReady())) {
         setMessages((current) => current.filter((item) => item.id !== optimistic!.id));
-        fillPrompt(question);
+        runningRef.current = false;
         setRunning(false);
+        if (taken) failQueued();
+        else fillPrompt(question);
         if (optimisticSessionId) {
           optimisticSessionsRef.current.delete(optimisticSessionId);
           setRunningSessions((prev) => {
@@ -1379,7 +1422,7 @@ export function App() {
           }
           updateSessions();
         }
-        return;
+        return false;
       }
 
       const targetSession = sessionRef.current || optimisticSessionId;
@@ -1425,6 +1468,7 @@ export function App() {
         }
         void window.harness.sessions.list().then(updateSessions);
       })();
+      return true;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       const optimisticId = optimistic?.id;
@@ -1442,32 +1486,61 @@ export function App() {
         }
         updateSessions();
       }
-      fillPrompt(question);
+      runningRef.current = false;
       setRunning(false);
+      if (taken) failQueued();
+      else fillPrompt(question);
       if (!/Agent session closed/.test(detail)) setToast(friendlyAgentError(error));
+      return false;
     } finally {
       sending.current = false;
+      queueMicrotask(() => void tryDispatchRef.current());
     }
-  }, [ensureModelReady, fillPrompt, loading, openFolder, permission, reconcileOptimisticSession, running, startAgent, queued.length, t, undoLastTurn, updateSessions, workspace]);
+  }, [ensureModelReady, fillPrompt, openFolder, permission, reconcileOptimisticSession, rememberQueue, setHold, startAgent, t, undoLastTurn, updateSessions, workspace]);
 
-  useEffect(() => {
-    if (running || loading || sending.current || queueFlush.current || queueHeld.current) return;
+  const tryDispatch = useCallback(async () => {
+    if (dispatchBlock({
+      running: runningRef.current,
+      loading: loadingRef.current,
+      sending: sending.current,
+      flushing: queueFlush.current,
+      held: queueHeld.current,
+      queued: queuedRef.current.length,
+    })) return;
     const next = queuedRef.current[0];
     if (!next) return;
     queueFlush.current = true;
-    setQueued((current) => {
-      const nextQ = current.slice(1);
-      const target = sessionRef.current || activeSession;
-      if (target) {
-        const cached = sessionStates.current.get(target);
-        if (cached) cached.queued = nextQ;
+    try {
+      const session = sessionRef.current;
+      if (session && window.harness.agent.runningSessions) {
+        const live = await window.harness.agent.runningSessions().catch(() => undefined);
+        if (live?.some((item) => isSamePath(item, session))) return;
       }
-      return nextQ;
-    });
-    void sendMessage(next.text, next.images).finally(() => {
+      if (dispatchBlock({
+        running: runningRef.current,
+        loading: loadingRef.current,
+        sending: sending.current,
+        flushing: false,
+        held: queueHeld.current,
+        queued: queuedRef.current.some((item) => item.id === next.id) ? 1 : 0,
+      })) return;
+      await sendMessageRef.current(next.text, next.images, next.id);
+    } finally {
       queueFlush.current = false;
-    });
-  }, [loading, running, sendMessage]);
+    }
+  }, []);
+  tryDispatchRef.current = tryDispatch;
+  sendMessageRef.current = sendMessage;
+
+  useEffect(() => {
+    if (!loading && !running) void tryDispatchRef.current();
+  }, [loading, running]);
+
+  useEffect(() => {
+    // ponytail: 1.5s poll covers a missed settle; remove if settle and sendMessage finally both stay reliable
+    const id = window.setInterval(() => void tryDispatchRef.current(), 1500);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     void refresh().then((status) => {
@@ -1533,7 +1606,12 @@ export function App() {
         } else if (sessionRef.current) {
           setRunningSessions((prev) => new Set([...prev, sessionRef.current!]));
         }
-        if (isCurrent) setRunning(true);
+        if (isCurrent) {
+          interruptedRef.current = false;
+          runningRef.current = true;
+          if (queueHeld.current) setHold(false);
+          setRunning(true);
+        }
         void window.harness.sessions.list().then(updateSessions);
       }
 
@@ -1558,7 +1636,10 @@ export function App() {
         }
         const cached = sessionStates.current.get(targetKey)!;
         cached.messages = applyAgentEvent(cached.messages, event);
-        if (event.type === "agent_start") cached.running = true;
+        if (event.type === "agent_start") {
+          cached.running = true;
+          cached.queueHeld = false;
+        }
         if (event.type === "agent_settled") {
           cached.running = false;
           cached.uiRequest = undefined;
@@ -1570,9 +1651,15 @@ export function App() {
             const optimistic = optimisticUserMessage(next.text, false);
             cached.messages = [...cached.messages, optimistic];
             setRunningSessions((prev) => new Set(prev).add(eventSession));
-            void window.harness.agent.command("prompt", { message: next.text }, eventSession)
+            const images = next.images?.length ? toPromptImages(next.images) : undefined;
+            void window.harness.agent.command("prompt", {
+              message: next.text,
+              ...(images ? { images } : {}),
+            }, eventSession)
               .catch(() => {
+                cached.queued = restoreQueued(cached.queued, next);
                 cached.running = false;
+                cached.messages = cached.messages.filter((item) => item.id !== optimistic.id);
                 setRunningSessions((prev) => {
                   const s = new Set(prev);
                   s.delete(eventSession);
@@ -1602,7 +1689,12 @@ export function App() {
           if (event.stats && typeof event.stats === "object") setStats(event.stats as AgentSessionStats);
         }
         if (event.type === "agent_settled") {
+          const interrupted = interruptedRef.current;
+          interruptedRef.current = false;
+          runningRef.current = false;
+          if (!queueHeldAfter("settle", interrupted) && queueHeld.current) setHold(false);
           setRunning(false);
+          queueMicrotask(() => void tryDispatchRef.current());
           setUiRequest(undefined);
           void window.harness.agent.command<AgentSessionStats>("get_session_stats", undefined, sessionRef.current).then((nextStats) => {
             if (!live.current) return;
@@ -1692,7 +1784,9 @@ export function App() {
         }
       }
       if (isCurrent) {
-        queueHeld.current = true;
+        interruptedRef.current = true;
+        runningRef.current = false;
+        setHold(true);
         setRunning(false);
         setUiRequest(undefined);
         setMessages((current) => finalizeInterruptedTurn(current));
@@ -1723,7 +1817,7 @@ export function App() {
       offCommand();
       offUpdate();
     };
-  }, [newThread, openFolder, t, workspace]);
+  }, [newThread, openFolder, setHold, t, workspace]);
 
   const home = groups.length === 0 && !activeSession && !loading;
 
@@ -1756,46 +1850,53 @@ export function App() {
       fillToken={promptFill.token}
       onSubmit={(text, images) => void sendMessage(text, images)}
       onStop={() => {
-        queueHeld.current = true;
+        interruptedRef.current = true;
+        setHold(true);
         const target = sessionRef.current || activeSession;
         if (target) {
           const cached = sessionStates.current.get(target);
-          if (cached) {
-            cached.queueHeld = true;
-            cached.running = false;
-          }
+          if (cached) cached.running = false;
         }
         setToast(t("toast.stopping"));
         void window.harness.agent.command("abort", undefined, sessionRef.current)
           .catch(() => undefined)
           .finally(() => {
+            runningRef.current = false;
             setRunning(false);
+            queueMicrotask(() => void tryDispatchRef.current());
           });
       }}
+      queuePaused={queuePaused}
+      onResumeQueue={() => {
+        setHold(false);
+        queueMicrotask(() => void tryDispatchRef.current());
+      }}
       steering={queued.map((item) => item.text)}
+      onQueuedSend={(index) => {
+        const item = queuedRef.current[index];
+        if (!item) return;
+        if (!runningRef.current) {
+          setHold(false);
+          void sendMessageRef.current(item.text, item.images, item.id);
+          return;
+        }
+        rememberQueue(withoutQueued(queuedRef.current, item.id));
+        const images = item.images?.length ? toPromptImages(item.images) : undefined;
+        void window.harness.agent.command("steer", {
+          message: item.text,
+          ...(images ? { images } : {}),
+        }, sessionRef.current).catch(() => {
+          rememberQueue(restoreQueued(queuedRef.current, item));
+          setToast(t("toast.steerFailed"));
+        });
+      }}
       onQueuedEdit={(index) => {
         const item = queued[index];
         if (!item) return;
-        setQueued((current) => {
-          const next = current.filter((_, i) => i !== index);
-          const target = sessionRef.current || activeSession;
-          if (target) {
-            const cached = sessionStates.current.get(target);
-            if (cached) cached.queued = next;
-          }
-          return next;
-        });
+        rememberQueue(queued.filter((_, i) => i !== index));
         fillPrompt(item.text);
       }}
-      onQueuedRemove={(index) => setQueued((current) => {
-        const next = current.filter((_, i) => i !== index);
-        const target = sessionRef.current || activeSession;
-        if (target) {
-          const cached = sessionStates.current.get(target);
-          if (cached) cached.queued = next;
-        }
-        return next;
-      })}
+      onQueuedRemove={(index) => rememberQueue(queued.filter((_, i) => i !== index))}
       rootRef={dock}
       running={running}
       disabled={loading}

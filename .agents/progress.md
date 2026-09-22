@@ -521,3 +521,9 @@ if (!agentCwd.current) {
 - 唯一失败用例 `src/main/skills-fs.test.ts` 是既有环境失败：在 `git worktree add HEAD` 的干净工作树里同样失败（`listLocalSkills` 扫到本机真实 `~/.cursor/skills-cursor` 等目录），与本次改动无关。
 
 **仍未验证**：Windows 上 NSIS `--updated` 的实际静默替换行为、macOS 上 `shell.openPath(dmg)` 的实际交互，都需要在对应系统各跑一次。mac 若要变成真正的静默更新，只有买 Developer ID 证书 + 公证（并给 mac 加 `zip` target）这一条路。
+
+---
+
+## 排队消息回合结束后不派发：已改
+
+**改了什么**：渲染层派发不再只靠 `running` 变化时的那一个 effect。`sendMessage` 收尾、`agent_settled`、空闲状态变化都会再试一次，另有 1.5 秒看门狗。停止或出错只暂停这一次结束，下一轮开始或正常结束会解除，队列上可以继续发送；运行中对单条「立即发送」走 `steer`。失败放回队首并暂停。决策在 `.agents/notes/implemented/bug-fix/2026-09-22-queue-dispatch.md`。

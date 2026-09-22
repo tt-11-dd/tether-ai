@@ -2095,6 +2095,9 @@ export function PromptBar({
   onCompact,
   onQueuedEdit,
   onQueuedRemove,
+  onQueuedSend,
+  queuePaused,
+  onResumeQueue,
   onChange,
   skillCommands = [],
   placement = "dock",
@@ -2123,6 +2126,9 @@ export function PromptBar({
   onCompact?(): void;
   onQueuedEdit?(index: number): void;
   onQueuedRemove?(index: number): void;
+  onQueuedSend?(index: number): void;
+  queuePaused?: boolean;
+  onResumeQueue?(): void;
   onChange?(text: string): void;
   skillCommands?: AgentSkillCommand[];
   placement?: "dock" | "hero";
@@ -2517,6 +2523,16 @@ export function PromptBar({
                   <span className="prompt-steer-count">{t("composer.steering", { n: steerItems.length })}</span>
                   <Icon className="chevron" path="M6 9l6 6 6-6" size={12} />
                 </button>
+                {queuePaused && (
+                  <span className="prompt-queue-pause">
+                    {t("composer.queuePaused")}
+                    {onResumeQueue && (
+                      <button type="button" className="prompt-queue-resume" onClick={onResumeQueue}>
+                        {t("composer.queueResume")}
+                      </button>
+                    )}
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -2527,6 +2543,11 @@ export function PromptBar({
                   <span className="prompt-queue-index">{index + 1}</span>
                   <p className="prompt-queue-text">{item}</p>
                   <div className="prompt-queue-actions">
+                    {onQueuedSend && (
+                      <button type="button" className="bubble-action" aria-label={t("composer.queueSend")} onClick={() => onQueuedSend(index)}>
+                        <Icon path="M12 19V5M5 12l7-7 7 7" size={12} />
+                      </button>
+                    )}
                     {onQueuedEdit && (
                       <button type="button" className="bubble-action" aria-label={t("composer.queueEdit")} onClick={() => onQueuedEdit(index)}>
                         <Icon path="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" size={12} />

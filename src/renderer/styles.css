@@ -3283,6 +3283,18 @@ textarea::selection,
   color: var(--brand);
   font-weight: 500;
 }
+.prompt-queue-pause {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.prompt-queue-resume {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 500;
+}
 .prompt-steer {
   display: flex;
   flex-direction: column;
