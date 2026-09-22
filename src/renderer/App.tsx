@@ -445,11 +445,28 @@ export function App() {
   const [sandboxAsk, setSandboxAsk] = useState<{ cwd: string; message: string }>();
   const sandboxWaiter = useRef<((ok: boolean) => void) | undefined>(undefined);
   const [toast, setToast] = useState<string>();
+  const [updateOffer, setUpdateOffer] = useState<{ version: string; current: string }>();
   useEffect(() => {
     if (!toast) return;
     const id = window.setTimeout(() => setToast(undefined), 5000);
     return () => window.clearTimeout(id);
   }, [toast]);
+  useEffect(() => {
+    let cancelled = false;
+    const show = (info: { version: string }) => {
+      void window.harness.app.version().then((current) => {
+        if (!cancelled) setUpdateOffer({ version: info.version, current });
+      });
+    };
+    const off = window.harness.app.onUpdateAvailable(show);
+    void window.harness.app.updateNotice().then((info) => {
+      if (info) show(info);
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, []);
   const [uiRequest, setUiRequest] = useState<ExtensionUiRequest>();
   const [fullscreen, setFullscreen] = useState(false);
   const [openProjects, setOpenProjects] = useState<Record<string, boolean>>({});
@@ -562,7 +579,6 @@ export function App() {
   const agentModelsRef = useRef<AgentSnapshot["models"]>([]);
   const startSeq = useRef(0);
   const permissionBeforePlan = useRef<Exclude<PermissionMode, "plan">>("auto");
-  const updateToastShown = useRef(false);
 
   const applyThinkingForModel = useCallback((modelId: string) => {
     const levels = levelsForModel(modelId, agentModelsRef.current);
@@ -1800,22 +1816,10 @@ export function App() {
       if (command === "fullscreen-on") setFullscreen(true);
       if (command === "fullscreen-off") setFullscreen(false);
     });
-    // The startup check never installs anything on its own; it just points at Settings → About.
-    const offUpdate = window.harness.app.onUpdateAvailable((info) => {
-      setToast(t("update.startupToast", { version: info.version }));
-    });
-    // The check may finish before this effect subscribes, so the notice is also pulled once.
-    if (!updateToastShown.current) {
-      updateToastShown.current = true;
-      void window.harness.app.updateNotice().then((info) => {
-        if (info) setToast(t("update.startupToast", { version: info.version }));
-      }).catch(() => undefined);
-    }
     return () => {
       offEvent();
       offError();
       offCommand();
-      offUpdate();
     };
   }, [newThread, openFolder, setHold, t, workspace]);
 
@@ -2218,6 +2222,31 @@ export function App() {
       </Chat>
       {preview && <FileDrawer file={preview} workspace={panelCwd} onClose={closePreview} />}
 
+      {updateOffer && (
+        <div className="modal">
+          <div className="panel" role="dialog" aria-modal="true">
+            <h2>{t("update.available", { version: updateOffer.version })}</h2>
+            {t("update.detail", { current: updateOffer.current }).split("\n").map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+            <div className="row-actions">
+              <button type="button" className="ghost" onClick={() => setUpdateOffer(undefined)}>
+                {t("update.later")}
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  void window.harness.app.openExternal("https://tether-code.xyz/");
+                  setUpdateOffer(undefined);
+                }}
+              >
+                {t("update.download")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {sandboxAsk && (
         <div
           className="modal"

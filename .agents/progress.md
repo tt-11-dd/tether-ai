@@ -527,3 +527,11 @@ if (!agentCwd.current) {
 ## 排队消息回合结束后不派发：已改
 
 **改了什么**：渲染层派发不再只靠 `running` 变化时的那一个 effect。`sendMessage` 收尾、`agent_settled`、空闲状态变化都会再试一次，另有 1.5 秒看门狗。停止或出错只暂停这一次结束，下一轮开始或正常结束会解除，队列上可以继续发送；运行中对单条「立即发送」走 `steer`。失败放回队首并暂停。决策在 `.agents/notes/implemented/bug-fix/2026-09-22-queue-dispatch.md`。
+
+---
+
+## 检查更新改回官网弹窗：已改
+
+**改了什么**：关于页拿掉应用内下载卡片，页脚恢复「检查更新」。有新版本时对话框打开 https://tether-code.xyz/。GitHub 返回非 2xx（包括 403）不再显示成已是最新，手动检查会弹出失败对话框，同样可以去官网。启动时发现新版本改为窗口中央的遮罩对话框，点「前往官网下载」或「稍后」才会关掉。决策在 `.agents/notes/implemented/simplification/2026-09-22-update-dialog.md`。
+
+**验证**：`tsc --noEmit` 通过；`update-check.test.ts` 与 `i18n.test.ts` 共 11 个用例通过。

@@ -25,7 +25,7 @@ describe("isLocale", () => {
 describe("t", () => {
   it("interpolates variables and falls back to zh", () => {
     expect(t("zh", "update.available", { version: "0.2.0" })).toContain("0.2.0");
-    expect(t("en", "update.cancel")).toBe("Cancel download");
+    expect(t("en", "update.ok")).toBe("OK");
     expect(t("en", "common.minutesAgo", { n: 3 })).toBe("3m ago");
   });
 });

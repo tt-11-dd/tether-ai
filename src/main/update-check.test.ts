@@ -4,6 +4,7 @@ import {
   isNewerVersion,
   pickReleaseAsset,
   releaseAssetName,
+  versionFromTagUrl,
   type ReleaseAsset,
 } from "./update-check";
 
@@ -16,27 +17,34 @@ describe("isNewerVersion", () => {
   });
 });
 
-describe("getLatestUpdate", () => {
-  it("returns a newer GitHub release", async () => {
-    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
-      tag_name: "v0.1.1",
-      html_url: "https://github.com/tt-11-dd/tether-ai/releases/tag/v0.1.1",
-      assets: [
-        { name: "Tether-Setup-0.1.1.exe", browser_download_url: "https://example.test/setup.exe", size: 120 },
-        { name: "Tether-Setup-0.1.1.exe.blockmap", browser_download_url: "https://example.test/setup.exe.blockmap" },
-        { name: "notes", browser_download_url: 42 },
-        { name: "Tether-Setup-0.1.1-insecure.exe", browser_download_url: "http://insecure.test/setup.exe" },
-      ],
-    }));
+function releaseRedirect(location: string, status = 302): Response {
+  return new Response(null, { status, headers: { Location: location } });
+}
 
-    await expect(getLatestUpdate("0.1.0", fetchImpl)).resolves.toEqual({
-      version: "0.1.1",
-      url: "https://github.com/tt-11-dd/tether-ai/releases/tag/v0.1.1",
-      assets: [
-        { name: "Tether-Setup-0.1.1.exe", url: "https://example.test/setup.exe", size: 120 },
-        { name: "Tether-Setup-0.1.1.exe.blockmap", url: "https://example.test/setup.exe.blockmap" },
-      ],
+describe("versionFromTagUrl", () => {
+  it("reads the version from a release tag URL", () => {
+    expect(versionFromTagUrl("https://github.com/tt-11-dd/tether-ai/releases/tag/v0.3.5")).toBe("0.3.5");
+    expect(versionFromTagUrl("https://github.com/tt-11-dd/tether-ai/releases/tag/v0.3.5/")).toBe("0.3.5");
+    expect(versionFromTagUrl("https://example.test/releases/tag/v0.3.5")).toBeUndefined();
+  });
+});
+
+describe("getLatestUpdate", () => {
+  it("rejects a failed release request instead of reporting up to date", async () => {
+    await expect(getLatestUpdate("0.3.4", async () => new Response(null, { status: 403 }))).rejects.toThrow(/403/);
+  });
+
+  it("reads a newer version from the tag page the latest URL redirects to", async () => {
+    const tag = "https://github.com/tt-11-dd/tether-ai/releases/tag/v0.3.5";
+    await expect(getLatestUpdate("0.3.4", async () => releaseRedirect(tag))).resolves.toEqual({
+      version: "0.3.5",
+      url: tag,
     });
+  });
+
+  it("reports nothing when the tag page is the current version", async () => {
+    const tag = "https://github.com/tt-11-dd/tether-ai/releases/tag/v0.3.5";
+    await expect(getLatestUpdate("0.3.5", async () => releaseRedirect(tag))).resolves.toBeUndefined();
   });
 });
 
