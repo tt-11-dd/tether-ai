@@ -14,6 +14,11 @@ interface PendingRequest {
 
 const DEFAULT_RPC_TIMEOUT_MS = 45_000;
 const LONG_RPC_TIMEOUT_MS = 30 * 60_000;
+/**
+ * 2026-10-03 P0：busy 期间的对账周期。主进程 busy 只由事件流驱动，
+ * 漏一条 agent_settled 就会永久卡死，所以周期性向子进程要权威状态。
+ */
+const BUSY_WATCHDOG_MS = 10_000;
 const LONG_RUNNING_REQUESTS = new Set([
   "prompt",
   "steer",
@@ -66,6 +71,9 @@ export class AgentHost {
   private pending = new Map<string, PendingRequest>();
   private busy = false;
   private lastActiveAt = Date.now();
+  private busyWatchdog?: NodeJS.Timeout;
+  private idleProbeStreak = 0;
+  private probing = false;
   private static readonly STDERR_CAP = 200_000;
   public onSessionResolved?: (resolvedPath: string, previousPath?: string) => void;
   public tempId?: string;
@@ -83,6 +91,69 @@ export class AgentHost {
 
   isBusy(): boolean {
     return this.isRunning() && this.busy;
+  }
+
+  /**
+   * 2026-10-03 P0：主进程 busy 是渲染层运行态的唯一依据（`agent:running-sessions` → `isBusy()`），
+   * 但它是本地标志：子进程那一轮只要没走到 agent_settled（例如 prompt 在 isStreaming 时抛错、
+   * 事件在 IPC 中丢失、子进程半死），busy 就会一直为 true。
+   * 症状 = UI 永远是「停止」、输入被塞进队列永远发不出去、只能退出重开。
+   * 兜底：busy 期间定期向子进程要权威状态（get_state.isStreaming），连续两次确认空闲才回落，
+   * 避开「prompt 刚发出、agent_start 还没到」的窗口（和渲染层看门狗同一个防误判策略）。
+   */
+  private armBusyWatchdog(): void {
+    if (this.busyWatchdog) return;
+    this.busyWatchdog = setInterval(() => {
+      void this.probeIdle();
+    }, BUSY_WATCHDOG_MS);
+    this.busyWatchdog.unref?.();
+  }
+
+  private disarmBusyWatchdog(): void {
+    if (this.busyWatchdog) {
+      clearInterval(this.busyWatchdog);
+      this.busyWatchdog = undefined;
+    }
+    this.idleProbeStreak = 0;
+  }
+
+  private async probeIdle(): Promise<void> {
+    if (this.probing) return;
+    if (!this.busy || !this.isRunning()) {
+      this.disarmBusyWatchdog();
+      return;
+    }
+    this.probing = true;
+    try {
+      const state = await this.request<{ isStreaming?: boolean; pendingMessageCount?: number }>("get_state");
+      const streaming = state?.isStreaming;
+      const pending = state?.pendingMessageCount ?? 0;
+      if (streaming === false && pending === 0) {
+        this.idleProbeStreak += 1;
+        if (this.idleProbeStreak >= 2) this.settleIfStale();
+      } else {
+        this.idleProbeStreak = 0;
+      }
+    } catch {
+      // 探测失败不当作空闲，交给下一轮；真正的死亡由 handleExit 收尾。
+      this.idleProbeStreak = 0;
+    } finally {
+      this.probing = false;
+    }
+  }
+
+  /** 子进程已确认空闲但本地 busy 还是 true：回落并补一条 agent_settled，让渲染层本地 running 一起归位。 */
+  private settleIfStale(): void {
+    this.idleProbeStreak = 0;
+    this.disarmBusyWatchdog();
+    if (!this.busy) return;
+    this.busy = false;
+    this.emitEvent({
+      type: "agent_settled",
+      reconciled: true,
+      ...(this.sessionPath ? { sessionPath: this.sessionPath } : {}),
+      ...(this.tempId ? { tempId: this.tempId } : {}),
+    });
   }
 
   getLastActiveAt(): number {
@@ -126,6 +197,14 @@ export class AgentHost {
     if (!this.sessionPath || this.sessionPath.includes("unknown_")) {
       const file = sessionFileFromUnknown(state);
       if (file) this.setSessionPath(file);
+    }
+    // 2026-10-03 P0：子进程的 isStreaming 才是运行态权威（= agent-session 的 _isAgentRunActive）。
+    // 每次快照对账一次：开/切会话本身就带着一次真实查询，顺手把脱节的本地标志拉回。
+    const authoritative = typeof state.isStreaming === "boolean" ? state.isStreaming : undefined;
+    if (authoritative !== undefined && authoritative !== this.busy) {
+      this.busy = authoritative;
+      if (authoritative) this.armBusyWatchdog();
+      else this.disarmBusyWatchdog();
     }
     void this.emitSnapshotMeta();
     return {
@@ -182,6 +261,7 @@ export class AgentHost {
     if (options.sessionPath) this.sessionPath = options.sessionPath;
     if (options.cwd) this.cwd = options.cwd;
     this.busy = false;
+    this.disarmBusyWatchdog();
     this.lastActiveAt = Date.now();
     const args = [
       getTetherRpcEntryPath(),
@@ -255,6 +335,7 @@ export class AgentHost {
   }
 
   async stop(): Promise<void> {
+    this.disarmBusyWatchdog();
     const child = this.child;
     if (!child) return;
     this.child = undefined;
@@ -286,13 +367,24 @@ export class AgentHost {
     if (!child || child.stdin.destroyed) throw new Error("No workspace session is active");
     if (type === "prompt" || type === "steer") {
       this.busy = true;
+      this.armBusyWatchdog();
     }
     if (type === "abort") {
       this.busy = false;
+      this.disarmBusyWatchdog();
     }
     this.lastActiveAt = Date.now();
     const id = `desktop_${++this.requestId}`;
-    const command = { ...data, type, id };
+    // 2026-10-03 P0：Pi runtime 在 isStreaming 时，对没带 streamingBehavior 的 prompt 直接抛
+    //   "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message."
+    // 渲染层的 running 与子进程的 _isAgentRunActive 是两个独立标志，只要错开一次（漏事件、跨会话切换、
+    // 后台压缩还没收尾），这条 prompt 就会失败并把主进程 busy 永久焊死 → 输入发不出去、只能重开。
+    // 统一补默认 "followUp"（排队到下一轮）后，运行中的提交变成真排队，而不是报错。
+    const payload =
+      type === "prompt" && data.streamingBehavior === undefined
+        ? { ...data, streamingBehavior: "followUp" }
+        : data;
+    const command = { ...payload, type, id };
     const result = await new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
@@ -352,12 +444,14 @@ export class AgentHost {
     if (typeof data.type === "string") {
       if (data.type === "agent_start") {
         this.busy = true;
+        this.armBusyWatchdog();
         if (!this.sessionPath || this.sessionPath.includes("unknown_")) {
           void this.resolveSessionPath();
         }
       }
       if (data.type === "agent_settled") {
         this.busy = false;
+        this.disarmBusyWatchdog();
         if (!this.sessionPath || this.sessionPath.includes("unknown_")) {
           void this.resolveSessionPath();
         }
@@ -374,6 +468,7 @@ export class AgentHost {
 
   private handleExit(error: Error): void {
     this.busy = false;
+    this.disarmBusyWatchdog();
     const detail = this.stderr.trim();
     const message = detail ? `${error.message}\n${detail}` : error.message;
     for (const pending of this.pending.values()) {
