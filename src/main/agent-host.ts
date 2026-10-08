@@ -26,6 +26,38 @@ const LONG_RUNNING_REQUESTS = new Set([
   "compact",
 ]);
 
+/**
+ * The renderer only consumes message/tool/state events: `custom` events (such as the
+ * tether-checkpoint entries that carry whole-file before/after snapshots) never land in
+ * the UI - the chat view bails out on `custom`, and the body `/undo` needs is fetched on
+ * demand via get_entries. A single such payload can reach 270KB, and sending it through
+ * IPC as-is pays an extra serialization and copy for every patch, so above the threshold
+ * we keep only the enumerable metadata.
+ */
+const CUSTOM_EVENT_PAYLOAD_LIMIT = 64 * 1024;
+
+function slimAgentEvent(event: AgentEvent): AgentEvent {
+  if (event.type !== "custom") return event;
+  const data = (event as { data?: unknown }).data;
+  if (data === undefined) return event;
+  let size = 0;
+  try {
+    size = JSON.stringify(data).length;
+  } catch {
+    return event;
+  }
+  if (size <= CUSTOM_EVENT_PAYLOAD_LIMIT) return event;
+  const raw = data as { id?: unknown };
+  return {
+    ...event,
+    data: {
+      ...(typeof raw.id === "string" ? { id: raw.id } : {}),
+      truncated: true,
+      originalChars: size,
+    },
+  };
+}
+
 export class AgentHost {
   private child?: ChildProcessWithoutNullStreams;
   private lineBuffer = Buffer.alloc(0);
@@ -336,7 +368,7 @@ export class AgentHost {
         ...(this.sessionPath ? { sessionPath: this.sessionPath } : {}),
         ...(this.tempId ? { tempId: this.tempId } : {}),
       };
-      this.emitEvent(event);
+      this.emitEvent(slimAgentEvent(event));
     }
   }
 

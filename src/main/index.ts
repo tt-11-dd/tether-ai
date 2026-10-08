@@ -19,6 +19,7 @@ import {
   getTetherHome,
   getStoredDeepSeekBaseUrl,
   getStoredModelSelection,
+  getTetherRpcEntryPath,
   initializeTetherHome,
   listTetherThreads,
   TetherStateStore,
@@ -33,6 +34,7 @@ import {
   type SupportedProviderId,
 } from "tether-agent-core";
 import { AgentHostManager } from "./agent-host-manager";
+import { reapOrphanedAgentHosts } from "./agent-orphans";
 import { isPathInsideRoot } from "./workspace-path";
 import { listLocalSkills, revealSkillPath } from "./skills-fs";
 import { apiBaseUrl, listOpenAiModels } from "../shared/openai-models";
@@ -1373,6 +1375,20 @@ async function addSkillManifests(root: string, files: string[]): Promise<void> {
 
 app.whenReady().then(async () => {
   await initializeTetherHome();
+  // If the previous main process was SIGKILLed (Jetsam under memory pressure does
+  // exactly that), `before-quit` never ran and the detached rpc-entry was reparented
+  // to launchd (ppid=1), where it keeps holding session.jsonl and the model
+  // connection — a second writer that corrupts the next session. Reap those proven
+  // orphans (ppid===1 AND our rpc-entry path) before opening any session.
+  void reapOrphanedAgentHosts(getTetherRpcEntryPath())
+    .then((report) => {
+      if (report.reaped.length > 0 || report.failed.length > 0)
+        console.log(
+          `[tether] orphan runtime reap: found=${report.reaped.length} failed=${report.failed.length}` +
+            (report.reaped.length > 0 ? ` pids=${report.reaped.map((p) => p.pid).join(",")}` : ""),
+        );
+    })
+    .catch(() => undefined);
   await loadLocale();
   void pruneStagedUploads();
   protocol.handle(PREVIEW_SCHEME, servePreview);
