@@ -49,6 +49,7 @@ import {
   type FileChange,
   type RestoreFile,
 } from "./conversation";
+import { buildProjectGroups } from "./project-groups";
 import {
   ApprovalCard,
   AssistantTurn,
@@ -655,21 +656,12 @@ export function App() {
         { label: t("suggest.writeTests"), hint: t("suggest.hintCoverage") },
       ];
 
-  const projects = useMemo(() => {
-    const result = workspaces.map((item) => ({ item, sessions: [] as SessionSummary[] }));
-    for (const session of sessions) {
-      const match = result.find((p) => isSamePath(p.item.path, session.cwd));
-      if (match) {
-        match.sessions.push(session);
-      } else if (workspace) {
-        const activeMatch = result.find((p) => isSamePath(p.item.path, workspace));
-        if (activeMatch && (!session.cwd || isSamePath(session.cwd, activeMatch.item.path))) {
-          activeMatch.sessions.push(session);
-        }
-      }
-    }
-    return result;
-  }, [sessions, workspaces, workspace]);
+  // 未列在 recent-workspaces.json 里的文件夹不会丢掉会话，而是落进 unlisted 兜底组，
+  // 见 project-groups.ts。旧实现直接丢弃这些会话，表现为「项目整组消失」。
+  const projects = useMemo(
+    () => buildProjectGroups(workspaces, sessions, workspace),
+    [sessions, workspaces, workspace],
+  );
 
   const refreshAgentSkills = useCallback(async () => {
     const loadDisk = () => window.harness.app.listSkills().catch(() => [] as AgentSkillCommand[]);
@@ -906,6 +898,10 @@ export function App() {
       }
 
       void window.harness.sessions.list().then(updateSessions);
+      // agent:start 会在主进程里把当前 cwd 记进 recent-workspaces.json。这里回读一次，
+      // 让「刚从兜底组打开的新文件夹」立刻变成真正的项目条目（刷新只发生在开线程时，
+      // 不挂在 sessions:changed 上，避免每个 agent turn 都付一次 IPC）。
+      void window.harness.workspace.recent().then(setWorkspaces).catch(() => undefined);
       void refreshAgentSkills();
       return true;
     } catch (error) {
@@ -1966,7 +1962,7 @@ export function App() {
       >
         <div className="section-label">{t("nav.sectionProjects")}</div>
         {projects.length === 0 && <p className="sidebar-empty">{t("nav.noProjects")}</p>}
-        {projects.map(({ item, sessions: threads }) => {
+        {projects.map(({ item, sessions: threads, unlisted }) => {
           const open = openProjects[item.path] === true;
           return (
             <div key={item.path} className={open ? "project open" : "project"}>
@@ -1976,6 +1972,7 @@ export function App() {
               <button
                 type="button"
                 className="project-row"
+                title={unlisted ? t("nav.recoveredFolder") : undefined}
                 onClick={() => {
                   setOpenProjects((current) => ({ ...current, [item.path]: true }));
                   void bindProject(item.path);
@@ -1988,22 +1985,24 @@ export function App() {
                     setOpenProjects((current) => ({ ...current, [item.path]: !open }));
                   }}
                 >
-                  <Icon className="chevron" path="M9 6l6 6-6 6" size={14} />
-                </span>
-                <Icon path="M3 7h6l2 2h10v10H3z" size={15} />
-                <strong>{item.name}</strong>
-              </button>
-              <button
-                type="button"
-                className="session-del"
-                aria-label={t("nav.removeProject")}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void removeProject(item.path);
-                }}
-              >
-                <Icon path="M6 6l12 12M18 6L6 18" size={12} />
-              </button>
+                <Icon className="chevron" path="M9 6l6 6-6 6" size={14} />
+              </span>
+              <Icon path="M3 7h6l2 2h10v10H3z" size={15} />
+              <strong>{item.name || t("nav.recoveredFolder")}</strong>
+            </button>
+              {!unlisted && (
+                <button
+                  type="button"
+                  className="session-del"
+                  aria-label={t("nav.removeProject")}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void removeProject(item.path);
+                  }}
+                >
+                  <Icon path="M6 6l12 12M18 6L6 18" size={12} />
+                </button>
+              )}
               </div>
               {open && (
                 <div className="session-list nested">

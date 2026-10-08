@@ -37,6 +37,7 @@ import { AgentHostManager } from "./agent-host-manager";
 import { reapOrphanedAgentHosts } from "./agent-orphans";
 import { isPathInsideRoot } from "./workspace-path";
 import { listLocalSkills, revealSkillPath } from "./skills-fs";
+import { createRecentWorkspaceStore } from "./recent-workspaces";
 import { apiBaseUrl, listOpenAiModels } from "../shared/openai-models";
 import {
   activeChat,
@@ -86,7 +87,6 @@ import {
   type AgentStartOptions,
   type ProviderStatus,
   type SessionSummary,
-  type WorkspaceItem,
 } from "../shared/types";
 import { PROJECT_SKILL_ROOTS } from "../shared/skills";
 
@@ -932,48 +932,13 @@ function isSafeExternalUrl(url: string): boolean {
 }
 
 const recentFile = path.join(userDataPath, "recent-workspaces.json");
-const recentWorkspaces = {
-  async list(): Promise<WorkspaceItem[]> {
-    try {
-      const parsed = JSON.parse(
-        await fsp.readFile(recentFile, "utf8"),
-      ) as unknown;
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter(isWorkspaceItem).slice(0, 12);
-    } catch {
-      return [];
-    }
-  },
-  async touch(workspacePath: string): Promise<string> {
-    const resolved = path.resolve(workspacePath);
-    const stat = await fsp.stat(resolved);
-    if (!stat.isDirectory())
-      throw new Error(t(appLocale, "error.notAFolder"));
-    const current = await this.list();
-    const next = [
-      {
-        path: resolved,
-        name: path.basename(resolved) || resolved,
-        lastOpenedAt: new Date().toISOString(),
-      },
-      ...current.filter((item) => item.path !== resolved),
-    ].slice(0, 12);
-    await fsp.mkdir(path.dirname(recentFile), { recursive: true });
-    await fsp.writeFile(recentFile, `${JSON.stringify(next, null, 2)}\n`, {
-      mode: 0o600,
-    });
-    return resolved;
-  },
-  async forget(workspacePath: string): Promise<WorkspaceItem[]> {
-    const next = (await this.list()).filter(
-      (item) => item.path !== workspacePath,
-    );
-    await fsp.writeFile(recentFile, `${JSON.stringify(next, null, 2)}\n`, {
-      mode: 0o600,
-    });
-    return next;
-  },
-};
+// 2026-10-03：`recent-workspaces.json` 的 12 条硬上限 + touch 即裁剪，会让第 13 个文件夹
+// 把老文件夹挤出列表，侧边栏整组消失（会话其实还在磁盘上）。上限放宽到 200，且列表由
+// 渲染层用会话历史兜底，见 src/renderer/project-groups.ts。
+const recentWorkspaces = createRecentWorkspaceStore({
+  file: recentFile,
+  notAFolderMessage: () => t(appLocale, "error.notAFolder"),
+});
 
 async function servePreview(request: Request): Promise<Response> {
   const url = new URL(request.url);
@@ -1216,16 +1181,6 @@ function sessionFileFromUnknown(value: unknown): string | undefined {
   if (!value || typeof value !== "object" || !("sessionFile" in value))
     return undefined;
   return typeof value.sessionFile === "string" ? value.sessionFile : undefined;
-}
-
-function isWorkspaceItem(value: unknown): value is WorkspaceItem {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    typeof (value as WorkspaceItem).path === "string" &&
-    typeof (value as WorkspaceItem).name === "string" &&
-    typeof (value as WorkspaceItem).lastOpenedAt === "string",
-  );
 }
 
 const SKIP_DIRS = new Set([

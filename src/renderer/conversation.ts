@@ -1495,7 +1495,14 @@ export function baseName(file: string): string {
 export function isSamePath(a?: string, b?: string): boolean {
   if (!a || !b) return false;
   if (a === b) return true;
-  return a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
+  return pathKey(a) === pathKey(b);
+}
+
+/** Case/separator-insensitive key for a path, with trailing separators folded away. */
+function pathKey(value: string): string {
+  const trimmed = value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  // A bare root ("/", or Windows "\") must not collapse into the empty string.
+  return trimmed === "" ? "/" : trimmed;
 }
 
 /** A session row/event matches the active thread by id, runtime path or partitioned storage path. */
