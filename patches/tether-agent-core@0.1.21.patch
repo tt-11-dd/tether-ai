@@ -1,0 +1,1674 @@
+diff --git a/dist/checkpoint.js b/dist/checkpoint.js
+--- a/dist/checkpoint.js
++++ b/dist/checkpoint.js
+@@ -1,6 +1,44 @@
+ import crypto from "node:crypto";
+ import fs from "node:fs/promises";
+ import path from "node:path";
++import { getTetherHome } from "./home.js";
++// 2026-09-27 P0「checkpoint 载荷止血」——本文件由本地补丁维护，不在上游 tether-agent-core 里。
++//
++// 背景（实测 2026-09-27）：exec_command / apply_patch 前后各做一次全工作区扫描，
++// 旧实现把每个 <=1MB 文件的**全文**塞进 Map 常驻内存。在 ~/aider10.noindex（7158 条目）
++// 上，`snapshots.size > 2000` 只在「每个目录入口」判定，实际可穿透到 3500+ 份全文并驻留
++// -> 单次扫描瞬时占用最高 ~3.5GB，13:02:57 被 Jetsam 杀掉（largestProcess=Tether,
++// rpages 131003 ≈ 2.15GB）。同一批 checkpoint 又以 200MB+/条 追加进会话 JSONL，
++// 把会话文件撑到 720MB -> 会话列表全量解析 11s 卡顿 -> 主进程同步阻塞 -> 孤儿子进程
++// 持有同一会话文件 -> 「点发送发不出去，必须退出重开」。
++//
++// 本版把扫描改成「只留指纹 + 内容按预算保留」：
++//   1. 扫描只保存 {path, mode, hash, size, mtimeMs, ino}，不再无条件驻留全文；
++//   2. after 扫描的 stat 快路径（size+mtimeMs+ino 全等才复用指纹）避免把没变的文件再读一遍；
++//   3. 保留内容有硬预算：单文件 <=256KB、单次扫描总计 <=2MB，超出标 truncated: true；
++//   4. 目录黑名单扩充（build/target/out/DerivedData/.venv/Pods 等构建产物目录）；
++//   5. 文件数上限改成真·全局上限（每个文件都检查，不再只看目录入口）。
++// 峰值内存从 O(全工作区文本) 降到 O(几 MB)，并且 undo 仍对小改动完整可用。
++const SKIP_DIRECTORIES = new Set([
++    "node_modules", "dist", "dist-electron", "release", "coverage",
++    "build", "target", "out", "DerivedData", "__pycache__", ".venv", "venv",
++    "vendor", "Pods", ".next", ".nuxt", ".turbo", ".cache", ".parcel-cache",
++    ".gradle", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".git",
++    "cmake-build-debug", "cmake-build-release", "Debug", "Release",
++]);
++const MAX_SNAPSHOT_FILES = 2000;
++const MAX_FILE_BYTES = 1_000_000;
++const RETAIN_FILE_BYTES = 256 * 1024;
++const RETAIN_TOTAL_BYTES = 2 * 1024 * 1024;
++// 2026-09-27 P1「checkpoint 载荷外置」——即使 P0 把单条载荷压到 <=4MB，长会话里
++// 成百条 checkpoint 仍会把会话 JSONL 撑到几百 MB（实测 720MB / 637 行），
++// 而会话列表与会话加载都是全量解析 -> 主进程同步阻塞 -> 「卡住」。
++// 本版把 before/after 正文与超长 patch 写到 ~/.tether/checkpoints/<id>.json，
++// 会话条目只留索引（path/mode/hash/truncated + 小 patch），/undo 时才按需 hydrate。
++const CHECKPOINT_PAYLOAD_SCHEMA = "tether-checkpoint-payload@1";
++const CHECKPOINT_PATCH_INLINE_LIMIT = 16 * 1024;
++const CHECKPOINT_STORE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
++const CHECKPOINT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+ export async function capturePatchCheckpoint(workspace, patchInput, apply) {
+     const touched = extractTouchedPaths(patchInput);
+     const before = await snapshotPaths(workspace, touched);
+@@ -17,7 +55,7 @@ export async function capturePatchCheckpoint(workspace, patchInput, apply) {
+ export async function captureWorkspaceCheckpoint(workspace, label, apply) {
+     const before = await scanWorkspace(workspace);
+     const result = await apply();
+-    const after = await scanWorkspace(workspace);
++    const after = await scanWorkspace(workspace, before);
+     const files = [...new Set([...before.keys(), ...after.keys()])].sort();
+     const changed = files.filter((file) => before.get(file)?.hash !== after.get(file)?.hash);
+     if (changed.length === 0)
+@@ -30,8 +68,8 @@ export async function captureWorkspaceCheckpoint(workspace, label, apply) {
+             id: crypto.randomUUID().slice(0, 12),
+             createdAt: new Date().toISOString(),
+             patch: `exec_command: ${label}`,
+-            before: beforeSnapshots,
+-            after: afterSnapshots,
++            before: beforeSnapshots.map(toCheckpointSnapshot),
++            after: afterSnapshots.map(toCheckpointSnapshot),
+         },
+     };
+ }
+@@ -43,10 +81,19 @@ export async function restoreCheckpoint(workspace, checkpoint, force = false) {
+     if (conflicts.length > 0 && !force) {
+         throw new Error(`Cannot undo because these files changed after the checkpoint: ${conflicts.join(", ")}`);
+     }
++    const restored = [];
++    const skipped = [];
+     for (const snapshot of checkpoint.before) {
++        // truncated：内容因体积/预算没被捕获。绝不能当 content===null（那是「文件本来不存在」）
++        // 处理，否则 undo 会把一个没动过的文件删掉。
++        if (snapshot.truncated === true) {
++            skipped.push(snapshot.path);
++            continue;
++        }
+         const absolute = await workspace.resolve(snapshot.path, true);
+         if (snapshot.content === null) {
+             await fs.rm(absolute, { force: true });
++            restored.push(snapshot.path);
+             continue;
+         }
+         await fs.mkdir(path.dirname(absolute), { recursive: true });
+@@ -57,13 +104,22 @@ export async function restoreCheckpoint(workspace, checkpoint, force = false) {
+                 ...(snapshot.mode === undefined ? {} : { mode: snapshot.mode }),
+             });
+             await fs.rename(temporary, absolute);
++            restored.push(snapshot.path);
+         }
+         catch (error) {
+             await fs.rm(temporary, { force: true });
+             throw error;
+         }
+     }
+-    return checkpoint.before.map((snapshot) => snapshot.path);
++    if (skipped.length > 0) {
++        // 宁可明确报错，也不静默少恢复几个文件。已恢复的部分保持已恢复。
++        const preview = skipped.slice(0, 8).join(", ");
++        const error = new Error(`Undo incomplete: ${skipped.length} file(s) were too large to capture and were left untouched (${preview}${skipped.length > 8 ? ", ..." : ""}). Everything else was restored.`);
++        error.skipped = skipped;
++        error.restored = restored;
++        throw error;
++    }
++    return restored;
+ }
+ export function extractTouchedPaths(input) {
+     const paths = [];
+@@ -81,36 +137,46 @@ export function extractTouchedPaths(input) {
+ }
+ async function snapshotPaths(workspace, files) {
+     const snapshots = [];
++    let retained = 0;
+     for (const file of files) {
+         const absolute = await workspace.resolve(file, true);
++        let stat;
+         try {
+-            const stat = await fs.stat(absolute);
+-            if (!stat.isFile())
+-                throw new Error(`Checkpoint path is not a regular file: ${file}`);
+-            const content = await fs.readFile(absolute, "utf8");
+-            snapshots.push({
+-                path: file,
+-                content,
+-                mode: stat.mode,
+-                hash: hash(content),
+-            });
++            stat = await fs.stat(absolute);
+         }
+         catch (error) {
+             if (error.code !== "ENOENT")
+                 throw error;
+             snapshots.push({ path: file, content: null, hash: hash(null) });
++            continue;
++        }
++        if (!stat.isFile())
++            throw new Error(`Checkpoint path is not a regular file: ${file}`);
++        const buffer = await fs.readFile(absolute);
++        const value = hash(buffer);
++        const base = { path: file, mode: stat.mode, hash: value };
++        if (buffer.includes(0)) {
++            snapshots.push({ ...base, truncated: true });
++            continue;
++        }
++        if (buffer.length > RETAIN_FILE_BYTES || retained + buffer.length > RETAIN_TOTAL_BYTES) {
++            snapshots.push({ ...base, truncated: true });
++            continue;
+         }
++        retained += buffer.length;
++        snapshots.push({ ...base, content: buffer.toString("utf8") });
+     }
+     return snapshots;
+ }
+-async function scanWorkspace(workspace) {
++async function scanWorkspace(workspace, previous) {
+     await workspace.initialize();
+     const snapshots = new Map();
+-    await scanDirectory(workspace, ".", snapshots);
++    const budget = { remaining: RETAIN_TOTAL_BYTES };
++    await scanDirectory(workspace, ".", snapshots, previous, budget);
+     return snapshots;
+ }
+-async function scanDirectory(workspace, relativeDirectory, snapshots) {
+-    if (snapshots.size > 2_000)
++async function scanDirectory(workspace, relativeDirectory, snapshots, previous, budget) {
++    if (snapshots.size >= MAX_SNAPSHOT_FILES)
+         return;
+     const absoluteDirectory = await workspace.resolve(relativeDirectory, true);
+     let entries;
+@@ -121,37 +187,69 @@ async function scanDirectory(workspace, relativeDirectory, snapshots) {
+         return;
+     }
+     for (const entry of entries) {
++        if (snapshots.size >= MAX_SNAPSHOT_FILES)
++            return;
+         if (entry.name.startsWith(".") && entry.name !== ".agents")
+             continue;
+-        if (["node_modules", "dist", "dist-electron", "release", "coverage"].includes(entry.name))
+-            continue;
+         const relative = relativeDirectory === "." ? entry.name : path.join(relativeDirectory, entry.name);
+         if (entry.isDirectory()) {
+-            await scanDirectory(workspace, relative, snapshots);
++            if (SKIP_DIRECTORIES.has(entry.name))
++                continue;
++            await scanDirectory(workspace, relative, snapshots, previous, budget);
+             continue;
+         }
+         if (!entry.isFile())
+             continue;
+         const absolute = await workspace.resolve(relative, true);
+-        const stat = await fs.stat(absolute);
+-        if (stat.size > 1_000_000)
++        let stat;
++        try {
++            stat = await fs.stat(absolute);
++        }
++        catch {
++            continue;
++        }
++        if (stat.size > MAX_FILE_BYTES)
+             continue;
+-        const content = await readTextFile(absolute);
+-        if (content === undefined)
++        const cached = previous?.get(relative);
++        if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs && cached.ino === stat.ino) {
++            // size+mtime+ino 三者全等 -> 复用上一次扫描的指纹（内容引用同源，不额外占内存）。
++            const reused = { path: relative, mode: stat.mode, hash: cached.hash, size: stat.size, mtimeMs: stat.mtimeMs, ino: stat.ino };
++            if (cached.content === undefined)
++                reused.truncated = true;
++            else
++                reused.content = cached.content;
++            snapshots.set(relative, reused);
++            continue;
++        }
++        let buffer;
++        try {
++            buffer = await fs.readFile(absolute);
++        }
++        catch {
+             continue;
+-        snapshots.set(relative, {
+-            path: relative,
+-            content,
+-            mode: stat.mode,
+-            hash: hash(content),
+-        });
++        }
++        if (buffer.includes(0))
++            continue;
++        const value = hash(buffer);
++        const snapshot = { path: relative, mode: stat.mode, hash: value, size: stat.size, mtimeMs: stat.mtimeMs, ino: stat.ino };
++        if (cached && cached.hash === value && cached.content !== undefined) {
++            snapshot.content = cached.content;
++        }
++        else if (buffer.length <= RETAIN_FILE_BYTES && buffer.length <= budget.remaining) {
++            snapshot.content = buffer.toString("utf8");
++            budget.remaining -= buffer.length;
++        }
++        // 内容没留下来（体积/预算/二进制）时，必须显式标 truncated：
++        // 否则 checkpoint 里会是一条 content: undefined 的记录，undo 会 writeFile(undefined) 崩。
++        if (snapshot.content === undefined)
++            snapshot.truncated = true;
++        snapshots.set(relative, snapshot);
+     }
+ }
+-async function readTextFile(file) {
+-    const buffer = await fs.readFile(file);
+-    if (buffer.includes(0))
+-        return undefined;
+-    return buffer.toString("utf8");
++function toCheckpointSnapshot(snapshot) {
++    if (snapshot.truncated === true)
++        return { path: snapshot.path, mode: snapshot.mode, hash: snapshot.hash, truncated: true };
++    return { path: snapshot.path, content: snapshot.content, ...(snapshot.mode === undefined ? {} : { mode: snapshot.mode }), hash: snapshot.hash };
+ }
+ function missingSnapshot(file) {
+     return { path: file, content: null, hash: hash(null) };
+@@ -159,4 +257,168 @@ function missingSnapshot(file) {
+ function hash(content) {
+     return crypto.createHash("sha256").update(content === null ? "\0missing" : content).digest("hex");
+ }
+-//# sourceMappingURL=checkpoint.js.map
+\ No newline at end of file
++// ---------------------------------------------------------------------------
++// P1：checkpoint 载荷外置（sidecar store）
++//
++// store 是**扁平**目录 ~/.tether/checkpoints/<id>.json（id 是 12 位随机 hex，
++// 全局唯一），这样按 id 取载荷是一次 readFile，不需要扫目录，也不需要知道会话路径。
++// 载荷里带 sessionFile 用于校验（万一 id 撞车，宁可判定缺失也不写错文件）。
++
++export function checkpointStoreRoot() {
++    return path.join(getTetherHome(), "checkpoints");
++}
++export function checkpointPayloadPath(id) {
++    return path.join(checkpointStoreRoot(), `${id}.json`);
++}
++/**
++ * 会话条目里该留什么：只有索引。剥掉的是两类大字段 —— 文件正文（content 字符串）
++ * 和超长 patch。`content === null`（文件本来不存在）必须保留，它是撤销时的删除指令。
++ */
++export function slimCheckpoint(checkpoint) {
++    const before = checkpoint.before.map(slimSnapshot);
++    const after = checkpoint.after.map(slimSnapshot);
++    const patch = typeof checkpoint.patch === "string" ? checkpoint.patch : "";
++    const inlinePatch = patch.length <= CHECKPOINT_PATCH_INLINE_LIMIT;
++    const slim = {
++        id: checkpoint.id,
++        createdAt: checkpoint.createdAt,
++        before,
++        after,
++        patch: inlinePatch ? patch : "",
++        payloadBytes: payloadByteLength(checkpoint),
++        stored: true,
++    };
++    if (!inlinePatch) {
++        slim.patchStored = true;
++        slim.patchBytes = Buffer.byteLength(patch, "utf8");
++    }
++    if (before.some((snapshot) => snapshot?.truncated === true) ||
++        after.some((snapshot) => snapshot?.truncated === true))
++        slim.truncated = true;
++    return slim;
++}
++export function isStoredCheckpoint(value) {
++    return (typeof value === "object" &&
++        value !== null &&
++        value.stored === true &&
++        typeof value.id === "string");
++}
++/** 写载荷。失败时抛错，调用方负责决定退回内联还是放弃。 */
++export async function saveCheckpointPayload(checkpoint, sessionFile) {
++    if (!CHECKPOINT_ID_PATTERN.test(String(checkpoint.id ?? "")))
++        throw new Error(`Refusing to store checkpoint with a suspicious id: ${checkpoint.id}`);
++    const root = checkpointStoreRoot();
++    await fs.mkdir(root, { recursive: true, mode: 0o700 });
++    const payload = JSON.stringify({
++        schema: CHECKPOINT_PAYLOAD_SCHEMA,
++        sessionFile: sessionFile ?? null,
++        checkpoint,
++    });
++    const target = checkpointPayloadPath(checkpoint.id);
++    const temporary = path.join(root, `.${checkpoint.id}.${process.pid}.tmp`);
++    try {
++        await fs.writeFile(temporary, payload, { encoding: "utf8", mode: 0o600 });
++        await fs.rename(temporary, target);
++    }
++    catch (error) {
++        await fs.rm(temporary, { force: true });
++        throw error;
++    }
++    return { file: target, bytes: Buffer.byteLength(payload, "utf8") };
++}
++/** 读载荷。缺文件 / 解析失败 / schema 不符 / 会话不匹配都返回 undefined（调用方明确报错）。 */
++export async function loadCheckpointPayload(id, expectedSessionFile) {
++    if (!CHECKPOINT_ID_PATTERN.test(String(id ?? "")))
++        return undefined;
++    let raw;
++    try {
++        raw = await fs.readFile(checkpointPayloadPath(id), "utf8");
++    }
++    catch {
++        return undefined;
++    }
++    let parsed;
++    try {
++        parsed = JSON.parse(raw);
++    }
++    catch {
++        return undefined;
++    }
++    if (!parsed || typeof parsed !== "object" || parsed.schema !== CHECKPOINT_PAYLOAD_SCHEMA)
++        return undefined;
++    if (typeof expectedSessionFile === "string" &&
++        expectedSessionFile &&
++        typeof parsed.sessionFile === "string" &&
++        path.basename(parsed.sessionFile) !== path.basename(expectedSessionFile))
++        return undefined;
++    return parsed.checkpoint && typeof parsed.checkpoint === "object" ? parsed.checkpoint : undefined;
++}
++/**
++ * 把会话里的索引条目还原成可执行的 checkpoint。
++ * 老会话（P1 之前）的条目本来就带正文，原样返回。
++ */
++export async function hydrateCheckpoint(entry, sessionFile) {
++    if (!isStoredCheckpoint(entry))
++        return entry;
++    const payload = await loadCheckpointPayload(entry.id, sessionFile);
++    if (!payload)
++        throw new Error(`Checkpoint payload for ${entry.id} is missing from ${checkpointPayloadPath(entry.id)}; this checkpoint can no longer be restored.`);
++    return payload;
++}
++/** 启动时清理过期载荷（默认 30 天）。只按 mtime 判定，不碰新鲜文件。 */
++export async function pruneCheckpointStore(maxAgeMs = CHECKPOINT_STORE_MAX_AGE_MS) {
++    const root = checkpointStoreRoot();
++    let entries;
++    try {
++        entries = await fs.readdir(root, { withFileTypes: true });
++    }
++    catch {
++        return { removed: 0, kept: 0 };
++    }
++    const cutoff = Date.now() - maxAgeMs;
++    let removed = 0;
++    let kept = 0;
++    for (const entry of entries) {
++        if (!entry.isFile() || !entry.name.endsWith(".json"))
++            continue;
++        const file = path.join(root, entry.name);
++        let stat;
++        try {
++            stat = await fs.stat(file);
++        }
++        catch {
++            continue;
++        }
++        if (stat.mtimeMs < cutoff) {
++            await fs.rm(file, { force: true });
++            removed += 1;
++        }
++        else {
++            kept += 1;
++        }
++    }
++    return { removed, kept };
++}
++function slimSnapshot(snapshot) {
++    if (!snapshot || typeof snapshot !== "object")
++        return snapshot;
++    if (typeof snapshot.content !== "string")
++        return { ...snapshot };
++    const { content: _content, ...rest } = snapshot;
++    return rest;
++}
++function payloadByteLength(checkpoint) {
++    let bytes = 0;
++    for (const group of [checkpoint.before, checkpoint.after]) {
++        if (!Array.isArray(group))
++            continue;
++        for (const snapshot of group) {
++            if (snapshot && typeof snapshot.content === "string")
++                bytes += Buffer.byteLength(snapshot.content, "utf8");
++        }
++    }
++    if (typeof checkpoint.patch === "string")
++        bytes += Buffer.byteLength(checkpoint.patch, "utf8");
++    return bytes;
++}
++//# sourceMappingURL=checkpoint.js.map
+diff --git a/dist/home.js b/dist/home.js
+--- a/dist/home.js
++++ b/dist/home.js
+@@ -68,15 +68,14 @@ export async function partitionSessionFile(file) {
+         // Never overwrite a different transcript on a path collision.
+         return { runtimePath, storagePath: runtimePath };
+     }
++    // 2026-10-03 本地补丁：改用 link() 一步到位（旧实现是 rename -> link 两步）。
++    // 旧实现在 rename 与 link 之间存在空窗：这段时间 sessions/ 根目录里**没有**这个文件，
++    // 若 refresh() 恰好落进窗口，根目录扫描看不到它 -> 该会话的索引行被当垃圾 DELETE
++    // （文件没丢，列表里会话消失，表现为「凭空消失」）。
++    // link() 只新增一个名字、不摘原名字，任一时刻至少一个名字可见，空窗根除；
++    // 失败时也无需回滚（原文件从未离开原位），网络盘/异常 FS 行为与旧实现一致。
+     try {
+-        await fs.rename(runtimePath, storagePath);
+-        try {
+-            await fs.link(storagePath, runtimePath);
+-        }
+-        catch (error) {
+-            await fs.rename(storagePath, runtimePath).catch(() => undefined);
+-            throw error;
+-        }
++        await fs.link(runtimePath, storagePath);
+         await fs.chmod(storagePath, 0o600).catch(() => undefined);
+         return { runtimePath, storagePath };
+     }
+diff --git a/dist/state.js b/dist/state.js
+--- a/dist/state.js
++++ b/dist/state.js
+@@ -65,10 +65,20 @@ export class TetherStateStore {
+             seen.add(file);
+             await this.indexFile(file, file, true);
+         }
+-        const rows = this.database.prepare("SELECT id, storage_path FROM threads").all();
++        const rows = this.database.prepare("SELECT id, storage_path, session_path FROM threads").all();
+         const remove = this.database.prepare("DELETE FROM threads WHERE id = ?");
+         for (const row of rows) {
+-            if (!seen.has(row.storage_path))
++            if (seen.has(row.storage_path))
++                continue;
++            // 2026-10-03 本地补丁：seen 里没有 != 文件已删。旧实现直接 DELETE，
++            // 于是「文件还在、只是这轮扫描没看见」的会话会被永久摘掉索引（列表里消失）。
++            // 已知两种成因：① partitionSessionFile 的 rename->link 窗口（home.js 同款补丁）；
++            // ② 日期分区副本还在、根目录硬链接已丢（directJsonlFiles 不递归扫描）。
++            // 真删文件会把两个名字一起带走，所以只有两处都不存在时才清理索引行。
++            const stillThere =
++                (await fileExists(row.storage_path)) ||
++                (row.session_path !== row.storage_path && (await fileExists(row.session_path)));
++            if (!stillThere)
+                 remove.run(row.id);
+         }
+     }
+@@ -213,7 +223,23 @@ export async function indexTetherSession(file) {
+         store.close();
+     }
+ }
++// 大文件有界解析（2026-09-27 本地补丁）。
++// 症状：单个会话 JSONL 长到几百 MB（checkpoint 载荷撑大）后，`readFile + split + 逐行
++// JSON.parse` 会在**主进程**里同时吃下全文和每一行的字符串副本 —— 实测 765MB 的会话文件
++// 要 11.3s，期间主进程事件循环被占满，UI 全程卡死；207MB 一行的 JSON.parse 是真正的爆炸点。
++// 修法：超过阈值改走流式扫描。常驻内存只有一个分片；行长超过 CAP 的条目只按前缀计数，
++// 绝不做 JSON.parse。产出字段与全量解析逐字段一致（唯一差异见 parseSessionStreaming 注释）。
++const LARGE_SESSION_BYTES = 16 * 1024 * 1024;
++const STREAM_CHUNK_BYTES = 2 * 1024 * 1024;
++const STREAM_PREFIX_BYTES = 64;
++const STREAM_LINE_PARSE_CAP = 2 * 1024 * 1024;
++
+ async function parseSession(file, stat) {
++    if (stat.size > LARGE_SESSION_BYTES)
++        return parseSessionStreaming(file, stat);
++    return parseSessionWhole(file, stat);
++}
++async function parseSessionWhole(file, stat) {
+     let raw;
+     try {
+         raw = await fs.readFile(file, "utf8");
+@@ -224,8 +250,19 @@ async function parseSession(file, stat) {
+         throw error;
+     }
+     const lines = raw.split("\n").filter(Boolean);
+-    const header = lines[0] ? parseLine(lines[0]) : undefined;
+-    if (header?.type !== "session" || typeof header.cwd !== "string")
++    // 2026-10-03 本地补丁：会话头不一定是第 0 行。
++    // 实测有会话以 {"type":"title",...} 记录开头（标题记录先落盘），旧实现只看 lines[0]，
++    // type !== "session" 就整条 return undefined —— 该会话永远进不了索引，
++    // 表现成列表里「凭空消失」。改为向后扫第一条合法 session 记录当 header。
++    let header;
++    for (const line of lines) {
++        const entry = parseLine(line);
++        if (entry?.type === "session" && typeof entry.cwd === "string") {
++            header = entry;
++            break;
++        }
++    }
++    if (!header)
+         return undefined;
+     let firstUserText;
+     let preview;
+@@ -269,6 +306,141 @@ async function parseSession(file, stat) {
+         messageCount,
+     };
+ }
++/**
++ * 有界流式解析：只保留当前行的前 64 字符（判类型）与「≤ CAP 的行正文」。
++ * 与全量解析的唯一差异：单行 > CAP 的条目只按前缀计入 messageCount，
++ * 不从它取 preview / title（那种行是 checkpoint 载荷，不是对话正文）。
++ */
++async function parseSessionStreaming(file, stat) {
++    const acc = {
++        provider: undefined,
++        model: undefined,
++        namedTitle: undefined,
++        firstUserText: undefined,
++        preview: undefined,
++        messageCount: 0,
++    };
++    let header;
++    let head = "";
++    let body = "";
++    let length = 0;
++    let overflow = false;
++    const flush = () => {
++        const blank = length === 0; // 与原实现的 filter(Boolean) 等价：空行不占行号
++        const headText = head;
++        const parsed = blank || overflow ? undefined : parseLine(body);
++        head = "";
++        body = "";
++        length = 0;
++        overflow = false;
++        if (blank)
++            return;
++        // 2026-10-03 本地补丁：旧实现把第 0 行无条件当 header —— 以 title 记录开头的会话
++        // 会在末尾 header.type !== "session" 校验里被整条丢弃（同 parseSessionWhole）。
++        // 改为向后扫第一条合法 session 记录；header 之前的行（title 等）直接跳过。
++        if (!header) {
++            if (parsed && parsed.type === "session" && typeof parsed.cwd === "string")
++                header = parsed;
++            return;
++        }
++        const type = typeof parsed?.type === "string" ? parsed.type : prefixType(headText);
++        if (type === "message") {
++            if (!parsed) {
++                if (overflow)
++                    acc.messageCount += 1;
++                return;
++            }
++            if (!isRecord(parsed.message))
++                return;
++            acc.messageCount += 1;
++            const text = messageText(parsed.message.content);
++            if (!text)
++                return;
++            acc.preview = text;
++            if (!acc.firstUserText && parsed.message.role === "user")
++                acc.firstUserText = text;
++            return;
++        }
++        if (type === "model_change") {
++            if (!parsed)
++                return;
++            if (typeof parsed.provider === "string")
++                acc.provider = parsed.provider;
++            if (typeof parsed.modelId === "string")
++                acc.model = parsed.modelId;
++            return;
++        }
++        if (type === "session_info") {
++            if (parsed && typeof parsed.name === "string")
++                acc.namedTitle = parsed.name;
++        }
++    };
++    const stream = fsSync.createReadStream(file, {
++        encoding: "utf8",
++        highWaterMark: STREAM_CHUNK_BYTES,
++    });
++    try {
++        for await (const chunk of stream) {
++            let start = 0;
++            for (;;) {
++                const nl = chunk.indexOf("\n", start);
++                const end = nl === -1 ? chunk.length : nl;
++                if (end > start) {
++                    const segment = chunk.slice(start, end);
++                    length += segment.length;
++                    if (head.length < STREAM_PREFIX_BYTES)
++                        head += segment.slice(0, STREAM_PREFIX_BYTES - head.length);
++                    if (!overflow) {
++                        if (length <= STREAM_LINE_PARSE_CAP)
++                            body += segment;
++                        else {
++                            body = "";
++                            overflow = true;
++                        }
++                    }
++                }
++                if (nl === -1)
++                    break;
++                flush();
++                start = nl + 1;
++            }
++        }
++    }
++    catch (error) {
++        if (isNodeError(error) && error.code === "ENOENT")
++            return undefined;
++        throw error;
++    }
++    finally {
++        stream.destroy();
++    }
++    flush();
++    if (header?.type !== "session" || typeof header.cwd !== "string")
++        return undefined;
++    const createdAt = typeof header.timestamp === "string" && Number.isFinite(Date.parse(header.timestamp))
++        ? Date.parse(header.timestamp)
++        : stat.birthtimeMs || stat.mtimeMs;
++    return {
++        id: typeof header.id === "string" ? header.id : path.basename(file, ".jsonl"),
++        cwd: path.resolve(header.cwd),
++        title: crop(normalize(acc.namedTitle ?? acc.firstUserText ?? "New thread"), 96),
++        ...(acc.preview ? { preview: crop(acc.preview, 240) } : {}),
++        ...(acc.provider ? { provider: acc.provider } : {}),
++        ...(acc.model ? { model: acc.model } : {}),
++        createdAt,
++        messageCount: acc.messageCount,
++    };
++}
++/** 只看行首 64 字符判条目类型；解析不出 JSON 时（超大行）用它兜底。 */
++function prefixType(head) {
++    if (head.startsWith('{"type":"message"'))
++        return "message";
++    if (head.startsWith('{"type":"model_change"'))
++        return "model_change";
++    if (head.startsWith('{"type":"session_info"'))
++        return "session_info";
++    return "";
++}
+ function rowToThread(row) {
+     return {
+         id: row.id,
+@@ -286,6 +458,20 @@ function rowToThread(row) {
+         archived: Boolean(row.archived),
+     };
+ }
++/**
++ * 2026-10-03 本地补丁：只在「文件确实不在了」时返回 false。
++ * 权限/网络等非 ENOENT 错误一律保守认为文件还在 —— 宁可留下一条索引行，
++ * 也不要把活着的会话当垃圾删掉。
++ */
++async function fileExists(target) {
++    try {
++        await fs.stat(target);
++        return true;
++    }
++    catch (error) {
++        return !(isNodeError(error) && (error.code === "ENOENT" || error.code === "ENOTDIR"));
++    }
++}
+ async function directJsonlFiles(directory) {
+     try {
+         return (await fs.readdir(directory, { withFileTypes: true }))
+@@ -351,4 +537,4 @@ function isRecord(value) {
+ function isNodeError(error) {
+     return error instanceof Error && "code" in error;
+ }
+-//# sourceMappingURL=state.js.map
+\ No newline at end of file
++//# sourceMappingURL=state.js.map
+diff --git a/dist/tether-extension.js b/dist/tether-extension.js
+--- a/dist/tether-extension.js
++++ b/dist/tether-extension.js
+@@ -3,7 +3,7 @@ import { Type } from "typebox";
+ import { commandNeedsNetwork, detectSandboxBoundary, SessionAccessController, } from "./access.js";
+ import { classifyCommand } from "./approval.js";
+ import { brandBlue } from "./brand.js";
+-import { capturePatchCheckpoint, captureWorkspaceCheckpoint, restoreCheckpoint, } from "./checkpoint.js";
++import { capturePatchCheckpoint, captureWorkspaceCheckpoint, hydrateCheckpoint, pruneCheckpointStore, restoreCheckpoint, saveCheckpointPayload, slimCheckpoint, } from "./checkpoint.js";
+ import { permissionSchema } from "./config.js";
+ import { optimizeDeepSeekResponsesPayload } from "./deepseek.js";
+ import { DEEPSEEK_CONTEXT_WINDOW, isOfficialDeepSeekBaseUrl, resolveMaxTokens, } from "./settings.js";
+@@ -11,6 +11,7 @@ import { modelSupportsVision } from "./model-vision.js";
+ import { registerDiagnosticsTool } from "./diagnostics.js";
+ import { registerNaturalExit } from "./exit.js";
+ import { registerHooks } from "./hooks.js";
++import { registerV4Anchor } from "./v4-anchor.js";
+ import { registerLocalImageInput } from "./image-input.js";
+ import { partitionSessionFile } from "./home.js";
+ import { ManagedProcessRegistry, } from "./managed-process.js";
+@@ -87,6 +88,19 @@ const applyPatchParameters = Type.Object({
+         description: "A complete *** Begin Patch / *** End Patch patch",
+     }),
+ });
++// [tether-patch 2026-09-24] OpenCode Zen Go（opencode.ai/zen/go）要**裸模型 id**：
++// 上游只认 deepseek-v4.1-flash，收到 deepseek/deepseek-v4.1-flash 会直接
++// 400 "Upstream request failed: Model is unavailable."（2026-09-24 实测复现）。
++// 下面的 deepseek/ 前缀重挂是给 CommandCode / kdysite 这类「DeepSeek 命名空间中转」
++// 用的，必须把 zen 排除，否则 Tether 的 opencodego profile 必挂。
++function isOpenCodeZenBaseUrl(baseUrl) {
++    try {
++        return new URL(baseUrl).hostname === "opencode.ai";
++    }
++    catch {
++        return false;
++    }
++}
+ export function createTetherExtension(options) {
+     return {
+         name: "tether",
+@@ -98,6 +112,44 @@ export function createTetherExtension(options) {
+             let permissionBeforePlan = options.permission === "plan" ? "auto" : options.permission;
+             const checkpoints = [];
+             const undone = new Set();
++            let sessionFile;
++            // 会话条目只带 checkpoint 索引；正文在 ~/.tether/checkpoints/<id>.json。
++            // 这里把这个「索引 + 外置载荷」契约固化成一个入口，两个捕获点共用。
++            const currentSessionFile = (ctx) => {
++                try {
++                    const file = ctx?.sessionManager?.getSessionFile?.();
++                    if (typeof file === "string" && file)
++                        sessionFile = file;
++                }
++                catch {
++                    // 会话文件拿不到时退回上次已知路径；载荷仍可写，只是少了归属校验。
++                }
++                return sessionFile;
++            };
++            const recordCheckpoint = async (checkpoint, ctx) => {
++                const file = currentSessionFile(ctx);
++                try {
++                    await saveCheckpointPayload(checkpoint, file);
++                    const slim = slimCheckpoint(checkpoint);
++                    checkpoints.push(slim);
++                    pi.appendEntry(CHECKPOINT_ENTRY, slim);
++                    return slim;
++                }
++                catch (error) {
++                    // 外置失败（磁盘满 / 权限 / id 异常）时退回内联：宁可撑大会话，
++                    // 也不能让 /undo 指向一份不存在的载荷。
++                    checkpoints.push(checkpoint);
++                    pi.appendEntry(CHECKPOINT_ENTRY, { ...checkpoint, stored: false });
++                    const detail = error instanceof Error ? error.message : String(error);
++                    try {
++                        ctx?.ui?.notify(`Checkpoint payload could not be stored (${detail}); kept inline.`, "warning");
++                    }
++                    catch {
++                        // UI 不可用时静默：会话条目已经写好，不影响撤销。
++                    }
++                    return checkpoint;
++                }
++            };
+             let toolsBeforePlan;
+             let projectCommands = [];
+             let lastAgentFailed = false;
+@@ -139,11 +191,12 @@ export function createTetherExtension(options) {
+                 ctx.ui.setWidget("tether-plan", planWidgetLines(planState, ctx));
+             };
+             registerDeepSeekProvider(pi, options);
++            registerV4Anchor(pi, {});
+             registerLocalImageInput(pi);
+             registerNaturalExit(pi);
+             registerSessionCommands(pi);
+-            registerCommandTools(pi, processes, checkpoints, () => permission, access, updateStatus, sandboxFor);
+-            registerPatchTool(pi, checkpoints);
++            registerCommandTools(pi, processes, checkpoints, () => permission, access, updateStatus, sandboxFor, recordCheckpoint);
++            registerPatchTool(pi, checkpoints, recordCheckpoint);
+             if (options.harness === "safe") {
+                 registerSafeHarness(pi, options.cwd);
+                 registerDiagnosticsTool(pi, options, () => effectiveAccess().sandbox);
+@@ -188,23 +241,66 @@ export function createTetherExtension(options) {
+             };
+             pi.on("before_provider_request", (event, ctx) => {
+                 const usage = ctx.getContextUsage();
+-                if (usage?.percent !== null && usage?.percent !== undefined) {
+-                    if (usage.percent >= 90 && contextWarningLevel !== "critical") {
++                // [tether-patch 2026-09-22] 告警基准改为「自动压缩阈值进度」，
++                // 与 UI 一致；阈值进度不可得时回落裸窗口占比。
++                const warnGauge = (typeof usage?.thresholdPercent === "number" && Number.isFinite(usage.thresholdPercent))
++                    ? usage.thresholdPercent
++                    : (usage?.percent ?? null);
++                if (warnGauge !== null && warnGauge !== undefined) {
++                    if (warnGauge >= 95 && contextWarningLevel !== "critical") {
+                         contextWarningLevel = "critical";
+-                        ctx.ui.notify(`上下文已使用 ${usage.percent.toFixed(1)}%，建议先运行 /compact 压缩历史再继续长任务。`, "warning");
++                        ctx.ui.notify(`上下文已达自动压缩阈值的 ${warnGauge.toFixed(1)}%，随时会触发压缩；建议先运行 /compact 主动压缩历史再继续长任务。`, "warning");
+                     }
+-                    else if (usage.percent >= 80 && contextWarningLevel === "none") {
++                    else if (warnGauge >= 85 && contextWarningLevel === "none") {
+                         contextWarningLevel = "warning";
+-                        ctx.ui.notify(`上下文已使用 ${usage.percent.toFixed(1)}%，继续长对话前可运行 /compact 保留近期工作并压缩旧历史。`, "warning");
++                        ctx.ui.notify(`上下文已达自动压缩阈值的 ${warnGauge.toFixed(1)}%，继续长对话将接近自动压缩；可运行 /compact 保留近期工作并压缩旧历史。`, "warning");
+                     }
+-                    else if (usage.percent < 70) {
++                    else if (warnGauge < 75) {
+                         contextWarningLevel = "none";
+                     }
+                 }
++                let nextPayload = event.payload;
++                const requestBaseUrl = ctx.model?.baseUrl ?? options.baseUrl;
++                // [tether-patch 2026-09-22b] 前缀重挂只对 DeepSeek 家族生效。
++                // 判据从「model 里没有斜杠」收紧为「model 属于 deepseek-* / deepseek.* 家族」：
++                // 同一个 provider 槽位被复用给 CommandCode 这类混合命名空间中转时，
++                // gpt-5.6-sol 等无斜杠的非 DeepSeek id 会被误加前缀 -> 400 unsupported_model。
++                const rawModelId = nextPayload?.model;
++                // [tether-patch 2026-10-03] zen 只认裸模型 id。旧 CommandCode 时代的
++                // "deepseek/xxx" 前缀会经 get_state 回流 / 会话模型缓存 / 下拉候选合并
++                // 等路径重新进入请求体 —— 下面那段前缀重挂只对 zen「跳过」，
++                // 剥不掉已经带在身上的前缀，于是原样发出 → 400 Model is unavailable。
++                // 这里在出站前统一剥离，做不可绕过的硬兜底（只认 deepseek/ 前缀，
++                // gpt-5.6-luna / qwen3.8-max 等非 deepseek 家族 id 不受影响）。
++                if (ctx.model?.provider === "deepseek" &&
++                    isOpenCodeZenBaseUrl(requestBaseUrl) &&
++                    nextPayload !== null &&
++                    typeof nextPayload === "object" &&
++                    typeof rawModelId === "string" &&
++                    /^deepseek\//i.test(rawModelId)) {
++                    nextPayload = {
++                        ...nextPayload,
++                        model: rawModelId.replace(/^deepseek\//i, ""),
++                    };
++                }
++                if (ctx.model?.provider === "deepseek" &&
++                    !isOfficialDeepSeekBaseUrl(requestBaseUrl) &&
++                    // [tether-patch 2026-09-24] zen 要裸 id，不吃 deepseek/ 前缀
++                    !isOpenCodeZenBaseUrl(requestBaseUrl) &&
++                    nextPayload !== null &&
++                    typeof nextPayload === "object" &&
++                    typeof rawModelId === "string" &&
++                    !rawModelId.includes("/") &&
++                    /^deepseek[-.]/i.test(rawModelId.replace(/^deepseek\//i, ""))) {
++                    // Relay endpoints (non-official) require the "deepseek/"
++                    // provider prefix on the model field; Pi strips it during
++                    // model resolution, so re-attach it to the outgoing body.
++                    nextPayload = { ...nextPayload, model: `deepseek/${rawModelId}` };
++                }
+                 if (ctx.model?.provider !== "deepseek" ||
+                     options.transport !== "responses")
+-                    return;
+-                return optimizeDeepSeekResponsesPayload(event.payload, {
++                    return nextPayload;
++                return optimizeDeepSeekResponsesPayload(nextPayload, {
+                     webSearch: options.webSearch,
+                 });
+             });
+@@ -212,6 +308,9 @@ export function createTetherExtension(options) {
+                 checkpoints.length = 0;
+                 undone.clear();
+                 contextWarningLevel = "none";
++                currentSessionFile(ctx);
++                // 过期载荷清理放在启动路径上，且不阻塞会话启动。
++                void pruneCheckpointStore().catch(() => undefined);
+                 projectCommands = await discoverProjectCommands(ctx.cwd);
+                 restoreCheckpointState(ctx.sessionManager.getBranch(), checkpoints, undone);
+                 planState = restorePlanState(ctx.sessionManager.getBranch());
+@@ -605,7 +704,9 @@ export function createTetherExtension(options) {
+                     const workspace = new Workspace(ctx.cwd);
+                     await workspace.initialize();
+                     try {
+-                        const restored = await restoreCheckpoint(workspace, checkpoint, force);
++                        // 会话条目只有索引，正文在 ~/.tether/checkpoints/ 里按需取回。
++                        const full = await hydrateCheckpoint(checkpoint, currentSessionFile(ctx));
++                        const restored = await restoreCheckpoint(workspace, full, force);
+                         undone.add(checkpoint.id);
+                         pi.appendEntry(CHECKPOINT_UNDO_ENTRY, {
+                             checkpointId: checkpoint.id,
+@@ -642,10 +743,17 @@ export function createTetherExtension(options) {
+                         ctx.ui.notify("No active patch diff is available.", "info");
+                         return;
+                     }
+-                    pi.appendEntry(DIFF_ENTRY, {
+-                        checkpointId: checkpoint.id,
+-                        patch: checkpoint.patch,
+-                    });
++                    let patch = checkpoint.patch;
++                    if (!patch && checkpoint.patchStored) {
++                        try {
++                            patch = (await hydrateCheckpoint(checkpoint, currentSessionFile(ctx))).patch;
++                        }
++                        catch (error) {
++                            ctx.ui.notify(error.message, "error");
++                            return;
++                        }
++                    }
++                    pi.appendEntry(DIFF_ENTRY, { checkpointId: checkpoint.id, patch });
+                 },
+             });
+             pi.registerCommand("jobs", {
+@@ -791,7 +899,27 @@ function deepSeekThinkingLevelMap(modelId) {
+     }
+     return { ...base, xhigh: "high", max: "max" };
+ }
++// [tether-patch 2026-10-05 P0-b] 逐模型上下文窗口表。
++// 历史写法把 options.modelId 之外的每个模型（临时注入的、extraModelIds 带来的）
++// 一律套 DEEPSEEK_CONTEXT_WINDOW(512k)。对「借 deepseek provider 槽位注册的第三方
++// 模型」这是硬伤：longcat-2.5-preview-free 真实容量 1,000,000，被写成 512k 后
++// 压缩阈值 = 512k − reserveTokens，reserve 一旦 ≥ 512k 阈值就 ≤ 0 → 每轮必压缩。
++// 这里按裸 id 给准确窗口；未列出的仍回落 DEEPSEEK_CONTEXT_WINDOW，且 models.json
++// 的 modelOverrides 依旧按裸 id 覆盖（优先级更高，见 provider-composer）。
++const MODEL_CONTEXT_WINDOWS = {
++    "longcat-2.5-preview-free": 1_000_000,
++};
++const contextWindowForModel = (id) => MODEL_CONTEXT_WINDOWS[id] ?? DEEPSEEK_CONTEXT_WINDOW;
+ function registerDeepSeekProvider(pi, options) {
++    // [tether-patch 2026-10-03b] 模型 id 归一化：CLI/下拉候选/旧会话缓存会把
++    // "deepseek/xxx" 这种带 provider 前缀的 id 送进来。带前缀的 id 会以「原样」
++    // 注册成一个临时模型，于是 models.json 里按裸 id 声明的 contextWindow 覆盖
++    // （1M）命中不了 → 该模型塌回 DEEPSEEK_CONTEXT_WINDOW(512k) → 自动压缩阈值
++    // 从 616k 掉到 128k → 15MB 级会话每次发送都触发一次 55s 的同步压缩（实测
++    // 冷启动→首 token 65s vs 7s）。这里统一剥掉前缀，让覆盖按裸 id 命中。
++    // 出站请求体的前缀重挂由本文件出站钩子负责（relay 要前缀、zen 要裸 id），
++    // 因此在这里剥前缀不会破坏 commandcode 这类中继端点。
++    const requestedModelId = (id) => (typeof id === "string" ? id.replace(/^deepseek\//i, "") : id);
+     const api = options.transport === "responses"
+         ? "openai-responses"
+         : "openai-completions";
+@@ -813,21 +941,23 @@ function registerDeepSeekProvider(pi, options) {
+         },
+     ];
+     if (options.providerId === "deepseek" &&
+-        !models.some((model) => model.id === options.modelId)) {
++        !models.some((model) => model.id === requestedModelId(options.modelId))) {
+         const defaultCost = models.find((model) => model.id === defaultModelForProvider("deepseek"))?.cost;
++        const injectedId = requestedModelId(options.modelId);
+         models.push({
+-            id: options.modelId,
+-            name: options.modelId,
++            id: injectedId,
++            name: injectedId,
+             cost: defaultCost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+         });
+     }
+     for (const id of options.extraModelIds ?? []) {
+-        if (models.some((model) => model.id === id))
++        const normalizedId = requestedModelId(id);
++        if (models.some((model) => model.id === normalizedId))
+             continue;
+         const defaultCost = models.find((model) => model.id === defaultModelForProvider("deepseek"))?.cost;
+         models.push({
+-            id,
+-            name: id,
++            id: normalizedId,
++            name: normalizedId,
+             cost: defaultCost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+         });
+     }
+@@ -850,7 +980,7 @@ function registerDeepSeekProvider(pi, options) {
+                     ? ["text", "image"]
+                     : ["text"],
+                 cost: model.cost,
+-                contextWindow: DEEPSEEK_CONTEXT_WINDOW,
++                contextWindow: contextWindowForModel(model.id),
+                 maxTokens: resolveMaxTokens(options.baseUrl, options.maxTokens),
+                 ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
+                 compat: options.transport === "responses"
+@@ -878,7 +1008,7 @@ function registerDeepSeekProvider(pi, options) {
+         }),
+     });
+ }
+-function registerCommandTools(pi, registry, checkpoints, getPermission, accessController, onAccessChanged, sandboxFor) {
++function registerCommandTools(pi, registry, checkpoints, getPermission, accessController, onAccessChanged, sandboxFor, recordCheckpoint) {
+     pi.registerTool({
+         name: "exec_command",
+         label: "Execute command",
+@@ -937,8 +1067,7 @@ function registerCommandTools(pi, registry, checkpoints, getPermission, accessCo
+                     return currentResult;
+                 });
+                 if (checkpoint && !result.running) {
+-                    checkpoints.push(checkpoint);
+-                    pi.appendEntry(CHECKPOINT_ENTRY, checkpoint);
++                    await recordCheckpoint(checkpoint, ctx);
+                 }
+                 return {
+                     content: [{ type: "text", text: formatManagedResult(result) }],
+@@ -1050,7 +1179,7 @@ async function requestCommandAccess(boundary, command, ctx, permission, current,
+     }
+     throw new Error(`User denied ${boundaryLabel} for: ${oneLine(command, 120)}`);
+ }
+-function registerPatchTool(pi, checkpoints) {
++function registerPatchTool(pi, checkpoints, recordCheckpoint) {
+     pi.registerTool({
+         name: "apply_patch",
+         label: "Apply patch",
+@@ -1070,8 +1199,7 @@ function registerPatchTool(pi, checkpoints) {
+             const checkpoint = await capturePatchCheckpoint(workspace, params.input, async () => {
+                 applied = await applyWorkspacePatch(workspace, params.input);
+             });
+-            checkpoints.push(checkpoint);
+-            pi.appendEntry(CHECKPOINT_ENTRY, checkpoint);
++            await recordCheckpoint(checkpoint, ctx);
+             const result = applied;
+             return {
+                 content: [
+@@ -1163,7 +1291,11 @@ function registerEntryRenderers(pi) {
+         const files = entry.data.before.map((file) => file.path).join(", ");
+         return new Text([
+             `${theme.fg("success", "✓ checkpoint")} ${entry.data.id} ${theme.fg("muted", files)}`,
+-            ...(expanded ? [colorPatch(entry.data.patch, theme)] : []),
++            ...(expanded
++                ? [entry.data.patch
++                        ? colorPatch(entry.data.patch, theme)
++                        : theme.fg("muted", "(diff stored on disk — run /diff to inspect)")]
++                : []),
+         ].join("\n"), 0, 0);
+     });
+     pi.registerEntryRenderer(CHECKPOINT_UNDO_ENTRY, (entry, _options, theme) => entry.data
+@@ -1315,4 +1447,4 @@ export function engineeringInstructions(projectCommands, access, runtime) {
+ function isRecord(value) {
+     return typeof value === "object" && value !== null && !Array.isArray(value);
+ }
+-//# sourceMappingURL=tether-extension.js.map
+\ No newline at end of file
++//# sourceMappingURL=tether-extension.js.map
+diff --git a/dist/v4-anchor.js b/dist/v4-anchor.js
+new file mode 100644
+--- /dev/null
++++ b/dist/v4-anchor.js
+@@ -0,0 +1,626 @@
++// v4-anchor.js — DeepSeek anchor for Tether (openai-completions only, Tether tool names)
++// Ported from Proma's anchor-core, stripped to openai-completions + Tether tools.
++// Fixed: write_stdin schema is preserved; promoted phase injects persistent context.
++
++const BOOTSTRAP_TOOL_NAMES = ["exec_command", "write_stdin", "apply_patch"];
++const TARGET_MODEL_SUFFIXES = ["deepseek-v4-pro", "deepseek-v4-flash"];
++
++const MINIMAL_PERSONA = `You are a helpful software engineer assistant.
++Strategy for external references:
++* When the user shares a URL (especially a github.com repository link), open it FIRST: curl the
++  README from raw.githubusercontent.com/<owner>/<repo>/HEAD/README.md, or query
++  api.github.com/repos/<owner>/<repo> for metadata. Reason from what the remote project actually says.
++* Do NOT start by recursively searching the local disk for a folder with the same name. Local checks
++  are only a fallback after the remote source has been read, and only in: the current working
++  directory, the project root, ~/.gold-band, or /Applications.
++* If one approach fails twice with the same error, stop and switch to a different approach.`;
++
++const MINIMAL_BASH_DESCRIPTION = `Run commands in a bash shell
++* When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
++* You DO have network access via this tool — use curl for https:// URLs (raw.githubusercontent.com,
++  api.github.com, etc). Always pass --max-time 15-30 for network calls so a slow URL cannot hang the
++  session. Quote echo separators, e.g. echo "===README===", so zsh globbing does not abort the command.
++* You do have access to a mirror of common linux and python packages via apt and pip.
++* State is persistent across command calls and discussions with the user.
++* To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'.
++* Please avoid commands that may produce a very large amount of output.
++* Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.`;
++
++const MINIMAL_BASH_PARAMETERS = {
++  type: "object",
++  properties: {
++    command: {
++      type: "string",
++      description: "The bash command to run.",
++    },
++  },
++  required: ["command"],
++  additionalProperties: false,
++};
++
++const ANCHOR_STATE_ENTRY = "v4-anchor-state";
++
++/** @typedef {"off"|"bootstrap"|"in-flight"|"anchored"|"promoted"} AnchorPhase */
++/** @typedef {"openai-completions"} AnchorApi */
++
++/**
++ * @param {unknown} value
++ * @returns {value is Record<string, unknown>}
++ */
++function isRecord(value) {
++  return value !== null && typeof value === "object" && !Array.isArray(value);
++}
++
++/**
++ * @param {unknown} value
++ * @returns {value is AnchorApi}
++ */
++function isAnchorApi(value) {
++  return value === "openai-completions";
++}
++
++/**
++ * @param {Record<string, unknown>} payload
++ * @returns {AnchorApi | undefined}
++ */
++function detectPayloadApi(payload) {
++  if (Array.isArray(payload.messages)) return "openai-completions";
++  return undefined;
++}
++
++/**
++ * @param {string} value
++ * @returns {string}
++ */
++function normalizeModelToken(value) {
++  return value.toLowerCase().replace(/[\s_\-.\/]+/g, "");
++}
++
++/**
++ * @param {Record<string, unknown>} model
++ * @returns {boolean}
++ */
++function isDeepSeekModel(model) {
++  const haystack = [model.provider, model.id, model.name]
++    .filter((v) => typeof v === "string" && v.length > 0)
++    .map(normalizeModelToken)
++    .join(" ");
++  return haystack.includes("deepseek");
++}
++
++/**
++ * @param {string} id
++ * @returns {boolean}
++ */
++function isDeepSeekModelId(id) {
++  return normalizeModelToken(id).includes("deepseek");
++}
++
++/**
++ * @param {unknown} model
++ * @returns {model is { provider?: unknown; id?: unknown; name?: unknown; api?: unknown }}
++ */
++function isTargetModel(model) {
++  return isRecord(model) && isDeepSeekModel(model) && isAnchorApi(model.api);
++}
++
++/**
++ * @param {unknown} tool
++ * @returns {string | undefined}
++ */
++function serializedToolName(tool) {
++  if (!isRecord(tool)) return undefined;
++  if (typeof tool.name === "string") return tool.name;
++  if (isRecord(tool.function) && typeof tool.function.name === "string") {
++    return tool.function.name;
++  }
++  return undefined;
++}
++
++/**
++ * @param {Record<string, unknown>} tool
++ * @param {AnchorApi} api
++ * @returns {Record<string, unknown>}
++ */
++function rewriteBashTool(tool, api) {
++  if (api !== "openai-completions") return tool;
++  if (typeof tool.name === "string") {
++    return {
++      ...tool,
++      description: MINIMAL_BASH_DESCRIPTION,
++      parameters: MINIMAL_BASH_PARAMETERS,
++    };
++  }
++  if (isRecord(tool.function)) {
++    return {
++      ...tool,
++      function: {
++        ...tool.function,
++        description: MINIMAL_BASH_DESCRIPTION,
++        parameters: MINIMAL_BASH_PARAMETERS,
++      },
++    };
++  }
++  return tool;
++}
++
++/**
++ * @param {unknown[]} items
++ * @param {AnchorApi} api
++ * @param {string} systemPrompt
++ * @param {boolean} dropAdditional
++ * @returns {unknown[]}
++ */
++function rewriteSystemItems(items, api, systemPrompt = MINIMAL_PERSONA, dropAdditional = true) {
++  const rewritten = [];
++  let foundSystem = false;
++  for (const item of items) {
++    if (!isRecord(item)) { rewritten.push(item); continue; }
++    if (item.role !== "system" && item.role !== "developer") {
++      rewritten.push(item);
++      continue;
++    }
++    if (foundSystem) {
++      if (!dropAdditional) rewritten.push(item);
++      continue;
++    }
++    rewritten.push({ ...item, content: systemPrompt });
++    foundSystem = true;
++  }
++  if (!foundSystem) {
++    rewritten.unshift({ role: "system", content: systemPrompt });
++  }
++  return rewritten;
++}
++
++/**
++ * @param {unknown[]} payloadTools
++ * @param {AnchorApi} api
++ * @returns {Record<string, unknown>[]}
++ * @throws {Error} if required bootstrap tools are missing
++ */
++function selectedBootstrapTools(payloadTools, api) {
++  const selected = [];
++  const names = new Set();
++  for (const candidate of payloadTools) {
++    if (!isRecord(candidate)) continue;
++    const name = serializedToolName(candidate);
++    if (!name) continue;
++    if (!BOOTSTRAP_TOOL_NAMES.includes(name)) continue;
++    names.add(name);
++    if (name === "exec_command") {
++      selected.push(rewriteBashTool(candidate, api));
++    } else {
++      // write_stdin and apply_patch keep their original schema
++      selected.push({ ...candidate });
++    }
++  }
++  for (const required of BOOTSTRAP_TOOL_NAMES) {
++    if (!names.has(required)) {
++      throw new Error(`Provider payload is missing required bootstrap tool: ${required}`);
++    }
++  }
++  return selected;
++}
++
++/**
++ * @param {unknown[]} items
++ * @param {AnchorApi} api
++ * @returns {void}
++ * @throws {Error} if validation fails
++ */
++function validateBootstrapItems(items, api) {
++  let hasUser = false;
++  for (const item of items) {
++    if (!isRecord(item)) throw new Error("unsupported non-object bootstrap input item");
++    if (item.role === "system" || item.role === "developer") continue;
++    if (item.role === "user") { hasUser = true; continue; }
++    throw new Error(`unsupported bootstrap role: ${String(item.role)}`);
++  }
++  if (!hasUser) throw new Error("Provider payload is missing the bootstrap user message");
++}
++
++/**
++ * @param {Record<string, unknown>} payload
++ * @param {AnchorApi} api
++ * @param {string} modelId
++ * @returns {Record<string, unknown>}
++ * @throws {Error} if payload is invalid
++ */
++function rewriteBootstrapPayload(payload, api, modelId) {
++  if (!isRecord(payload)) throw new Error("Provider payload must be an object");
++  if (!isAnchorApi(api)) throw new Error("Provider payload API is not supported by v4-anchor (only openai-completions)");
++  if (!Array.isArray(payload.tools)) throw new Error("Provider payload does not contain a tools array");
++
++  const selected = selectedBootstrapTools(payload.tools, api);
++  if (!isDeepSeekModelId(modelId)) throw new Error("Provider model is not a DeepSeek model");
++
++  const rewritten = {
++    ...payload,
++    model: modelId,
++    stream: true,
++    tools: selected,
++  };
++
++  delete rewritten.instructions;
++  delete rewritten.system;
++  delete rewritten.input;
++  delete rewritten.conversation;
++  delete rewritten.previous_response_id;
++  delete rewritten.prompt;
++  delete rewritten.store;
++  if ("tool_choice" in payload) rewritten.tool_choice = "auto";
++
++  if (Array.isArray(payload.messages)) {
++    validateBootstrapItems(payload.messages, api);
++    rewritten.messages = rewriteSystemItems(payload.messages, api);
++  } else {
++    throw new Error("Provider payload does not contain a messages array");
++  }
++
++  delete rewritten.max_output_tokens;
++  return rewritten;
++}
++
++/**
++ * @param {Record<string, unknown>} payload
++ * @param {AnchorApi} api
++ * @param {string} modelId
++ * @returns {Record<string, unknown>}
++ * @throws {Error} if payload is invalid
++ */
++function rewriteMinimalPayload(payload, api, modelId) {
++  if (!isRecord(payload)) throw new Error("Provider payload must be an object");
++  if (!isAnchorApi(api)) throw new Error("Provider payload API is not supported by v4-anchor (only openai-completions)");
++  if (!Array.isArray(payload.tools)) throw new Error("Provider payload does not contain a tools array");
++
++  const selected = selectedBootstrapTools(payload.tools, api);
++  if (!isDeepSeekModelId(modelId)) throw new Error("Provider model is not a DeepSeek model");
++
++  const rewritten = {
++    ...payload,
++    model: modelId,
++    stream: true,
++    tools: selected,
++  };
++
++  if (Array.isArray(payload.messages)) {
++    rewritten.messages = rewriteSystemItems(payload.messages, api);
++  } else {
++    throw new Error("Provider payload does not contain a messages array");
++  }
++
++  if ("tool_choice" in payload) rewritten.tool_choice = "auto";
++  delete rewritten.instructions;
++  delete rewritten.system;
++  delete rewritten.input;
++  delete rewritten.conversation;
++  delete rewritten.previous_response_id;
++  delete rewritten.prompt;
++  delete rewritten.store;
++
++  return rewritten;
++}
++
++// --- Persistent context injection (ported from Proma) ---
++
++function appendNonOverlappingSuffix(base, suffix) {
++  const maximumOverlap = Math.min(base.length, suffix.length);
++  for (let overlap = maximumOverlap; overlap > 0; overlap--) {
++    if (base.endsWith(suffix.slice(0, overlap))) {
++      return `${base}${suffix.slice(overlap)}`;
++    }
++  }
++  return `${base}${suffix}`;
++}
++
++function serializedContentText(value) {
++  if (typeof value === "string") return value;
++  if (!Array.isArray(value)) return undefined;
++  const texts = value.flatMap((part) =>
++    isRecord(part) && typeof part.text === "string" ? [part.text] : []
++  );
++  return texts.length > 0 ? texts.join("\n\n") : undefined;
++}
++
++function joinSystemTexts(values) {
++  const texts = values.flatMap((value) => {
++    const text = serializedContentText(value);
++    return text === undefined ? [] : [text];
++  });
++  return texts.length > 0 ? texts.join("\n\n") : undefined;
++}
++
++function serializedSystemText(payload, api) {
++  if (api !== "openai-completions") return undefined;
++  const items = Array.isArray(payload.messages) ? payload.messages : undefined;
++  if (!Array.isArray(items)) return serializedContentText(payload.instructions);
++  const systemContents = items.flatMap((item) =>
++    isRecord(item) && (item.role === "system" || item.role === "developer")
++      ? [item.content]
++      : []
++  );
++  return joinSystemTexts(systemContents) ?? serializedContentText(payload.instructions);
++}
++
++function captureContinuationSystemPrompt(payload, baselineSystemPrompt, api) {
++  if (!isRecord(payload)) throw new Error("Provider payload must be an object");
++  if (!baselineSystemPrompt) throw new Error("baselineSystemPrompt must be a non-empty string");
++  const resolvedApi = api ?? detectPayloadApi(payload);
++  if (!resolvedApi) return baselineSystemPrompt;
++  const observed = serializedSystemText(payload, resolvedApi);
++  if (!observed || observed === MINIMAL_PERSONA) return baselineSystemPrompt;
++  if (observed.startsWith(MINIMAL_PERSONA)) {
++    return appendNonOverlappingSuffix(baselineSystemPrompt, observed.slice(MINIMAL_PERSONA.length));
++  }
++  return observed;
++}
++
++function persistentContextText(context) {
++  return `<v4-anchor-context>\n${context}\n</v4-anchor-context>`;
++}
++
++function persistentContextItem(api, context) {
++  const text = persistentContextText(context);
++  if (api === "openai-completions") {
++    return { role: "user", content: text };
++  }
++  return { role: "user", content: text };
++}
++
++function insertPersistentContext(items, api, context) {
++  const systemIndex = items.findIndex((item) =>
++    isRecord(item) && (item.role === "system" || item.role === "developer")
++  );
++  const index = systemIndex < 0 ? 0 : systemIndex + 1;
++  return [
++    ...items.slice(0, index),
++    persistentContextItem(api, context),
++    ...items.slice(index),
++  ];
++}
++
++function rewritePersistentPayload(payload, options) {
++  if (!isRecord(payload)) throw new Error("Provider payload must be an object");
++  if (typeof options.context !== "string" || options.context.length === 0) {
++    throw new Error("persistent anchor context must be a non-empty string");
++  }
++  const api = options.api ?? detectPayloadApi(payload);
++  if (!api || !isAnchorApi(api)) {
++    throw new Error("Provider payload API is not supported by v4-anchor");
++  }
++
++  const rewritten = { ...payload };
++  if (api === "openai-completions") {
++    const items = payload.messages;
++    if (!Array.isArray(items)) {
++      throw new Error("Provider payload does not contain a messages array");
++    }
++    const minimalItems = rewriteSystemItems(items, api, MINIMAL_PERSONA);
++    rewritten.messages = insertPersistentContext(minimalItems, api, options.context);
++    if ("instructions" in payload) rewritten.instructions = MINIMAL_PERSONA;
++    delete rewritten.system;
++    delete rewritten.input;
++  } else {
++    throw new Error("Unsupported API for persistent rewrite");
++  }
++  return rewritten;
++}
++
++// --- End persistent context injection ---
++
++/**
++ * @param {readonly unknown[]} entries
++ * @returns {boolean}
++ */
++function hasConversation(entries) {
++  for (const entry of entries) {
++    if (!isRecord(entry)) continue;
++    if (entry.type === "custom_message") return true;
++    if (entry.type === "compaction" || entry.type === "branch_summary") return true;
++    if (entry.type === "message") {
++      const msg = entry.message;
++      const role = isRecord(msg) ? msg.role : undefined;
++      if (role !== "user") return true;
++    }
++  }
++  return false;
++}
++
++/**
++ * @param {readonly unknown[]} entries
++ * @returns {{ enabled: boolean; phase: AnchorPhase; minThinkingTokens?: number; thinkingTokens?: number }}
++ */
++function readAnchorState(entries) {
++  for (const entry of entries) {
++    if (!isRecord(entry) || entry.type !== "custom" || entry.customType !== ANCHOR_STATE_ENTRY) continue;
++    const data = entry.data;
++    if (!isRecord(data) || typeof data.enabled !== "boolean" || typeof data.phase !== "string") continue;
++    const phase = data.phase;
++    if (phase !== "off" && phase !== "bootstrap" && phase !== "in-flight" && phase !== "anchored" && phase !== "promoted") continue;
++    const state = {
++      enabled: data.enabled,
++      phase: data.enabled ? phase : "off",
++    };
++    if (data.enabled && typeof data.minThinkingTokens === "number" && data.minThinkingTokens > 0) {
++      state.minThinkingTokens = data.minThinkingTokens;
++      if (typeof data.thinkingTokens === "number" && data.thinkingTokens >= 0) {
++        state.thinkingTokens = data.thinkingTokens;
++      }
++    }
++    return state;
++  }
++  return { enabled: false, phase: "off" };
++}
++
++/** @param {string} id */
++function targetModelSuffix(id) {
++  for (const suffix of TARGET_MODEL_SUFFIXES) {
++    if (id.endsWith(suffix)) return suffix;
++  }
++  return undefined;
++}
++
++// --- Main export: registerV4Anchor ---
++
++/**
++ * @param {import('@earendil-works/pi-coding-agent').ExtensionAPI} pi
++ * @param {{ modelId?: string; minThinkingTokens?: number }} options
++ */
++export function registerV4Anchor(pi, options) {
++  let phase = /** @type {AnchorPhase} */ ("off");
++  let minThinkingTokens = options.minThinkingTokens;
++  let thinkingTokens = 0;
++
++  /**
++   * @param {AnchorPhase} next
++   * @param {import('@earendil-works/pi-coding-agent').ExtensionContext} ctx
++   * @param {Partial<{ minThinkingTokens?: number; thinkingTokens?: number }>} extra
++   */
++  function setPhase(next, ctx, extra = {}) {
++    phase = next;
++    const data = { enabled: true, phase: next };
++    if (extra.minThinkingTokens !== undefined) data.minThinkingTokens = extra.minThinkingTokens;
++    if (extra.thinkingTokens !== undefined) data.thinkingTokens = extra.thinkingTokens;
++    pi.appendEntry(ANCHOR_STATE_ENTRY, data);
++    ctx.ui.setStatus("v4-anchor", statusText(next, minThinkingTokens, thinkingTokens));
++  }
++
++  /** @param {import('@earendil-works/pi-coding-agent').ExtensionContext} ctx */
++  function promote(ctx) {
++    if (phase === "promoted") return;
++    setPhase("promoted", ctx);
++  }
++
++  pi.on("session_start", (_event, ctx) => {
++    const state = readAnchorState(ctx.sessionManager.getBranch());
++    phase = state.enabled ? state.phase : "off";
++    if (state.enabled) {
++      minThinkingTokens = minThinkingTokens ?? state.minThinkingTokens;
++      thinkingTokens = state.thinkingTokens ?? 0;
++    }
++    ctx.ui.setStatus("v4-anchor", statusText(phase, minThinkingTokens, thinkingTokens));
++  });
++
++  pi.on("before_provider_request", (event, ctx) => {
++    const model = ctx.model;
++    if (!model || !isTargetModel(model)) return undefined;
++    // Exclude vision variants
++    if (typeof model.id === "string" && model.id.includes("vision")) return undefined;
++    const api = model.api;
++    if (!isAnchorApi(api)) return undefined;
++    const modelId = typeof model.id === "string" ? model.id : options.modelId || "deepseek-v4-flash";
++
++    if (phase === "promoted") {
++      // Use persistent context injection instead of dropping context
++      try {
++        const context = captureContinuationSystemPrompt(event.payload, ctx.getSystemPrompt(), api);
++        return rewritePersistentPayload(event.payload, { api, context });
++      } catch (_) {
++        // Fall back to minimal rewrite if context capture fails
++        try {
++          return rewriteMinimalPayload(event.payload, api, modelId);
++        } catch (_2) {
++          return undefined;
++        }
++      }
++    }
++
++    if (phase === "bootstrap" || phase === "in-flight" || phase === "anchored") {
++      try {
++        const rewritten = phase === "anchored"
++          ? rewriteMinimalPayload(event.payload, api, modelId)
++          : rewriteBootstrapPayload(event.payload, api, modelId);
++        if (rewritten !== undefined && phase === "bootstrap") {
++          setPhase("in-flight", ctx);
++        }
++        return rewritten;
++      } catch (_) {
++        return undefined;
++      }
++    }
++
++    // off — arm if fresh session
++    if (hasConversation(ctx.sessionManager.getBranch())) return undefined;
++    setPhase("bootstrap", ctx);
++    try {
++      return rewriteBootstrapPayload(event.payload, api, modelId);
++    } catch (_) {
++      return undefined;
++    }
++  });
++
++  pi.on("message_end", (event, ctx) => {
++    const msg = event.message;
++    if (phase !== "bootstrap" && phase !== "in-flight" && phase !== "anchored") return;
++    if (msg.role !== "assistant") return;
++    if (msg.stopReason === "error" || msg.stopReason === "aborted") {
++      if (phase === "in-flight" || phase === "bootstrap") {
++        setPhase("bootstrap", ctx);
++      }
++      return;
++    }
++
++    if (minThinkingTokens !== undefined) {
++      const tokens = msg.usage?.reasoning || 0;
++      thinkingTokens += tokens;
++      setPhase(phase, ctx, { minThinkingTokens, thinkingTokens });
++      if (thinkingTokens > minThinkingTokens) promote(ctx);
++      return;
++    }
++
++    if (hasToolCall(msg)) {
++      if (phase === "bootstrap") setPhase("in-flight", ctx);
++      return;
++    }
++    promote(ctx);
++  });
++
++  pi.on("tool_result", (_event, ctx) => {
++    if (phase !== "in-flight" && phase !== "bootstrap") return;
++    if (minThinkingTokens !== undefined) {
++      setPhase("anchored", ctx, { minThinkingTokens, thinkingTokens });
++      return;
++    }
++    promote(ctx);
++  });
++
++  pi.on("agent_end", (_event, ctx) => {
++    if (phase === "in-flight" || phase === "bootstrap") {
++      setPhase(minThinkingTokens !== undefined ? "anchored" : "promoted", ctx,
++        minThinkingTokens === undefined ? {} : { minThinkingTokens, thinkingTokens });
++    }
++  });
++}
++
++/**
++ * @param {AnchorPhase} phase
++ * @param {number|undefined} minThinkingTokens
++ * @param {number} thinkingTokens
++ * @returns {string}
++ */
++function statusText(phase, minThinkingTokens, thinkingTokens) {
++  if (phase === "promoted") return "v4-anchor:promoted:persistent";
++  if (phase === "anchored" && minThinkingTokens !== undefined) {
++    return `v4-anchor:anchored:thinking=${thinkingTokens}/${minThinkingTokens}`;
++  }
++  return `v4-anchor:${phase}`;
++}
++
++/**
++ * @param {{ role?: string; stopReason?: string; content?: unknown }} msg
++ * @returns {boolean}
++ */
++function hasToolCall(msg) {
++  if (msg.stopReason === "toolUse" || msg.stopReason === "tool_use") return true;
++  if (!Array.isArray(msg.content)) return false;
++  for (const block of msg.content) {
++    if (!isRecord(block)) continue;
++    const type = block.type;
++    if (type === "toolCall" || type === "tool_use" || type === "function_call") return true;
++  }
++  return false;
++}
++
++// Also export the state entry for external use
++export { ANCHOR_STATE_ENTRY };

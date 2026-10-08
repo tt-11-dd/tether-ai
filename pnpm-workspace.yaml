@@ -8,3 +8,7 @@ allowBuilds:
   "@google/genai": false
 minimumReleaseAgeExclude:
   - tether-agent-core
+patchedDependencies:
+  '@earendil-works/pi-ai@0.83.0': patches/@earendil-works__pi-ai@0.83.0.patch
+  '@earendil-works/pi-coding-agent@0.83.0': patches/@earendil-works__pi-coding-agent@0.83.0.patch
+  tether-agent-core@0.1.21: patches/tether-agent-core@0.1.21.patch

@@ -1,0 +1,157 @@
+diff --git a/dist/utils/retry.js b/dist/utils/retry.js
+index ac5c157bb4a7b0e5599b6bf07d4022f8ed49aac4..523a70c9088db62c2b0bf417c6e16d75d0eb4dfd 100644
+--- a/dist/utils/retry.js
++++ b/dist/utils/retry.js
+@@ -16,6 +16,20 @@ const NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN = buildProviderErrorPattern([
+     "out of budget",
+     "quota exceeded",
+     "billing",
++    // [tether-patch 2026-10-03] Model-resolution failures are deterministic, not
++    // transient. OpenCode Zen returns 400 {"type":"server_error","message":
++    // "Upstream request failed: Model is unavailable."} when the outgoing model
++    // id carries a "deepseek/" prefix it does not recognise. That message also
++    // matches "server.?error" below, so without this it was wrongly classified as
++    // retryable and burned 2+4+8=14s of backoff before surfacing a misleading
++    // "model unavailable" toast. Resending the identical request can never
++    // succeed, so fail fast. (Reproduced locally 2026-10-03.)
++    "model is unavailable",
++    "model not found",
++    "unknown model",
++    "invalid model",
++    "unsupported_model",
++    "model does not exist",
+ ]);
+ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
+     // Generic provider load, HTTP status, and server-side transient failures.
+@@ -59,7 +73,9 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
+     // Premature stream endings from SDKs and transports. Anthropic can throw
+     // "stream ended without ..." and "Anthropic stream ended before message_stop"
+     // (#4433); Bedrock/Smithy can throw an HTTP/2 no-response error (#3594).
+-    "ended without",
++        "ended without",
++    // Some OpenAI-compatible gateways omit "response" in this terminal-event error.
++    "stream ended before (?:a )?terminal(?: response)? event",
+     "stream ended before message_stop",
+     "stream ended before a terminal response event",
+     "http2 request did not get a response",
+@@ -73,101 +89,120 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
+     "please retry your request",
+     // gRPC based providers (e.g. NVIDIA NIM)
+     "ResourceExhausted",
++    // HTTP chunked/SSE proxies can close before the complete response body arrives.
++    "unexpected non-whitespace character after JSON",
++    "peer closed connection",
++    "incomplete chunked read",
++    // Browser/undici wording: `TypeError: Failed to fetch`.
++    "failed to fetch",
++    // Gateway/transport disconnect wording: Proma observed "Server disconnected"
++    // from DeepSeek v4 via [OC]-compatible routing, plus raw TCP reset from
++    // undici. buildProviderErrorPattern() fuzzes spaces so a single entry covers
++    // both exact and whitespace-wrapped variants.
++    "server disconnected",
++    "ECONNRESET",
++    // Gateway "upstream temporarily unavailable" wording: Proma DeepSeek v4 via
++    // smart routing returned 400 invalid_request_error with the Chinese message
++    // "上游服务暂时不可用" (or English "upstream service temporarily unavailable")
++    // and asked to retry. The gateway labels it transient — honour that.
++    "upstream service temporarily unavailable",
++    "上游服务暂时不可用",
+ ]);
+ class RetrySleepAbortError extends Error {
+     constructor() {
+         super("Aborted");
+     }
+ }
+ function sleep(ms, signal) {
+     return new Promise((resolve, reject) => {
+         if (signal?.aborted) {
+             reject(new RetrySleepAbortError());
+             return;
+         }
+         const timeout = setTimeout(resolve, ms);
+         signal?.addEventListener("abort", () => {
+             clearTimeout(timeout);
+             reject(new RetrySleepAbortError());
+         }, { once: true });
+     });
+ }
+ /**
+  * Run a single assistant-producing call with bounded retry on transient errors.
+  *
+  * Behavior:
+  * - A successful response is returned immediately. Aborts are terminal and never
+  *   retried, but reported as unsuccessful if they happen after a retry was scheduled.
+  *   Aborts during the backoff sleep are normalized to an aborted `AssistantMessage`
+  *   too, so callers do not need to care when cancellation happened.
+  * - A non-retryable error (per {@link isRetryableAssistantError}, including quota/
+  *   billing exhaustion) is returned immediately so deterministic errors fail fast.
+  * - Otherwise retries up to `maxRetries` times with exponential backoff, emitting
+  *   `onRetryScheduled` before each sleep, `onRetryAttemptStart` after each sleep before
+  *   the retried call starts, and `onRetryFinished` once at the end (whether the loop
+  *   ends in success, exhausted retries, or an aborted backoff).
+  *
+  * When `policy` is undefined or disabled, the first response is returned unchanged
+  * (equivalent to calling `produce()` directly).
+  */
+ export async function retryAssistantCall(produce, policy, signal, callbacks) {
+     const maxAttempts = policy?.enabled ? policy.maxRetries : 0;
+     let attempt = 0;
+     let lastRetry;
+     for (;;) {
+         const response = await produce();
+         // Abort: terminal but not successful. Never retry an aborted message.
+         if (response.stopReason === "aborted") {
+             if (lastRetry)
+                 await callbacks?.onRetryFinished?.(false, lastRetry.attempt);
+             return response;
+         }
+         // Success: non-error, non-abort responses return as-is.
+         if (response.stopReason !== "error") {
+             if (lastRetry)
+                 await callbacks?.onRetryFinished?.(true, lastRetry.attempt);
+             return response;
+         }
+         // Non-retryable, or budget exhausted: return the final error message.
+         if (attempt >= maxAttempts || !isRetryableAssistantError(response)) {
+             if (lastRetry)
+                 await callbacks?.onRetryFinished?.(false, lastRetry.attempt, response.errorMessage);
+             return response;
+         }
+         attempt++;
+         lastRetry = { attempt, errorMessage: response.errorMessage || "Unknown error" };
+         const delayMs = policy.baseDelayMs * 2 ** (attempt - 1);
+         await callbacks?.onRetryScheduled?.(attempt, maxAttempts, delayMs, lastRetry.errorMessage);
+         // Normalize aborts during retry backoff to the same AssistantMessage shape as
+         // provider stream aborts, so callers do not need to care when cancellation happened.
+         try {
+             await sleep(delayMs, signal);
+         }
+         catch (error) {
+             await callbacks?.onRetryFinished?.(false, attempt, lastRetry.errorMessage);
+             if (error instanceof RetrySleepAbortError) {
+                 return { ...response, stopReason: "aborted", errorMessage: undefined };
+             }
+             throw error;
+         }
+         await callbacks?.onRetryAttemptStart?.();
+     }
+ }
+ /**
+  * Classifies whether a failed assistant message looks like a transient provider
+  * or transport error, so callers can decide if the last assistant turn should be
+  * restarted.
+  *
+  * This does not implement retry policy. Callers should first handle context
+  * overflow separately, then apply their own retry budget, backoff, and reporting
+  * before restarting the assistant turn.
+  */
+ export function isRetryableAssistantError(message) {
+     if (message.stopReason !== "error" || !message.errorMessage)
+         return false;
+     const errorMessage = message.errorMessage;
+     if (NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.test(errorMessage))
+         return false;
+     return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);
+ }
+ //# sourceMappingURL=retry.js.map
++

@@ -1,0 +1,138 @@
+diff --git a/dist/core/agent-session.js b/dist/core/agent-session.js
+--- a/dist/core/agent-session.js
++++ b/dist/core/agent-session.js
+@@ -22,7 +22,7 @@ import { resolvePath } from "../utils/paths.js";
+ import { sleep } from "../utils/sleep.js";
+ import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.js";
+ import { executeBashWithOperations } from "./bash-executor.js";
+-import { calculateContextTokens, collectEntriesForBranchSummary, compact, estimateContextTokens, estimateTokens, generateBranchSummary, prepareCompaction, shouldCompact, } from "./compaction/index.js";
++import { calculateContextTokens, collectEntriesForBranchSummary, compact, compactThreshold, estimateContextTokens, estimateTokens, generateBranchSummary, prepareCompaction, shouldCompact, } from "./compaction/index.js";
+ import { DEFAULT_THINKING_LEVEL } from "./defaults.js";
+ import { exportSessionToHtml } from "./export-html/index.js";
+ import { createToolHtmlRenderer } from "./export-html/tool-renderer.js";
+@@ -1192,6 +1192,11 @@ export class AgentSession {
+      * @throws Error if no auth is configured for the model
+      */
+     async setModel(model) {
++        // [tether-patch 2026-10-03] 已经是当前模型时直接返回：渲染层每次发送都会重发
++        // set_model（ensureModelReady），没有这道闸时每次都 append 一条 model_change
++        // 并重写 settings.json —— 发送重试风暴下实测一分钟 18 条（会话 01a0ff54）。
++        if (modelsAreEqual(this.model, model))
++            return;
+         if (!(await this._modelRuntime.checkAuth(model.provider))) {
+             throw new Error(`No API key for ${model.provider}/${model.id}`);
+         }
+@@ -2567,15 +2572,38 @@ export class AgentSession {
+                 }
+             }
+             if (!hasPostCompactionUsage) {
+-                return { tokens: null, contextWindow, percent: null };
++                const cs = this.settingsManager.getCompactionSettings();
++                const reserve = cs.enabled ? cs.reserveTokens : 0;
++                // [tether-patch 2026-10-05 P0-b] 与 compaction.js 的 shouldCompact 同式
++                // （有效 reserve 夹到窗口一半以内），否则 UI 阈值会与真实触发点分叉。
++                const th = compactThreshold(contextWindow, reserve);
++                return {
++                    tokens: null,
++                    contextWindow,
++                    percent: null,
++                    compactionEnabled: cs.enabled,
++                    compactionReserveTokens: cs.enabled ? cs.reserveTokens : undefined,
++                    compactionThreshold: th ?? undefined,
++                    thresholdPercent: null,
++                };
+             }
+         }
+         const estimate = estimateContextTokens(this.messages);
+         const percent = (estimate.tokens / contextWindow) * 100;
++        // [tether-patch 2026-09-22] Expose the auto-compaction trigger so the UI can
++        // show progress against the real threshold instead of the raw window.
++        const compactionSettings = this.settingsManager.getCompactionSettings();
++        const reserveTokens = compactionSettings.enabled ? compactionSettings.reserveTokens : 0;
++        // [tether-patch 2026-10-05 P0-b] 同 shouldCompact：有效 reserve 夹到窗口一半以内
++        const threshold = compactThreshold(contextWindow, reserveTokens) ?? 0;
+         return {
+             tokens: estimate.tokens,
+             contextWindow,
+             percent,
++            compactionEnabled: compactionSettings.enabled,
++            compactionReserveTokens: compactionSettings.enabled ? compactionSettings.reserveTokens : undefined,
++            compactionThreshold: threshold > 0 ? threshold : undefined,
++            thresholdPercent: threshold > 0 ? (estimate.tokens / threshold) * 100 : undefined,
+         };
+     }
+     /**
+@@ -2682,4 +2710,4 @@ export class AgentSession {
+         return this._extensionRunner;
+     }
+ }
+-//# sourceMappingURL=agent-session.js.map
+\ No newline at end of file
++//# sourceMappingURL=agent-session.js.map
+diff --git a/dist/core/compaction/compaction.js b/dist/core/compaction/compaction.js
+--- a/dist/core/compaction/compaction.js
++++ b/dist/core/compaction/compaction.js
+@@ -160,7 +160,35 @@ export function estimateContextTokens(messages) {
+ export function shouldCompact(contextTokens, contextWindow, settings) {
+     if (!settings.enabled)
+         return false;
+-    return contextTokens > contextWindow - settings.reserveTokens;
++    const threshold = compactThreshold(contextWindow, settings.reserveTokens);
++    return threshold !== null && contextTokens > threshold;
++}
++/**
++ * [tether-patch 2026-10-05 P0-b] 自动压缩阈值，带「阈值塌陷」守卫。
++ *
++ * 原式 = contextWindow − reserveTokens。问题：reserveTokens 是**全局**配置而窗口是
++ * **逐模型**的。窗口被低估（模型寄生在别的 provider 槽位上，拿不到 models.json 的
++ * contextWindow override）或 reserve 配得比窗口还大时，阈值 ≤ 0，而 contextTokens 是
++ * 正整数 → 条件恒真 → **每一轮**都触发一次同步压缩（实测长会话每次发送卡 55s+；
++ * 压缩窗口超过主进程的宽限后渲染层解闩、在飞消息退回输入框，只能退出重开）。
++ *
++ * 守卫：把有效 reserve 夹到窗口的一半以内。
++ *   · 窗口 ≥ 2×reserve → 行为与原来完全一致（1M − 400k = 600k）；
++ *   · 窗口 < 2×reserve → 退化成「用到窗口一半就压」，既不风暴，也不会像「阈值不可用
++ *     就返回 false」那样让小窗口模型彻底失去压缩（随后只能靠 context overflow 报错找补）。
++ *   · 窗口本身不可用（≤ 0 / 非数）→ 返回 null（= 不压缩），宁可让 overflow 报错暴露
++ *     真实窗口，也不要静默风暴。
++ *
++ * 与 agent-session.js 的 getContextUsage() 必须同式，否则 UI 显示的阈值与实际触发点会分叉。
++ */
++export function compactThreshold(contextWindow, reserveTokens) {
++    if (!Number.isFinite(contextWindow) || contextWindow <= 0)
++        return null;
++    const reserve = Number.isFinite(reserveTokens) && reserveTokens > 0
++        ? Math.min(reserveTokens, Math.floor(contextWindow / 2))
++        : 0;
++    const threshold = contextWindow - reserve;
++    return threshold > 0 ? threshold : null;
+ }
+ // ============================================================================
+ // Cut point detection
+@@ -642,4 +670,4 @@ async function generateTurnPrefixSummary(messages, model, reserveTokens, apiKey,
+         usage: response.usage,
+     };
+ }
+-//# sourceMappingURL=compaction.js.map
+\ No newline at end of file
++//# sourceMappingURL=compaction.js.map
+diff --git a/dist/core/sdk.js b/dist/core/sdk.js
+--- a/dist/core/sdk.js
++++ b/dist/core/sdk.js
+@@ -189,6 +189,16 @@ export async function createAgentSession(options = {}) {
+                 websocketConnectTimeoutMs,
+                 maxRetries: options?.maxRetries ?? providerRetrySettings.maxRetries,
+                 maxRetryDelayMs: options?.maxRetryDelayMs ?? providerRetrySettings.maxRetryDelayMs,
++                // [tether-patch 2026-09-22] Compaction / branch-summary call streamFn
++                // directly with createSummarizationOptions(), which carries no onPayload,
++                // so the extension's before_provider_request never runs and the outgoing
++                // model id loses its "deepseek/" prefix -> 400 unsupported_model.
++                onPayload: options?.onPayload ?? (async (payload) => {
++                    const runner = extensionRunnerRef.current;
++                    if (!runner?.hasHandlers("before_provider_request"))
++                        return payload;
++                    return runner.emitBeforeProviderRequest(payload);
++                }),
+                 transformHeaders: async (requestHeaders) => {
+                     const headers = mergeProviderAttributionHeaders(model, settingsManager, options?.sessionId, requestHeaders);
+                     return headerRunner?.hasHandlers("before_provider_headers")
