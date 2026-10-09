@@ -107,7 +107,7 @@
   {
     "id": "network-ipc-timeout",
     "description": "网络 IPC 请求超时与取消：在 services:deepseek-balance 与 listOpenAiModels 等主进程/shared 网络请求中引入 AbortController 超时保护（10s），防止网络中断或代理挂起导致 IPC 永久 pending。验收：pnpm typecheck 通过，对应单测全绿。",
-    "passes": false
+    "passes": true
   },
   {
     "id": "vite-bundle-chunking",

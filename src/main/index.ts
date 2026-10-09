@@ -182,7 +182,10 @@ async function checkForUpdates(manual = false): Promise<void> {
   if (!window || window.isDestroyed()) return;
   const icon = nativeImage.createFromPath(appIconPath());
   try {
-    const update = await getLatestUpdate(app.getVersion(), (url, init) => fetch(url, init));
+    const update = await getLatestUpdate(
+      app.getVersion(),
+      (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(10_000) }),
+    );
     if (!update) {
       if (!manual) return;
       await dialog.showMessageBox(window, {
@@ -599,6 +602,7 @@ function registerIpc(): void {
     if (!key || !isDeepSeekUrl(chat.url)) return null;
     const response = await fetch("https://api.deepseek.com/user/balance", {
       headers: { authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(10_000),
     });
     const payload: unknown = await response.json().catch(() => undefined);
     if (!response.ok) throw new Error(`DeepSeek 余额查询失败（${response.status}）`);

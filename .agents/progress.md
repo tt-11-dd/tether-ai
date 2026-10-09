@@ -584,5 +584,17 @@ if (!agentCwd.current) {
 
 **下一条**：`network-ipc-timeout`
 
+---
+
+## 条目 network-ipc-timeout：已完成
+
+**改了什么**：
+- `src/main/index.ts`：在 `services:deepseek-balance` 余额查询接口以及 `checkForUpdates` 的 `getLatestUpdate` 请求中注入 `signal: AbortSignal.timeout(10_000)`，防止网络代理故障或服务无响应导致 IPC Promise 无限期挂起前端；结合 `src/shared/openai-models.ts` 既有的 12s 超时守护，完成了所有外部模型与服务发现 IPC 的超时防挂起覆盖。
+
+**验证**：`pnpm typecheck` 通过；`pnpm test` 23 个测试文件 / 230 个用例全绿；`pnpm build` 成功。
+
+**下一条**：`vite-bundle-chunking`
+
+
 
 
