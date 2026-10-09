@@ -46,6 +46,7 @@ import {
   turnAnchorId,
   turnAnchors,
   type ChatMessage,
+  type ConversationGroup,
   type FileChange,
   type RestoreFile,
 } from "./conversation";
@@ -433,6 +434,8 @@ export function App() {
   const [thinkingLevels, setThinkingLevels] = useState<string[]>(["low", "medium", "high", "max"]);
   const [permission, setPermission] = useState<PermissionMode>("auto");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const [stats, setStats] = useState<AgentSessionStats>();
   const [promptFill, setPromptFill] = useState({ text: "", token: 0 });
   const fillPrompt = useCallback((text: string) => {
@@ -628,7 +631,12 @@ export function App() {
     void window.harness.agent.command("set_thinking_level", { level: next }, sessionRef.current).catch(() => undefined);
   }, []);
 
-  const groups = useMemo(() => groupConversation(messages), [messages]);
+  const previousGroupsRef = useRef<ConversationGroup[]>([]);
+  const groups = useMemo(() => {
+    const next = groupConversation(messages, previousGroupsRef.current);
+    previousGroupsRef.current = next;
+    return next;
+  }, [messages]);
   const recoverableStreaks = useMemo(() => recoverableFailStreaks(groups), [groups]);
   const anchors = useMemo(() => turnAnchors(groups), [groups]);
   const tools = useMemo(() => sessionTools(messages), [messages]);
@@ -1521,6 +1529,10 @@ export function App() {
     }
   }, [ensureModelReady, fillPrompt, openFolder, permission, reconcileOptimisticSession, rememberQueue, setHold, startAgent, t, undoLastTurn, updateSessions, workspace]);
 
+  const retryContinue = useCallback(() => {
+    void sendMessage(t("composer.retryContinue"));
+  }, [sendMessage, t]);
+
   const tryDispatch = useCallback(async () => {
     if (dispatchBlock({
       running: runningRef.current,
@@ -1590,6 +1602,21 @@ export function App() {
   }, [providers]);
 
   useEffect(() => {
+    let pendingStreamMessages: ChatMessage[] | null = null;
+    let streamRafId: number | null = null;
+
+    const flushStream = () => {
+      if (streamRafId !== null) {
+        cancelAnimationFrame(streamRafId);
+        streamRafId = null;
+      }
+      if (pendingStreamMessages !== null) {
+        const next = pendingStreamMessages;
+        pendingStreamMessages = null;
+        if (live.current) setMessages(next);
+      }
+    };
+
     const offEvent = window.harness.agent.onEvent((event) => {
       const eventSession = (event as { sessionPath?: string }).sessionPath;
       const isCurrent = Boolean(live.current && (!eventSession || (sessionRef.current ? isSamePath(eventSession, sessionRef.current) : true)));
@@ -1748,7 +1775,23 @@ export function App() {
           if (request.method === "notify") setToast(request.message ?? t("toast.notify"));
           else if (["select", "confirm", "input", "editor"].includes(request.method)) setUiRequest(request);
         }
-        setMessages((current) => (live.current ? applyAgentEvent(current, event) : current));
+        if (event.type === "message_update") {
+          const currentBase = pendingStreamMessages ?? messagesRef.current;
+          pendingStreamMessages = applyAgentEvent(currentBase, event);
+          if (streamRafId === null) {
+            streamRafId = requestAnimationFrame(() => {
+              streamRafId = null;
+              if (pendingStreamMessages !== null && live.current) {
+                const next = pendingStreamMessages;
+                pendingStreamMessages = null;
+                setMessages(next);
+              }
+            });
+          }
+        } else {
+          flushStream();
+          setMessages((current) => (live.current ? applyAgentEvent(current, event) : current));
+        }
       } else {
         if (event.type === "agent_settled") {
           void window.harness.sessions.list().then(updateSessions);
@@ -1824,6 +1867,7 @@ export function App() {
       if (command === "fullscreen-off") setFullscreen(false);
     });
     return () => {
+      flushStream();
       offEvent();
       offError();
       offCommand();
@@ -2175,9 +2219,7 @@ export function App() {
                     errorRecovered={recovered}
                     recoverableFailStreak={recoverableStreaks[index] ?? 0}
                     onOpenFile={setPreview}
-                    onRetry={showRetry ? () => {
-                      void sendMessage(t("composer.retryContinue"));
-                    } : undefined}
+                    onRetry={showRetry ? retryContinue : undefined}
                   />
                 );
               })}

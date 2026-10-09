@@ -145,6 +145,35 @@ describe("conversation events", () => {
     expect(assistantErrorRecovered(assistant.messages, groups, 1)).toBe(true);
   });
 
+  it("stabilizes group and message array references for unchanged turns when previousGroups is provided", () => {
+    const msg1: ChatMessage = { id: "u1", role: "user", text: "hello", images: [], tools: [], work: [] };
+    const msg2: ChatMessage = { id: "a1", role: "assistant", text: "hi there", images: [], tools: [], work: [] };
+    const msg3: ChatMessage = { id: "u2", role: "user", text: "what is 1+1", images: [], tools: [], work: [] };
+    const msg4Old: ChatMessage = { id: "a2", role: "assistant", text: "1+1", images: [], tools: [], work: [], streaming: true };
+    const initialMessages = [msg1, msg2, msg3, msg4Old];
+
+    const initialGroups = groupConversation(initialMessages);
+    expect(initialGroups).toHaveLength(4);
+
+    // Now a streaming token arrives for msg4:
+    const msg4New: ChatMessage = { id: "a2", role: "assistant", text: "1+1 = 2", images: [], tools: [], work: [], streaming: true };
+    const updatedMessages = [msg1, msg2, msg3, msg4New];
+
+    const nextGroups = groupConversation(updatedMessages, initialGroups);
+    expect(nextGroups).toHaveLength(4);
+
+    // Historical turns (0, 1, 2) must preserve exact referential equality:
+    expect(nextGroups[0]).toBe(initialGroups[0]);
+    expect(nextGroups[1]).toBe(initialGroups[1]);
+    expect(nextGroups[2]).toBe(initialGroups[2]);
+    if (nextGroups[1]?.type === "assistant" && initialGroups[1]?.type === "assistant") {
+      expect(nextGroups[1].messages).toBe(initialGroups[1].messages);
+    }
+
+    // Active streaming turn (3) must be freshly computed:
+    expect(nextGroups[3]).not.toBe(initialGroups[3]);
+  });
+
   it("counts consecutive recoverable failures and clears error after retry text arrives", () => {
     const groups = groupConversation([
       { id: "u1", role: "user", text: "one", images: [], tools: [], work: [] },

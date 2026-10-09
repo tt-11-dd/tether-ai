@@ -292,7 +292,10 @@ export function approvalTitle(heading: string | undefined, lastTurn?: string): s
   return line;
 }
 
-export function groupConversation(messages: ChatMessage[]): ConversationGroup[] {
+export function groupConversation(
+  messages: ChatMessage[],
+  previousGroups?: ConversationGroup[],
+): ConversationGroup[] {
   const groups: ConversationGroup[] = [];
   for (const message of messages) {
     const previous = groups.at(-1);
@@ -304,7 +307,26 @@ export function groupConversation(messages: ChatMessage[]): ConversationGroup[] 
       ? { type: "user", id: message.id, message }
       : { type: "assistant", id: message.id, messages: [message] });
   }
-  return groups;
+  if (!previousGroups || previousGroups.length === 0) return groups;
+
+  return groups.map((group, index) => {
+    const prev = previousGroups[index];
+    if (!prev || prev.type !== group.type || prev.id !== group.id) return group;
+    if (group.type === "user" && prev.type === "user") {
+      if (prev.message === group.message) return prev;
+      return group;
+    }
+    if (group.type === "assistant" && prev.type === "assistant") {
+      if (
+        prev.messages.length === group.messages.length &&
+        prev.messages.every((m, i) => m === group.messages[i])
+      ) {
+        return prev;
+      }
+      return group;
+    }
+    return group;
+  });
 }
 
 export function turnAnchorId(id: string): string {

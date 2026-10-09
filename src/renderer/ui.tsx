@@ -77,7 +77,7 @@ function UserText({ text }: { text: string }) {
   );
 }
 
-export function UserTurn({ text, images = [], anchor }: { text: string; images?: ChatImage[]; anchor?: string }) {
+export const UserTurn = memo(function UserTurn({ text, images = [], anchor }: { text: string; images?: ChatImage[]; anchor?: string }) {
   const skill = skillUserDisplay(text);
   const shown = skill ? skill.command : visibleUserText(text);
   const [view, setView] = useState<string>();
@@ -109,7 +109,7 @@ export function UserTurn({ text, images = [], anchor }: { text: string; images?:
       )}
     </div>
   );
-}
+});
 
 export function CopyButton({
   text,
@@ -1310,6 +1310,17 @@ export const AssistantTurn = memo(function AssistantTurn({
       )}
     </article>
   );
+}, (prev, next) => {
+  if (prev.errorRecovered !== next.errorRecovered) return false;
+  if (prev.recoverableFailStreak !== next.recoverableFailStreak) return false;
+  if (prev.onOpenFile !== next.onOpenFile) return false;
+  if (prev.onRetry !== next.onRetry) return false;
+  if (prev.messages === next.messages) return true;
+  if (prev.messages.length !== next.messages.length) return false;
+  for (let i = 0; i < prev.messages.length; i++) {
+    if (prev.messages[i] !== next.messages[i]) return false;
+  }
+  return true;
 });
 
 function fileGlyph(path: string) {
@@ -1320,7 +1331,7 @@ function treeChange(path: string, changes: SessionFile[]) {
   return changes.find((item) => item.path === path || item.path.endsWith(`/${path}`) || path.endsWith(`/${item.path}`));
 }
 
-export function InspectPanel({
+export const InspectPanel = memo(function InspectPanel({
   files = [],
   todos,
   terminals = [],
@@ -1579,7 +1590,7 @@ export function InspectPanel({
       )}
     </aside>
   );
-}
+});
 
 function ChangeSummary({ files, onOpen }: { files: FileChange[]; onOpen?(file: FileChange): void }) {
   if (files.length === 0) return null;

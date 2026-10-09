@@ -535,3 +535,42 @@ if (!agentCwd.current) {
 **改了什么**：关于页拿掉应用内下载卡片，页脚恢复「检查更新」。有新版本时对话框打开 https://tether-code.xyz/。GitHub 返回非 2xx（包括 403）不再显示成已是最新，手动检查会弹出失败对话框，同样可以去官网。启动时发现新版本改为窗口中央的遮罩对话框，点「前往官网下载」或「稍后」才会关掉。决策在 `.agents/notes/implemented/simplification/2026-09-22-update-dialog.md`。
 
 **验证**：`tsc --noEmit` 通过；`update-check.test.ts` 与 `i18n.test.ts` 共 11 个用例通过。
+
+---
+
+## 2026-10 轮次：性能与架构稳固性专项优化（分支：refactor/optimization-and-performance）
+
+**背景与目标**：
+在深度代码审阅后，确立 5 个关键优化项：
+1. `streaming-render-perf`：修复流式输出期间 `groupConversation` 频繁制造新数组破坏 `memo(AssistantTurn)` 的问题，消除历史 Turn 与未变更组件的高频重绘；优化 `onRetry` 引用并引入渲染节流/稳定化；
+2. `async-process-killing`：将 `process-tree.ts` 中阻塞主事件循环的同步 `execFileSync` 改造为非阻塞异步调用；
+3. `network-ipc-timeout`：主进程及 shared 网络 IPC（余额、模型发现等）引入 `AbortController` 10s 超时防挂起；
+4. `vite-bundle-chunking`：Vite 产物拆包，消除 >500KB 告警；
+**进度汇总**：
+- `streaming-render-perf`：已完成
+- `async-process-killing`：待执行
+- `network-ipc-timeout`：待执行
+- `vite-bundle-chunking`：待执行
+- `preview-iframe-sandbox`：待执行
+
+---
+
+## 条目 streaming-render-perf：已完成
+
+**改了什么**：
+- `src/renderer/conversation.ts`：`groupConversation(messages, previousGroups)` 支持可选的 `previousGroups` 参数。在消息数组更新时，若历史 group 中对应的消息引用未发生变化，则复用原有 `ConversationGroup` 与 `messages` 数组引用，使历史已完成回合维持引用稳定性。
+- `src/renderer/ui.tsx`：
+  - `UserTurn` 包装为 `memo(UserTurn)`，杜绝历史用户问题在高频流式中反复重新切词渲染。
+  - `AssistantTurn` 引入自定义 `arePropsEqual` 比较函数，深层比对 `messages` 数组内消息对象引用，与 `onRetry`/`onOpenFile`/状态标记。
+  - `InspectPanel` 包装为 `memo(InspectPanel)`，避免流式时无意义重绘文件树。
+- `src/renderer/App.tsx`：
+  - `groups` 采用 `previousGroupsRef` 缓存传递给 `groupConversation`，实现真正命中 React.memo 的引用稳定性。
+  - 提取稳定的 `retryContinue = useCallback(...)`，避免内联箭头函数破坏 `AssistantTurn` 的 memo。
+  - 在 `useEffect` 的 `onEvent` 处理器中，对高频到达的 `message_update` 事件引入 `requestAnimationFrame` 渲染节流缓冲，将每秒几十次强制触发 React Reconciliation 汇聚为与屏幕刷新率对齐的 60fps 平滑绘制，其他关键事件（如工具开始/结束、回合结束）立即 flush 同步执行。
+- `src/renderer/conversation.test.ts`：新增测试用例覆盖 `groupConversation` 传递 `previousGroups` 时历史轮次引用相等性与当前流式轮次独立计算。测试用例总数达到 226 个。
+
+**验证**：`pnpm typecheck` 通过；`pnpm test` 22 个测试文件 / 226 个用例全绿；`pnpm build`（tsup + vite）成功通过。
+
+**下一条**：`async-process-killing`
+
+

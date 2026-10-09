@@ -93,5 +93,31 @@
     "id": "in-app-update",
     "description": "应用内更新（不依赖代码签名、不需要更新服务器）：主进程把 GitHub Releases 索引当更新源，用 releaseAssetName/pickReleaseAsset 挑本机安装包（只接受 https asset），流式下载到临时目录并按 content-length 校验后才改名，Windows 走 NSIS `--updated` 静默安装后退出，macOS 因 ad-hoc 签名无法自动更新而改为向 Finder 打开 dmg；关于页新增 UpdatePanel（检查/进度/取消/安装/回退到 Releases 页），启动检查改为静默通知渲染层。验收：pnpm typecheck 通过，新增 12 个用例（asset 选取与 http 过滤、流式下载进度、截断与取消清理、安装计划、进度换算）全绿，pnpm build 通过。Windows 静默安装与 macOS 打开 dmg 需在对应系统上人工验证一次。",
     "passes": true
+  },
+  {
+    "id": "streaming-render-perf",
+    "description": "流式渲染性能优化：修复 AssistantTurn 因 group.messages 引用变化导致的 memo 失效，实现历史已稳定会话分组的对象引用复用（或自定义 arePropsEqual）；为流式事件引入批量/节流渲染缓冲；确保 onRetry 回调引用稳定。验收：pnpm typecheck 通过，conversation.test.ts 覆盖分组引用稳定性，pnpm test 全绿，pnpm build 通过。",
+    "passes": true
+  },
+  {
+    "id": "async-process-killing",
+    "description": "主进程清理异步化：将 process-tree.ts 中的同步 execFileSync(pgrep) 改造为非阻塞异步调用，杜绝子进程树清理时阻塞 Electron 主事件循环导致界面假死。验收：pnpm typecheck 通过，新增测试覆盖进程树查找与清理逻辑，pnpm test 全绿。",
+    "passes": false
+  },
+  {
+    "id": "network-ipc-timeout",
+    "description": "网络 IPC 请求超时与取消：在 services:deepseek-balance 与 listOpenAiModels 等主进程/shared 网络请求中引入 AbortController 超时保护（10s），防止网络中断或代理挂起导致 IPC 永久 pending。验收：pnpm typecheck 通过，对应单测全绿。",
+    "passes": false
+  },
+  {
+    "id": "vite-bundle-chunking",
+    "description": "Vite 构建产物代码分割：在 vite.config.ts 中配置 rollupOptions.output.manualChunks，将大型依赖（如 react-markdown / remark-gfm / highlight 相关）做 chunk 拆分，消除单 bundle 超过 500KB 的体积告警。验收：pnpm build 通过，单个 js chunk 降至 500KB 以下。",
+    "passes": false
+  },
+  {
+    "id": "preview-iframe-sandbox",
+    "description": "加固预览 iframe 沙箱安全边界：移除 allow-same-origin，切断 preview 页面向自定义协议自身源存储和权限逃逸的风险，实现严格的单向只读隔离。验收：pnpm build / test 全绿，预览正常加载且沙箱生效。",
+    "passes": false
   }
 ]
+
