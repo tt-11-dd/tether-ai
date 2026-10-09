@@ -112,12 +112,12 @@
   {
     "id": "vite-bundle-chunking",
     "description": "Vite 构建产物代码分割：在 vite.config.ts 中配置 rollupOptions.output.manualChunks，将大型依赖（如 react-markdown / remark-gfm / highlight 相关）做 chunk 拆分，消除单 bundle 超过 500KB 的体积告警。验收：pnpm build 通过，单个 js chunk 降至 500KB 以下。",
-    "passes": false
+    "passes": true
   },
   {
     "id": "preview-iframe-sandbox",
     "description": "加固预览 iframe 沙箱安全边界：移除 allow-same-origin，切断 preview 页面向自定义协议自身源存储和权限逃逸的风险，实现严格的单向只读隔离。验收：pnpm build / test 全绿，预览正常加载且沙箱生效。",
-    "passes": false
+    "passes": true
   }
 ]
 

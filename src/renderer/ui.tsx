@@ -1764,7 +1764,7 @@ export const FileDrawer = memo(function FileDrawer({ file, workspace, onClose }:
           className="file-frame"
           title={t("preview.title", { path: file.path })}
           src={previewFileUrl(file.path, workspace)}
-          sandbox="allow-scripts allow-same-origin allow-forms"
+          sandbox="allow-scripts allow-forms"
         />
       ) : preview ? (
         <div className="file-preview markdown">

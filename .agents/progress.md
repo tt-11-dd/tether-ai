@@ -595,6 +595,40 @@ if (!agentCwd.current) {
 
 **下一条**：`vite-bundle-chunking`
 
+---
+
+## 条目 vite-bundle-chunking：已完成
+
+**改了什么**：
+- `vite.config.ts`：在 `build.rollupOptions.output` 中配置 `manualChunks`，将大型依赖独立切分为 `vendor`（react, react-dom）和 `markdown`（react-markdown, remark-gfm），将主入口 bundle 从 556KB 成功压缩并分流为：
+  - `dist/assets/index-*.js`: 385.87 kB
+  - `dist/assets/markdown-*.js`: 165.31 kB
+  - `dist/assets/vendor-*.js`: 3.66 kB
+  彻底消除了 Vite 构建时单 bundle 超过 500KB 的产物体积告警。
+
+**验证**：`pnpm build` 构建耗时约 800ms，0 告警，构建产物全绿。
+
+---
+
+## 条目 preview-iframe-sandbox：已完成
+
+**改了什么**：
+- `src/renderer/ui.tsx`：预览代码和 HTML 的 `iframe` 中，将 `sandbox="allow-scripts allow-same-origin allow-forms"` 调整为 `sandbox="allow-scripts allow-forms"`，去除了危险的 `allow-same-origin`。这彻底切断了预览页面可能通过同源存储访问或篡改自定义协议自身的逃逸路径，确保工作区 HTML 渲染处于严格受限的沙箱隔离环境内。
+
+**验证**：`pnpm typecheck` 通过；`pnpm test` 23 个测试文件 / 230 个用例全绿；`pnpm build`（tsup + vite）成功通过。
+
+---
+
+## 2026-10 轮次总结：全部 5 个优化条目已全部落地
+
+**分支**：`refactor/optimization-and-performance`
+1. `streaming-render-perf`：已完成并锁定单测
+2. `async-process-killing`：已完成并新增测试文件
+3. `network-ipc-timeout`：已完成全覆盖
+4. `vite-bundle-chunking`：已完成分包治理
+5. `preview-iframe-sandbox`：已完成权限收敛
+
+
 
 
 

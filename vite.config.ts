@@ -13,6 +13,14 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom"],
+          markdown: ["react-markdown", "remark-gfm"],
+        },
+      },
+    },
   },
   test: {
     include: ["src/**/*.test.ts"],
