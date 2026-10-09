@@ -320,14 +320,14 @@ export class AgentHost {
     child.once("error", (error) => {
       if (this.child !== child) return;
       this.child = undefined;
-      if (child.pid !== undefined) killProcessTree(child.pid, "SIGTERM");
+      if (child.pid !== undefined) void killProcessTree(child.pid, "SIGTERM");
       this.handleExit(error);
     });
     child.once("exit", (code, signal) => {
       if (this.child !== child) return;
       this.child = undefined;
       // Worker may die before its own wipe; reap leftover shells/delegates.
-      if (child.pid !== undefined) killProcessTree(child.pid, "SIGTERM");
+      if (child.pid !== undefined) void killProcessTree(child.pid, "SIGTERM");
       this.handleExit(new Error(`Agent stopped (code ${code ?? "unknown"}${signal ? `, ${signal}` : ""})`));
     });
 
@@ -347,11 +347,11 @@ export class AgentHost {
     if (child.exitCode !== null || child.pid === undefined) return;
     // Kill the whole RPC tree (delegate explorers, shells, sandboxes) before the
     // desktop process exits — a plain child.kill() leaves detached orphans.
-    killProcessTree(child.pid, "SIGTERM");
+    await killProcessTree(child.pid, "SIGTERM");
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         if (child.exitCode === null && child.pid !== undefined) {
-          killProcessTree(child.pid, "SIGKILL");
+          void killProcessTree(child.pid, "SIGKILL");
         }
         resolve();
       }, 2_000);

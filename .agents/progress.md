@@ -548,7 +548,7 @@ if (!agentCwd.current) {
 4. `vite-bundle-chunking`：Vite 产物拆包，消除 >500KB 告警；
 **进度汇总**：
 - `streaming-render-perf`：已完成
-- `async-process-killing`：待执行
+- `async-process-killing`：已完成
 - `network-ipc-timeout`：待执行
 - `vite-bundle-chunking`：待执行
 - `preview-iframe-sandbox`：待执行
@@ -571,6 +571,18 @@ if (!agentCwd.current) {
 
 **验证**：`pnpm typecheck` 通过；`pnpm test` 22 个测试文件 / 226 个用例全绿；`pnpm build`（tsup + vite）成功通过。
 
-**下一条**：`async-process-killing`
+---
+
+## 条目 async-process-killing：已完成
+
+**改了什么**：
+- `src/main/process-tree.ts`：将同步的 `execFileSync("pgrep", ...)` 和 `execFileSync("taskkill.exe", ...)` 改造为基于 `util.promisify(execFile)` 的非阻塞异步 `killProcessTree` 与 `listChildPids`，同时保留 `killProcessTreeSync` / `listChildPidsSync` 供必要场景备用。
+- `src/main/agent-host.ts`：停止子进程及异常退出时的清理逻辑（`child.once("error")`、`child.once("exit")`、`stop()`）更新为异步非阻塞调用，彻底消除了深层子进程树清理时 Electron 主事件循环挂起（macOS 彩虹圈假死）的风险。
+- `src/main/process-tree.test.ts`（新增）：覆盖异步与同步清理在非法/非正 PID（-1, 0, NaN）下的容错边界，以及不存在 PID 与当前进程子 PID 的查询。测试套件扩展到 23 个测试文件 / 230 个用例全绿。
+
+**验证**：`pnpm typecheck` 通过；`pnpm test` 23 个测试文件 / 230 个用例全绿；`pnpm build` 成功。
+
+**下一条**：`network-ipc-timeout`
+
 
 

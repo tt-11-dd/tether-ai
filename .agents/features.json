@@ -102,7 +102,7 @@
   {
     "id": "async-process-killing",
     "description": "主进程清理异步化：将 process-tree.ts 中的同步 execFileSync(pgrep) 改造为非阻塞异步调用，杜绝子进程树清理时阻塞 Electron 主事件循环导致界面假死。验收：pnpm typecheck 通过，新增测试覆盖进程树查找与清理逻辑，pnpm test 全绿。",
-    "passes": false
+    "passes": true
   },
   {
     "id": "network-ipc-timeout",
